@@ -100,7 +100,8 @@ import {
   RETICULUM_NOTIFICATION_RED,
 } from '../common/ReticulumUnreadCountBadge';
 
-const RETICULUM_ACTIVE_BLUE = '#2563eb';
+const RETICULUM_ACTIVE_BLUE_DARK = '#2563eb';
+const RETICULUM_ACTIVE_BLUE_LIGHT = '#5090e1';
 const RETICULUM_CALL_GREEN = '#22c55e';
 const GROUP_RAIL_TOOLTIP_MODIFIERS = [
   {
@@ -694,11 +695,15 @@ function GroupDropIndicator({
 }: {
   position: GroupDragInsertionPosition;
 }) {
+  const theme = useTheme();
   return (
     <Box
       aria-hidden
       sx={{
-        backgroundColor: RETICULUM_ACTIVE_BLUE,
+        backgroundColor:
+          theme.palette.mode === 'dark'
+            ? RETICULUM_ACTIVE_BLUE_DARK
+            : RETICULUM_ACTIVE_BLUE_LIGHT,
         borderRadius: '999px',
         boxShadow: '0 0 0 1px rgba(37, 99, 235, 0.22)',
         height: 2,
@@ -1095,6 +1100,7 @@ const GroupListInner = ({
                     myAddress={myAddress}
                     reticulumChatEnabled={reticulumChatEnabled}
                     railMode
+                    desktopSideView={desktopSideView}
                   />
                 ))}
               </List>
@@ -1449,6 +1455,7 @@ const GroupListInner = ({
               getUserSettings={getUserSettings}
               myAddress={myAddress}
               reticulumChatEnabled={reticulumChatEnabled}
+              desktopSideView={desktopSideView}
             />
           ))}
         </List>
@@ -1520,6 +1527,7 @@ interface GroupItemProps {
   myAddress: string;
   reticulumChatEnabled?: boolean;
   railMode?: boolean;
+  desktopSideView: string;
 }
 
 const GroupItem = memo(
@@ -1532,6 +1540,7 @@ const GroupItem = memo(
     myAddress,
     reticulumChatEnabled = false,
     railMode = false,
+    desktopSideView,
   }: GroupItemProps) => {
     const theme = useTheme();
     const { t } = useTranslation(['core', 'group']);
@@ -1793,9 +1802,12 @@ const GroupItem = memo(
             onPointerDownCapture={() => setIsGroupTooltipOpen(false)}
             sx={{
               alignItems: 'center',
-              backgroundColor: isSelected
-                ? RETICULUM_ACTIVE_BLUE
-                : 'transparent',
+              backgroundColor:
+                isSelected && desktopSideView === 'groups'
+                  ? theme.palette.mode === 'dark'
+                    ? RETICULUM_ACTIVE_BLUE_DARK
+                    : RETICULUM_ACTIVE_BLUE_LIGHT
+                  : 'transparent',
               borderRadius: '8px',
               boxSizing: 'border-box',
               cursor: 'pointer',
@@ -1813,9 +1825,12 @@ const GroupItem = memo(
               width: 52,
               zIndex: isDragging ? 4 : 'auto',
               '&:hover': {
-                backgroundColor: isSelected
-                  ? RETICULUM_ACTIVE_BLUE
-                  : theme.palette.action.hover,
+                backgroundColor:
+                  isSelected && desktopSideView === 'groups'
+                    ? theme.palette.mode === 'dark'
+                      ? RETICULUM_ACTIVE_BLUE_DARK
+                      : RETICULUM_ACTIVE_BLUE_LIGHT
+                    : theme.palette.action.hover,
               },
             }}
           >
@@ -2067,7 +2082,10 @@ const GroupItem = memo(
               }}
               secondaryTypographyProps={{
                 sx: {
-                  color: theme.palette.text.secondary,
+                  color:
+                    theme.palette.mode === 'dark'
+                      ? 'rgb(200, 200, 200)'
+                      : theme.palette.text.secondary,
                   fontFamily: 'Inter',
                   fontSize: '12px',
                   lineHeight: 1.4,
