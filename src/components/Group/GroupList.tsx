@@ -955,9 +955,9 @@ const GroupListInner = ({
               borderRadius: '6px',
               boxShadow: '0 8px 18px rgba(0, 0, 0, 0.28)',
               color: theme.palette.text.primary,
-              fontSize: 12,
+              fontSize: '14px !important',
               fontWeight: 600,
-              padding: '6px 8px',
+              padding: '8px 12px !important',
             },
             '.MuiTooltip-arrow': {
               color:
@@ -1143,7 +1143,7 @@ const GroupListInner = ({
                 },
               }}
             >
-              <SearchRoundedIcon sx={{ fontSize: 20 }} />
+              <SearchRoundedIcon sx={{ fontSize: 24 }} />
             </ButtonBase>
           </Tooltip>
 
@@ -1174,7 +1174,7 @@ const GroupListInner = ({
                 },
               }}
             >
-              <AddCircleOutlineIcon sx={{ fontSize: 21 }} />
+              <AddCircleOutlineIcon sx={{ fontSize: 24 }} />
             </ButtonBase>
           </Tooltip>
 
@@ -1198,7 +1198,7 @@ const GroupListInner = ({
                 },
               }}
             >
-              <SettingsOutlinedIcon sx={{ fontSize: 20 }} />
+              <SettingsOutlinedIcon sx={{ fontSize: 24 }} />
             </ButtonBase>
           </Tooltip>
 
@@ -1730,7 +1730,7 @@ const GroupItem = memo(
                   sx={{
                     color:
                       theme.palette.mode === 'dark' ? '#a9c9ff' : '#315d97',
-                    fontSize: 15,
+                    fontSize: 17,
                   }}
                 />
               ) : (
@@ -1738,12 +1738,12 @@ const GroupItem = memo(
                   sx={{
                     color:
                       theme.palette.mode === 'dark' ? '#f1a0a8' : '#933642',
-                    fontSize: 14,
+                    fontSize: 16,
                   }}
                 />
               )}
               <Typography
-                sx={{ color: 'inherit', fontSize: 12, fontWeight: 600 }}
+                sx={{ color: 'inherit', fontSize: 14, fontWeight: 600 }}
               >
                 {groupLabel}
               </Typography>
