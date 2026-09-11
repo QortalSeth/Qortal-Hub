@@ -14,11 +14,11 @@ import NotificationsOffIcon from '@mui/icons-material/NotificationsOff';
 import DoneAllRoundedIcon from '@mui/icons-material/DoneAllRounded';
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded';
 import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded';
-import UploadRoundedIcon from '@mui/icons-material/UploadRounded';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import FolderRoundedIcon from '@mui/icons-material/FolderRounded';
 import ForumRoundedIcon from '@mui/icons-material/ForumRounded';
 import VisibilityOffRoundedIcon from '@mui/icons-material/VisibilityOffRounded';
+import EditRoundedIcon from '@mui/icons-material/EditRounded';
 import { useTranslation } from 'react-i18next';
 import { executeEvent } from '../utils/events';
 import { mutedGroupsAtom, txListAtom } from '../atoms/global';
@@ -88,10 +88,10 @@ export const ContextMenu = ({
   onMenuOpenChange,
   openOnClick = false,
   reticulumGroup = null,
-  onChangeAvatar,
   onCreateCategory,
   onCreateChannel,
   onOpenHiddenUsers,
+  onOpenUpdateGroup,
   showGroupInfo = true,
   showStandardActions = true,
 }) => {
@@ -473,18 +473,18 @@ export const ContextMenu = ({
             </Typography>
           </MenuItem>
         )}
-        {reticulumGroup && isGroupOwner && onChangeAvatar && (
+        {reticulumGroup && isGroupOwner && onOpenUpdateGroup && (
           <MenuItem
             onClick={(event) => {
               handleClose(event);
-              onChangeAvatar();
+              onOpenUpdateGroup();
             }}
           >
             <ListItemIcon sx={{ minWidth: '32px' }}>
-              <UploadRoundedIcon fontSize="small" />
+              <EditRoundedIcon fontSize="small" />
             </ListItemIcon>
             <Typography variant="inherit" sx={{ fontSize: '14px' }}>
-              {t('group:context_menu.change_group_avatar')}
+              {t('group:context_menu.update_group')}
             </Typography>
           </MenuItem>
         )}

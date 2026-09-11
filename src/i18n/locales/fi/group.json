@@ -31,6 +31,7 @@
     "scroll_bottom": "vieritä alas",
     "scroll_unread_messages": "siirry lukemattomiin viesteihin",
     "select_group": "valitse ryhmä",
+    "update_group": "update group",
     "visit_q_mintership": "vieraile Q-Mintershipissä"
   },
   "activity_dashboard": {
@@ -61,16 +62,19 @@
     "approval_single": "Yksi",
     "approval_threshold_description": "Ryhmän päätösten hyväksymiseen vaadittava ylläpitäjien osuus.",
     "approval_threshold_label": "Hyväksynnän kynnys",
+    "button_update": "Update Group",
     "creating": "Luodaan...",
     "description_create": "Valitse nimi, kuvaile ryhmäsi ja aloita.",
     "description_invites": "Tarkastele saamiasi kutsuja.",
     "description_placeholder": "Mistä tämä ryhmä kertoo?",
     "description_too_long": "Kuvaus saa olla enintään {{max}} merkkiä",
+    "description_update": "Modify group settings and update configuration.",
     "max_delay_label": "Suurin hyväksynnän viive",
     "min_delay_label": "Pienin hyväksynnän viive",
     "modes_aria": "Ryhmän hallintatilat",
     "name_hint": "Käytä selkeää ja tunnistettavaa nimeä.",
-    "name_placeholder": "esim. Qortal-kehittäjät"
+    "name_placeholder": "esim. Qortal-kehittäjät",
+    "updating": "Updating..."
   },
   "admin_space": {
     "ask_description": "This key encrypts content visible only to admins.",
@@ -209,7 +213,8 @@
     "mark_all_read": "Merkitse kaikki luetuksi",
     "mark_as_read": "Merkitse luetuksi",
     "mute_push_notifications": "Mykistä push-ilmoitukset",
-    "unmute_push_notifications": "Poista push-ilmoitusten mykistys"
+    "unmute_push_notifications": "Poista push-ilmoitusten mykistys",
+    "update_group": "Update group"
   },
   "dashboard": {
     "account_overview": "Tilin yleiskatsaus",
@@ -762,6 +767,9 @@
       "group_creation": "ryhmä luotu onnistuneesti. Muutosten näkyminen voi kestää muutaman minuutin",
       "group_creation_label": "ryhmä {{group_name}} luotu: onnistui!",
       "group_creation_name": "ryhmä {{group_name}} luotu: odottaa vahvistusta",
+      "group_update_label": "updated group {{group_name}}: success!",
+      "group_update_name": "updated group {{group_name}}: awaiting confirmation",
+      "group_updated": "successfully updated group. It may take a couple of minutes for the changes to propagate",
       "group_invite": "{{invitee}} kutsuttu onnistuneesti. Muutosten näkyminen voi kestää muutaman minuutin",
       "group_join": "liittymispyyntö lähetetty onnistuneesti. Muutosten näkyminen voi kestää muutaman minuutin",
       "group_join_label": "liitytty ryhmään {{group_name}}: onnistui!",

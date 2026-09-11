@@ -31,6 +31,7 @@
     "scroll_bottom": "прокрутить вниз",
     "scroll_unread_messages": "перейти к непрочитанным сообщениям",
     "select_group": "выбрать группу",
+    "update_group": "update group",
     "visit_q_mintership": "посетить Q-Mintership"
   },
   "activity_dashboard": {
@@ -61,16 +62,19 @@
     "approval_single": "Один",
     "approval_threshold_description": "Процент администраторов, необходимый для одобрения решений группы.",
     "approval_threshold_label": "Порог одобрения",
+    "button_update": "Update Group",
     "creating": "Создание...",
     "description_create": "Выберите название, опишите свою группу и начните.",
     "description_invites": "Просмотрите полученные приглашения.",
     "description_placeholder": "О чём эта группа?",
     "description_too_long": "Описание не должно превышать {{max}} символов",
+    "description_update": "Modify group settings and update configuration.",
     "max_delay_label": "Максимальная задержка одобрения",
     "min_delay_label": "Минимальная задержка одобрения",
     "modes_aria": "Режимы управления группой",
     "name_hint": "Используйте понятное, узнаваемое название.",
-    "name_placeholder": "напр. разработчики Qortal"
+    "name_placeholder": "напр. разработчики Qortal",
+    "updating": "Updating..."
   },
   "admin_space": {
     "ask_description": "This key encrypts content visible only to admins.",
@@ -209,7 +213,8 @@
     "mark_all_read": "Отметить все как прочитанные",
     "mark_as_read": "Отметить как прочитанное",
     "mute_push_notifications": "Отключить push-уведомления",
-    "unmute_push_notifications": "Включить push-уведомления"
+    "unmute_push_notifications": "Включить push-уведомления",
+    "update_group": "Update group"
   },
   "dashboard": {
     "account_overview": "Обзор аккаунта",
@@ -762,6 +767,9 @@
       "group_creation": "группа успешно создана. Обновление может занять несколько минут",
       "group_creation_label": "группа {{group_name}} создана: успешно!",
       "group_creation_name": "группа {{group_name}} создана: ожидает подтверждения",
+      "group_update_label": "updated group {{group_name}}: success!",
+      "group_update_name": "updated group {{group_name}}: awaiting confirmation",
+      "group_updated": "successfully updated group. It may take a couple of minutes for the changes to propagate",
       "group_invite": "приглашение для {{invitee}} успешно отправлено. Изменения вступят в силу через несколько минут",
       "group_join": "запрос на вступление успешно отправлен. Обновление может занять несколько минут",
       "group_join_label": "вы присоединились к группе {{group_name}}: успешно!",

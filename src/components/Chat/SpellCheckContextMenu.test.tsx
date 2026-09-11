@@ -136,7 +136,7 @@ describe('SpellCheckContextMenu', () => {
         </div>
       );
 
-      const wrapper = container.querySelector('div');
+      const wrapper = container.querySelector('[style*="display: contents"]') ?? container.querySelector('div');
       if (!wrapper) throw new Error('Wrapper not found');
 
       fireEvent.contextMenu(wrapper, {
@@ -148,7 +148,7 @@ describe('SpellCheckContextMenu', () => {
         expect(screen.getByText('reticulum:context_menu.cut')).toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByTestId('outside-button'));
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
 
       await waitFor(() => {
         expect(screen.queryByText('reticulum:context_menu.cut')).not.toBeInTheDocument();
@@ -190,6 +190,9 @@ describe('SpellCheckContextMenu', () => {
       return {
         isDestroyed: false,
         getText: () => text,
+        view: {
+          posAtCoords: () => ({ pos: 1 }),
+        },
         state: {
           selection: { from: 1, to: 1 },
           doc: {

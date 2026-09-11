@@ -31,6 +31,7 @@
     "scroll_bottom": "desplazar al final",
     "scroll_unread_messages": "desplazar a mensajes no leídos",
     "select_group": "seleccionar grupo",
+    "update_group": "update group",
     "visit_q_mintership": "visitar Q-Mintership"
   },
   "activity_dashboard": {
@@ -61,16 +62,19 @@
     "approval_single": "Una",
     "approval_threshold_description": "Porcentaje de administradores necesarios para aprobar las decisiones del grupo.",
     "approval_threshold_label": "Umbral de aprobación",
+    "button_update": "Update Group",
     "creating": "Creando...",
     "description_create": "Elige un nombre, describe tu grupo y empieza.",
     "description_invites": "Revisa las invitaciones que has recibido.",
     "description_placeholder": "¿De qué trata este grupo?",
     "description_too_long": "La descripción no puede superar los {{max}} caracteres",
+    "description_update": "Modify group settings and update configuration.",
     "max_delay_label": "Retraso máximo de aprobación",
     "min_delay_label": "Retraso mínimo de aprobación",
     "modes_aria": "Modos de gestión del grupo",
     "name_hint": "Usa un nombre claro y reconocible.",
-    "name_placeholder": "p. ej. desarrolladores de Qortal"
+    "name_placeholder": "p. ej. desarrolladores de Qortal",
+    "updating": "Updating..."
   },
   "admin_space": {
     "ask_description": "This key encrypts content visible only to admins.",
@@ -209,7 +213,8 @@
     "mark_all_read": "Marcar todo como leído",
     "mark_as_read": "Marcar como leído",
     "mute_push_notifications": "Silenciar notificaciones push",
-    "unmute_push_notifications": "Activar notificaciones push"
+    "unmute_push_notifications": "Activar notificaciones push",
+    "update_group": "Update group"
   },
   "dashboard": {
     "account_overview": "Resumen de cuenta",
@@ -762,6 +767,9 @@
       "group_creation": "grupo creado exitosamente. Los cambios pueden tardar unos minutos",
       "group_creation_label": "grupo {{group_name}} creado: ¡éxito!",
       "group_creation_name": "grupo {{group_name}} creado: esperando confirmación",
+      "group_update_label": "updated group {{group_name}}: success!",
+      "group_update_name": "updated group {{group_name}}: awaiting confirmation",
+      "group_updated": "successfully updated group. It may take a couple of minutes for the changes to propagate",
       "group_invite": "{{invitee}} invitado exitosamente. Los cambios pueden tardar unos minutos",
       "group_join": "solicitud para unirse enviada con éxito. Los cambios pueden tardar unos minutos",
       "group_join_label": "te has unido al grupo {{group_name}}: ¡éxito!",

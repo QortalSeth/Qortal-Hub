@@ -106,6 +106,7 @@ import {
   setCustomNodesCase,
   setGroupDataCase,
   setupGroupWebsocketCase,
+  updateGroupCase,
   updateThreadActivityCase,
   updateNameCase,
   userInfoCase,
@@ -2942,6 +2943,9 @@ function setupMessageListener() {
         break;
       case 'createGroup':
         createGroupCase(request, event);
+        break;
+      case 'updateGroup':
+        updateGroupCase(request, event);
         break;
       case 'cancelInvitationToGroup':
         cancelInvitationToGroupCase(request, event);

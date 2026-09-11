@@ -3,6 +3,8 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
+  lazy,
+  Suspense,
   useCallback,
   useContext,
   useEffect,
@@ -119,7 +121,6 @@ import TagRoundedIcon from '@mui/icons-material/TagRounded';
 import VisibilityOffRoundedIcon from '@mui/icons-material/VisibilityOffRounded';
 import VisibilityRoundedIcon from '@mui/icons-material/VisibilityRounded';
 import { ContextMenu, CustomStyledMenu } from '../ContextMenu';
-import { GroupAvatar } from './GroupAvatar';
 import { messageHasImage } from '../../utils/chat';
 import { useTranslation } from 'react-i18next';
 import {
@@ -229,6 +230,10 @@ type ReticulumGroupChannelAccessMode =
   | 'regular'
   | 'admin_write'
   | 'admin_private';
+
+const LazyAddGroup = lazy(() =>
+  import('../Group/AddGroup').then((m) => ({ default: m.AddGroup }))
+);
 
 type ReticulumSearchResult = {
   event: {
@@ -1395,8 +1400,9 @@ export const ChatGroup = ({
   const [chatReferences, setChatReferences] = useState({});
   const [isSending, setIsSending] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [isGroupAvatarDialogOpen, setIsGroupAvatarDialogOpen] = useState(false);
-  const [isReticulumModeResolved, setIsReticulumModeResolved] = useState(false);
+const [isUpdateGroupModalOpen, setIsUpdateGroupModalOpen] = useState(false);
+const [updateGroupId, setUpdateGroupId] = useState<number | null>(null);
+const [isReticulumModeResolved, setIsReticulumModeResolved] = useState(false);
   const [isReticulumModeDetected, setIsReticulumModeDetected] = useState(false);
   const [isMoved, setIsMoved] = useState(false);
   const [openSnack, setOpenSnack] = useState(false);
@@ -1582,7 +1588,6 @@ export const ChatGroup = ({
     useState<HTMLElement | null>(null);
 
   useEffect(() => {
-    setIsGroupAvatarDialogOpen(false);
     setReticulumCalendarOpen(false);
     setActiveReticulumCalendarTarget(null);
   }, [selectedGroup]);
@@ -8874,9 +8879,12 @@ export const ChatGroup = ({
                   groupName: selectedGroupName,
                   isOwner: isGroupOwner,
                 }}
-                onChangeAvatar={
+                onOpenUpdateGroup={
                   isGroupOwner
-                    ? () => setIsGroupAvatarDialogOpen(true)
+                    ? () => {
+                        setUpdateGroupId(selectedGroup);
+                        setIsUpdateGroupModalOpen(true);
+                      }
                     : undefined
                 }
                 onCreateCategory={
@@ -13183,17 +13191,18 @@ export const ChatGroup = ({
         selectedGroup={selectedGroup}
       />
 
-      {reticulumChatEnabled && (
-        <GroupAvatar
-          balance={balance}
-          dialogOpen={isGroupAvatarDialogOpen}
-          externalOnly
-          groupId={selectedGroup}
-          myName={myName}
-          onDialogClose={() => setIsGroupAvatarDialogOpen(false)}
-          setInfoSnack={setInfoSnack}
-          setOpenSnack={setOpenSnack}
-        />
+      {isUpdateGroupModalOpen && updateGroupId && (
+        <Suspense fallback={null}>
+          <LazyAddGroup
+            address={myAddress}
+            open={isUpdateGroupModalOpen}
+            setOpen={setIsUpdateGroupModalOpen}
+            mode="update"
+            groupId={updateGroupId}
+            myName={myName}
+            balance={balance}
+          />
+        </Suspense>
       )}
 
       <CustomizedSnackbars

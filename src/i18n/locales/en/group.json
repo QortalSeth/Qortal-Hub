@@ -21,6 +21,7 @@
     "load_members": "load members with names",
     "make_admin": "make an admin",
     "manage_members": "manage members",
+    "update_group": "update group",
     "promote_group": "promote your group to non-members",
     "publish_announcement": "publish announcement",
     "publish_avatar": "publish avatar",
@@ -61,16 +62,19 @@
     "approval_single": "One",
     "approval_threshold_description": "Percentage of admins required to approve group decisions.",
     "approval_threshold_label": "Approval threshold",
+    "button_update": "Update Group",
     "creating": "Creating...",
     "description_create": "Choose a name, describe your group, and get started.",
     "description_invites": "Review the invitations you have received.",
     "description_placeholder": "What is this group about?",
     "description_too_long": "Description must be {{max}} characters or fewer",
+    "description_update": "Modify group settings and update configuration.",
     "max_delay_label": "Maximum approval delay",
     "min_delay_label": "Minimum approval delay",
     "modes_aria": "Group management modes",
     "name_hint": "Use a clear, recognizable name.",
-    "name_placeholder": "e.g. Qortal developers"
+    "name_placeholder": "e.g. Qortal developers",
+    "updating": "Updating..."
   },
   "admin_space": {
     "ask_description": "This key encrypts content visible only to admins.",
@@ -209,7 +213,8 @@
     "mark_all_read": "Mark all as read",
     "mark_as_read": "Mark as read",
     "mute_push_notifications": "Mute push notifications",
-    "unmute_push_notifications": "Unmute push notifications"
+    "unmute_push_notifications": "Unmute push notifications",
+    "update_group": "Update group"
   },
   "dashboard": {
     "account_overview": "Account Overview",
@@ -781,6 +786,9 @@
       "group_member_admin": "successfully made member an admin. It may take a couple of minutes for the changes to propagate",
       "group_promotion": "successfully published promotion. It may take a couple of minutes for the promotion to appear",
       "group_remove_member": "successfully removed member as an admin. It may take a couple of minutes for the changes to propagate",
+      "group_updated": "successfully updated group. It may take a couple of minutes for the changes to propagate",
+      "group_update_label": "updated group {{group_name}}: success!",
+      "group_update_name": "updated group {{group_name}}: awaiting confirmation",
       "invitation_cancellation": "successfully canceled invitation. It may take a couple of minutes for the changes to propagate",
       "invitation_request": "accepted join request: awaiting confirmation",
       "loading_threads": "loading threads... please wait.",

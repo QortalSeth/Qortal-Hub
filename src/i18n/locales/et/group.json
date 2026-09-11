@@ -31,6 +31,7 @@
     "scroll_bottom": "keri alla",
     "scroll_unread_messages": "keri lugemata sõnumite juurde",
     "select_group": "vali rühm",
+    "update_group": "update group",
     "visit_q_mintership": "külasta Q-Vermimist"
   },
   "activity_dashboard": {
@@ -61,16 +62,19 @@
     "approval_single": "Üks",
     "approval_threshold_description": "Grupi otsuste kinnitamiseks vajalik administraatorite osakaal.",
     "approval_threshold_label": "Kinnitamise lävi",
+    "button_update": "Update Group",
     "creating": "Loomine...",
     "description_create": "Vali nimi, kirjelda oma gruppi ja alusta.",
     "description_invites": "Vaata üle saadud kutsed.",
     "description_placeholder": "Millest see grupp räägib?",
     "description_too_long": "Kirjeldus ei tohi olla pikem kui {{max}} tähemärki",
+    "description_update": "Modify group settings and update configuration.",
     "max_delay_label": "Suurim kinnitamise viivitus",
     "min_delay_label": "Vähim kinnitamise viivitus",
     "modes_aria": "Grupi haldusrežiimid",
     "name_hint": "Kasuta selget ja äratuntavat nime.",
-    "name_placeholder": "nt Qortali arendajad"
+    "name_placeholder": "nt Qortali arendajad",
+    "updating": "Updating..."
   },
   "admin_space": {
     "ask_description": "This key encrypts content visible only to admins.",
@@ -209,7 +213,8 @@
     "mark_all_read": "Märgi kõik loetuks",
     "mark_as_read": "Märgi loetuks",
     "mute_push_notifications": "Summuta tõuketeavitused",
-    "unmute_push_notifications": "Lõpeta tõuketeavituste summutamine"
+    "unmute_push_notifications": "Lõpeta tõuketeavituste summutamine",
+    "update_group": "Update group"
   },
   "dashboard": {
     "account_overview": "Konto ülevaade",
@@ -762,6 +767,9 @@
       "group_creation": "rühma loomine õnnestus. Muutuste levimine võib võtta paar minutit",
       "group_creation_label": "rühma {{group_name}} loomine: õnnestus!",
       "group_creation_name": "rühma {{group_name}} loomine: ootan kinnitust",
+      "group_update_label": "updated group {{group_name}}: success!",
+      "group_update_name": "updated group {{group_name}}: awaiting confirmation",
+      "group_updated": "successfully updated group. It may take a couple of minutes for the changes to propagate",
       "group_invite": "kutsumine {{invitee}} õnnestus. Muutuste levimine võib võtta paar minutit",
       "group_join": "liitumistaotluse saatmine rühmaga õnnestus. Muutuste levimine võib võtta paar minutit",
       "group_join_label": "liitumine rühmaga {{group_name}}: õnnestus!",

@@ -31,6 +31,7 @@
     "scroll_bottom": "滚动到底部",
     "scroll_unread_messages": "滚动到未读消息",
     "select_group": "选择群组",
+    "update_group": "update group",
     "visit_q_mintership": "访问 Q-Mintership"
   },
   "activity_dashboard": {
@@ -61,16 +62,19 @@
     "approval_single": "一位",
     "approval_threshold_description": "批准群组决定所需的管理员比例。",
     "approval_threshold_label": "批准阈值",
+    "button_update": "Update Group",
     "creating": "正在创建...",
     "description_create": "取个名字，描述你的群组，然后开始吧。",
     "description_invites": "查看你收到的邀请。",
     "description_placeholder": "这个群组是关于什么的？",
     "description_too_long": "描述不能超过 {{max}} 个字符",
+    "description_update": "Modify group settings and update configuration.",
     "max_delay_label": "最长批准延迟",
     "min_delay_label": "最短批准延迟",
     "modes_aria": "群组管理模式",
     "name_hint": "使用清晰、易于识别的名称。",
-    "name_placeholder": "例如：Qortal 开发者"
+    "name_placeholder": "例如：Qortal 开发者",
+    "updating": "Updating..."
   },
   "admin_space": {
     "ask_description": "This key encrypts content visible only to admins.",
@@ -209,7 +213,8 @@
     "mark_all_read": "全部标为已读",
     "mark_as_read": "标记为已读",
     "mute_push_notifications": "静音推送通知",
-    "unmute_push_notifications": "取消静音推送通知"
+    "unmute_push_notifications": "取消静音推送通知",
+    "update_group": "Update group"
   },
   "dashboard": {
     "account_overview": "账户概览",
@@ -762,6 +767,9 @@
       "group_creation": "群组已成功创建。更改可能需几分钟生效",
       "group_creation_label": "成功创建群组 {{group_name}}！",
       "group_creation_name": "已创建群组 {{group_name}}，等待确认",
+      "group_update_label": "updated group {{group_name}}: success!",
+      "group_update_name": "updated group {{group_name}}: awaiting confirmation",
+      "group_updated": "successfully updated group. It may take a couple of minutes for the changes to propagate",
       "group_invite": "已成功邀请 {{invitee}}。更改可能需几分钟生效",
       "group_join": "已成功发送加入请求。更改可能需几分钟生效",
       "group_join_label": "成功加入群组 {{group_name}}！",
