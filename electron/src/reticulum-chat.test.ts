@@ -4225,6 +4225,71 @@ describe('reticulum chat database', () => {
     expect(db.getEventExpiresAt(event.eventId)).toBe(timestamp + 1_000);
   });
 
+  it('treats expiryDurationMs 0 as explicit no-expiry overriding channel expiry', () => {
+    const db = new ReticulumChatDatabase(tempDbPath());
+    dbs.push(db);
+    const timestamp = Date.now();
+    db.upsertChannel({
+      groupId: 22,
+      channelId: 'no-expiry-override',
+      name: 'no-expiry-override',
+      position: 2,
+      archived: false,
+      writeMode: 'members' as const,
+      readMode: 'members' as const,
+      expiryDurationMs: 60_000,
+      createdBy: 'Qadmin',
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    const event = signedEvent({
+      eventId: 'no-expiry-override-root',
+      groupId: 22,
+      channelId: 'no-expiry-override',
+      authorSeq: 18,
+      timestamp,
+      encryptedPayload: JSON.stringify({
+        messageText: 'never expires',
+        expiryDurationMs: 0,
+      }),
+    });
+
+    expect(db.insertEvent(event, false)).toBe(true);
+    expect(db.getEventExpiresAt(event.eventId)).toBeNull();
+  });
+
+  it('inherits channel expiry when expiryDurationMs is absent from payload', () => {
+    const db = new ReticulumChatDatabase(tempDbPath());
+    dbs.push(db);
+    const timestamp = Date.now();
+    db.upsertChannel({
+      groupId: 23,
+      channelId: 'inherit-channel-expiry',
+      name: 'inherit-channel-expiry',
+      position: 2,
+      archived: false,
+      writeMode: 'members' as const,
+      readMode: 'members' as const,
+      expiryDurationMs: 60_000,
+      createdBy: 'Qadmin',
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    const event = signedEvent({
+      eventId: 'inherit-channel-expiry-root',
+      groupId: 23,
+      channelId: 'inherit-channel-expiry',
+      authorSeq: 19,
+      timestamp,
+      encryptedPayload: JSON.stringify({
+        messageText: 'inherits channel',
+      }),
+    });
+
+    expect(db.insertEvent(event, false)).toBe(true);
+    expect(db.getEventExpiresAt(event.eventId)).toBe(timestamp + 60_000);
+  });
+
   it('persists and resumes bounded channel expiry reconciliation', () => {
     const dbPath = tempDbPath();
     const writer = new ReticulumChatDatabase(dbPath);

@@ -24,7 +24,7 @@ type ReticulumMessageExpiryButtonProps = {
   direct?: boolean;
   disabled?: boolean;
   disabledReason?: string;
-  onChange: (durationMs: number | undefined) => void;
+  onChange: (durationMs: number | null | undefined) => void;
   onPreferredExpiryChange?: (durationMs: number | undefined) => void;
   preferredExpiryDurationMs?: number;
   segmented?: boolean;
@@ -139,7 +139,7 @@ export function ReticulumMessageExpiryButton({
     if (disabled) setAnchorEl(null);
   }, [disabled]);
 
-  const select = (durationMs: number | undefined) => {
+  const select = (durationMs: number | null | undefined) => {
     onChange(durationMs);
     setAnchorEl(null);
   };
@@ -377,6 +377,25 @@ export function ReticulumMessageExpiryButton({
               </MenuItem>
             );
           })}
+          {!direct && (
+            <MenuItem
+              selected={value === null}
+              onClick={() => select(null)}
+              sx={expiryMenuItemSx}
+            >
+              <ListItemIcon>
+                {value === null ? <CheckRoundedIcon /> : null}
+              </ListItemIcon>
+              <ListItemText
+                primary={t('reticulum:expiry.no_expiry', {
+                  postProcess: 'capitalizeFirstChar',
+                })}
+                secondary={t('reticulum:expiry.do_not_auto_delete', {
+                  postProcess: 'capitalizeFirstChar',
+                })}
+              />
+            </MenuItem>
+          )}
         </Box>
       </CustomStyledMenu>
     </>

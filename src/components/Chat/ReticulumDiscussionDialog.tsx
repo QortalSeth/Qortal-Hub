@@ -44,7 +44,7 @@ export type ReticulumDiscussionFile = {
 };
 
 export type ReticulumDiscussionDraft = {
-  expiryDurationMs?: number;
+  expiryDurationMs?: number | null;
   htmlContent: string;
   messageText: Record<string, unknown>;
 };
@@ -115,7 +115,7 @@ export const ReticulumDiscussionDialog = ({
   const { t } = useTranslation(['core', 'reticulum']);
   const [editor, setEditor] = useState<Editor | null>(null);
   const [expiryDurationMs, setExpiryDurationMs] = useState<
-    number | undefined
+    number | null | undefined
   >();
   const [formattingResetKey, setFormattingResetKey] = useState(0);
   const [focused, setFocused] = useState(false);

@@ -175,9 +175,10 @@ export function isReticulumMessageExpiryOptionAllowed(
 }
 
 export function resolveReticulumMessageExpiryDurationMs(
-  selectedDurationMs: number | undefined,
+  selectedDurationMs: number | null | undefined,
   channelExpiryDurationMs?: number
-): number | undefined {
+): number | null | undefined {
+  if (selectedDurationMs === null) return null;
   if (selectedDurationMs === undefined) return undefined;
   return isReticulumMessageExpiryOptionAllowed(
     selectedDurationMs,
@@ -188,9 +189,10 @@ export function resolveReticulumMessageExpiryDurationMs(
 }
 
 export function buildReticulumMessageExpiryPayload(
-  selectedDurationMs: number | undefined,
+  selectedDurationMs: number | null | undefined,
   channelExpiryDurationMs?: number
 ): { expiryDurationMs?: number } {
+  if (selectedDurationMs === null) return { expiryDurationMs: 0 };
   const expiryDurationMs = resolveReticulumMessageExpiryDurationMs(
     selectedDurationMs,
     channelExpiryDurationMs

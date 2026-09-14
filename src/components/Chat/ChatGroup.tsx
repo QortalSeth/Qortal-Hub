@@ -1400,9 +1400,9 @@ export const ChatGroup = ({
   const [chatReferences, setChatReferences] = useState({});
   const [isSending, setIsSending] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-const [isUpdateGroupModalOpen, setIsUpdateGroupModalOpen] = useState(false);
-const [updateGroupId, setUpdateGroupId] = useState<number | null>(null);
-const [isReticulumModeResolved, setIsReticulumModeResolved] = useState(false);
+  const [isUpdateGroupModalOpen, setIsUpdateGroupModalOpen] = useState(false);
+  const [updateGroupId, setUpdateGroupId] = useState<number | null>(null);
+  const [isReticulumModeResolved, setIsReticulumModeResolved] = useState(false);
   const [isReticulumModeDetected, setIsReticulumModeDetected] = useState(false);
   const [isMoved, setIsMoved] = useState(false);
   const [openSnack, setOpenSnack] = useState(false);
@@ -1507,7 +1507,7 @@ const [isReticulumModeResolved, setIsReticulumModeResolved] = useState(false);
   const [
     reticulumMessageExpiryDurationMs,
     setReticulumMessageExpiryDurationMs,
-  ] = useState<number | undefined>(undefined);
+  ] = useState<number | null | undefined>(undefined);
   const [
     reticulumPreferredExpiryDurationMs,
     setReticulumPreferredExpiryDurationMs,
@@ -10120,7 +10120,10 @@ const [isReticulumModeResolved, setIsReticulumModeResolved] = useState(false);
                       </Box>
                     )}
 
-                    <SpellCheckContextMenu editorRef={editorRef} disabled={!canWriteSelectedReticulumChannel}>
+                    <SpellCheckContextMenu
+                      editorRef={editorRef}
+                      disabled={!canWriteSelectedReticulumChannel}
+                    >
                       <Tiptap
                         enableMentions
                         mentionSuggestions={

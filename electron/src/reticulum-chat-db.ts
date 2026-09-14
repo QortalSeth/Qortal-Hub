@@ -1398,17 +1398,20 @@ function payloadHasReticulumFileAttachment(payload: string): boolean {
   }
 }
 
-function messageExpiryDurationFromPayload(payload: string): number | undefined {
+function messageExpiryDurationFromPayload(
+  payload: string
+): number | null | undefined {
   try {
     const parsed = JSON.parse(payload) as unknown;
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
       return undefined;
     const record = parsed as Record<string, unknown>;
-    return normalizeReticulumChatExpiryDurationMs(
+    const rawExpiry =
       record.expiryDurationMs ??
-        record.expiresInMs ??
-        record.messageExpiryDurationMs
-    );
+      record.expiresInMs ??
+      record.messageExpiryDurationMs;
+    if (rawExpiry === 0) return null;
+    return normalizeReticulumChatExpiryDurationMs(rawExpiry);
   } catch {
     return undefined;
   }
@@ -1613,7 +1616,7 @@ export class ReticulumChatDatabase {
       storedAt: number;
       wireBytes: number;
       expiresAt: number | null;
-      messageExpiryDurationMs?: number;
+      messageExpiryDurationMs?: number | null;
     }
   >();
   private stmtInsertEvent: Statement;
@@ -4498,7 +4501,7 @@ export class ReticulumChatDatabase {
 
   private rootMessageExpiryState(root: ReticulumChatEvent): {
     expiresAt: number | null;
-    messageExpiryDurationMs?: number;
+    messageExpiryDurationMs?: number | null;
   } {
     if (
       root.eventType !== 'message' &&
@@ -4534,9 +4537,10 @@ export class ReticulumChatDatabase {
     channelId: unknown,
     createdAt: number,
     channelExpiryDurationMs?: number,
-    messageExpiryDurationMs?: number
+    messageExpiryDurationMs?: number | null
   ): number | null {
     if (!Number.isFinite(createdAt) || createdAt <= 0) return null;
+    if (messageExpiryDurationMs === null) return null;
     const normalizedChannelId = normalizeReticulumChatChannelId(channelId);
     const channelExpiryBase =
       normalizedChannelId === RETICULUM_CHAT_DEFAULT_CHANNEL_ID &&
@@ -4733,12 +4737,16 @@ export class ReticulumChatDatabase {
       reconciliation.expiry_duration_ms
     );
     const resolutions = rows.map((row) => {
-      const storedMessageExpiry = normalizeReticulumChatExpiryDurationMs(
-        row.message_expiry_duration_ms
-      );
+      const storedMessageExpiry =
+        row.message_expiry_duration_ms === 0
+          ? null
+          : normalizeReticulumChatExpiryDurationMs(
+              row.message_expiry_duration_ms
+            );
       const messageExpiryDurationMs =
-        storedMessageExpiry ??
-        messageExpiryDurationFromPayload(row.encrypted_payload ?? '');
+        storedMessageExpiry !== undefined
+          ? storedMessageExpiry
+          : messageExpiryDurationFromPayload(row.encrypted_payload ?? '');
       const timestamp = Number(row.timestamp);
       const previousExpiresAt = Number(row.expires_at);
       const alreadyExpired =
@@ -4759,7 +4767,10 @@ export class ReticulumChatDatabase {
       return {
         eventId: row.event_id,
         expiresAt,
-        messageExpiryDurationMs: messageExpiryDurationMs ?? null,
+        messageExpiryDurationMs:
+          messageExpiryDurationMs === null
+            ? 0
+            : (messageExpiryDurationMs ?? null),
       };
     });
 
@@ -4983,7 +4994,10 @@ export class ReticulumChatDatabase {
       accepted_at: now,
       wire_bytes: eventWireBytes(event),
       expires_at: expiresAt,
-      message_expiry_duration_ms: messageExpiryDurationMs ?? null,
+      message_expiry_duration_ms:
+        messageExpiryDurationMs === null
+          ? 0
+          : (messageExpiryDurationMs ?? null),
       privileged_mention_status:
         privilegedMentionStatus === 1
           ? 1
@@ -5213,7 +5227,7 @@ export class ReticulumChatDatabase {
     feedTimestamp: number,
     now: number,
     expiresAt: number | null,
-    messageExpiryDurationMs?: number
+    messageExpiryDurationMs?: number | null
   ): void {
     const wireBytes = eventWireBytes(event);
     this.stmtInsertEventHeaderV2.run({
@@ -5245,7 +5259,10 @@ export class ReticulumChatDatabase {
       retention_state: 'full',
       scrubbed_at: null,
       expires_at: expiresAt,
-      message_expiry_duration_ms: messageExpiryDurationMs ?? null,
+      message_expiry_duration_ms:
+        messageExpiryDurationMs === null
+          ? 0
+          : (messageExpiryDurationMs ?? null),
     });
   }
 

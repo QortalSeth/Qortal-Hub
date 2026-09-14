@@ -39,6 +39,15 @@ describe('Reticulum message expiry', () => {
     ).toEqual({});
   });
 
+  it('emits the no-expiry sentinel for an explicit null selection', () => {
+    expect(buildReticulumMessageExpiryPayload(null, undefined)).toEqual({
+      expiryDurationMs: 0,
+    });
+    expect(
+      buildReticulumMessageExpiryPayload(null, 2 * TIME_DAYS_1_IN_MILLISECONDS)
+    ).toEqual({ expiryDurationMs: 0 });
+  });
+
   it('includes an allowed message expiry in the signed payload', () => {
     expect(
       buildReticulumMessageExpiryPayload(
