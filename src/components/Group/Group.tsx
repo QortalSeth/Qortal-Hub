@@ -96,7 +96,6 @@ import {
   memberGroupsAtom,
   memberGroupsLoadedAddressAtom,
   memberGroupsWithReticulumChatAtom,
-  mutedGroupsAtom,
   myGroupsWhereIAmAdminAtom,
   reticulumDirectSummariesAtom,
   reticulumChatSummariesAtom,
@@ -114,6 +113,7 @@ import {
 import { mergeDirectsWithFriends } from '../../lib/dm/mergeDirectsWithFriends';
 import { validateAddress } from '../../utils/validateAddress';
 import { sortArrayByTimestampAndGroupName } from '../../utils/time';
+import { migrateNotificationSettings, getEffectiveNotificationSettings } from '../../utils/qChatNotificationSettings';
 import { WalletsAppWrapper } from './WalletsAppWrapper';
 import { useTranslation } from 'react-i18next';
 import { GroupList } from './GroupList';
@@ -934,8 +934,6 @@ export const Group = ({
   );
   const [hideCommonKeyPopup, setHideCommonKeyPopup] = useState(false);
   const [isLoadingGroupMessage, setIsLoadingGroupMessage] = useState('');
-  const setMutedGroups = useSetAtom(mutedGroupsAtom);
-  const mutedGroups = useAtomValue(mutedGroupsAtom);
   const showActionDrawer = useAtomValue(showActionDrawerAtom);
   const memberGroupsForReticulum = useAtomValue(memberGroupsAtom);
   const memberGroupsWithReticulumActivity = useAtomValue(
@@ -1458,7 +1456,6 @@ export const Group = ({
           })
           .then((response) => {
             if (!response?.error) {
-              setMutedGroups(response || []);
               res(response);
               return;
             }
@@ -1476,11 +1473,23 @@ export const Group = ({
     } catch (error) {
       console.error(error);
     }
-  }, [setMutedGroups]);
+  }, []);
 
   useEffect(() => {
     getUserSettings();
   }, [getUserSettings]);
+
+  useEffect(() => {
+    if (!myAddress) return;
+    if (memberGroupsLoadedAddress !== myAddress) return;
+    const groupIds = (memberGroupsForReticulum || []).map(
+      (g: any) => g?.groupId
+    );
+    if (!groupIds.length) return;
+    void migrateNotificationSettings(groupIds).catch((error) => {
+      console.error('Failed to migrate notification settings:', error);
+    });
+  }, [myAddress, memberGroupsLoadedAddress, memberGroupsForReticulum]);
 
   const getTimestampEnterChat = useCallback(async () => {
     try {
@@ -2673,7 +2682,8 @@ export const Group = ({
     (
       event: ReticulumBackgroundEvent,
       groupId: number,
-      mentionedAddresses: string[]
+      mentionedAddresses: string[],
+      isEveryoneOrHere: boolean
     ) => {
       const eventId = String(event?.eventId || '');
       if (
@@ -2682,11 +2692,7 @@ export const Group = ({
         !eventId ||
         !myAddressRef.current ||
         event.authorAddress === myAddressRef.current ||
-        !mentionedAddresses.includes(myAddressRef.current) ||
-        (Array.isArray(mutedGroups) &&
-          mutedGroups.some(
-            (mutedGroupId) => String(mutedGroupId) === String(groupId)
-          ))
+        !mentionedAddresses.includes(myAddressRef.current)
       ) {
         return;
       }
@@ -2704,10 +2710,11 @@ export const Group = ({
         eventId,
         groupId,
         groupName,
+        isEveryoneOrHere,
         timestamp,
       });
     },
-    [mutedGroups]
+    []
   );
 
   const processReticulumBackgroundEvent = useCallback(
@@ -2792,9 +2799,61 @@ export const Group = ({
         recordReticulumMentionNotification(
           event,
           groupId,
-          notificationMentionedAddresses
+          notificationMentionedAddresses,
+          authorizedBroadcast
         );
       }
+
+      if (
+        event.eventType === 'message' &&
+        event.authorAddress !== myAddressRef.current &&
+        myAddressRef.current
+      ) {
+        const repliedTo =
+          (payload as any)?.repliedTo || (payload as any)?.replyToEventId;
+        if (repliedTo) {
+          const channelId = String(event.channelId || 'general');
+          try {
+            const parentEvents =
+              await window.reticulumChat?.getMessageWindowAroundEvent?.(
+                groupId,
+                channelId,
+                String(repliedTo),
+                { afterLimit: 1, beforeLimit: 0 }
+              );
+            const parentEvent = Array.isArray(parentEvents)
+              ? (parentEvents[0] as any)
+              : null;
+            if (parentEvent?.authorAddress === myAddressRef.current) {
+              const effectiveSettings =
+                await getEffectiveNotificationSettings(
+                  groupId,
+                  undefined,
+                  channelId
+                ).catch(() => null);
+              if (effectiveSettings?.notifyOnReplies) {
+                const group = memberGroupsRef.current?.find(
+                  (item: any) => Number(item?.groupId) === groupId
+                );
+                const groupName =
+                  group?.groupName ||
+                  group?.name ||
+                  `Group ${String(groupId)}`;
+                executeEvent('q-chat-reply-notification', {
+                  channelId,
+                  eventId: String(event.eventId || ''),
+                  groupId,
+                  groupName,
+                  timestamp: Number(event.timestamp || Date.now()),
+                });
+              }
+            }
+          } catch {
+            // Parent message lookup failed — skip reply notification
+          }
+        }
+      }
+
       noteProcessedReticulumBackgroundEvent(event.eventId);
       scheduleReticulumChatSummariesRefresh();
     },

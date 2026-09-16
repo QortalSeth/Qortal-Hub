@@ -1,16 +1,9 @@
-import { useState, useRef, useMemo, useContext, useEffect } from 'react';
-import {
-  Box,
-  Divider,
-  ListItemIcon,
-  Menu,
-  MenuItem,
-  Typography,
-  styled,
-  useTheme,
-} from '@mui/material';
+import { useId, useState, useRef, useMemo, useContext, useEffect } from 'react';
+import { createPortal } from 'react-dom';
+import { Box, Divider, Typography, styled, useTheme } from '@mui/material';
+import { Menu, Item, Separator, contextMenu } from 'react-contexify';
+import 'react-contexify/dist/ReactContexify.css';
 import MailOutlineIcon from '@mui/icons-material/MailOutline';
-import NotificationsOffIcon from '@mui/icons-material/NotificationsOff';
 import DoneAllRoundedIcon from '@mui/icons-material/DoneAllRounded';
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded';
 import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded';
@@ -21,13 +14,14 @@ import VisibilityOffRoundedIcon from '@mui/icons-material/VisibilityOffRounded';
 import EditRoundedIcon from '@mui/icons-material/EditRounded';
 import { useTranslation } from 'react-i18next';
 import { executeEvent } from '../utils/events';
-import { mutedGroupsAtom, txListAtom } from '../atoms/global';
-import { useAtom, useSetAtom } from 'jotai';
+import { txListAtom } from '../atoms/global';
+import { useSetAtom } from 'jotai';
 import { getBaseApiReact, QORTAL_APP_CONTEXT } from '../App';
 import { getFee } from '../background/background.ts';
 import { QORTAL_PROTOCOL } from '../constants/constants.ts';
 import { CustomizedSnackbars } from './Snackbar/Snackbar';
 import { GroupScoreBadge } from './Group/ReticulumGroupLevel';
+import { NotificationSettingsSubmenu } from './NotificationSettingsSubmenu';
 import { useReticulumGroupScore } from './Group/reticulumGroupScore';
 
 export const CustomStyledMenu = styled(Menu, {
@@ -80,6 +74,9 @@ const ReticulumMenuGroupScore = ({
   );
 };
 
+const itemIconSx = { fontSize: 18, mr: 1.5 } as const;
+const itemTextSx = { fontSize: '14px', fontWeight: 600 } as const;
+
 export const ContextMenu = ({
   children,
   groupId,
@@ -95,47 +92,25 @@ export const ContextMenu = ({
   showGroupInfo = true,
   showStandardActions = true,
 }) => {
-  const [menuPosition, setMenuPosition] = useState(null);
+  const menuId = useId();
   const [groupInfo, setGroupInfo] = useState(null);
   const [openSnack, setOpenSnack] = useState(false);
   const [infoSnack, setInfoSnack] = useState(null);
+  const [isVisible, setIsVisible] = useState(false);
   const longPressTimeout = useRef(null);
   const preventClick = useRef(false);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
-  const menuInstanceIdRef = useRef(
-    crypto.randomUUID?.() || `group-menu-${Math.random()}`
-  );
   const theme = useTheme();
-  const [mutedGroups] = useAtom(mutedGroupsAtom);
   const setTxList = useSetAtom(txListAtom);
   const { show } = useContext(QORTAL_APP_CONTEXT);
   const { t } = useTranslation(['core', 'group', 'reticulum']);
-  const isMenuOpen = Boolean(menuPosition);
-
-  const isMuted = useMemo(() => {
-    return mutedGroups.includes(groupId);
-  }, [mutedGroups, groupId]);
 
   const handleContextMenu = (event) => {
     if (!wrapperRef.current?.contains(event.target)) return;
     event.preventDefault();
     event.stopPropagation();
-
     preventClick.current = true;
-
-    if (menuPosition) {
-      setMenuPosition(null);
-      return;
-    }
-
-    executeEvent('reticulumGroupContextMenuOpened', {
-      instanceId: menuInstanceIdRef.current,
-    });
-
-    setMenuPosition({
-      mouseX: event.clientX,
-      mouseY: event.clientY,
-    });
+    contextMenu.show({ id: menuId, event });
   };
 
   const handleClick = (event) => {
@@ -143,12 +118,10 @@ export const ContextMenu = ({
     event.preventDefault();
     event.stopPropagation();
     const bounds = event.currentTarget.getBoundingClientRect();
-    executeEvent('reticulumGroupContextMenuOpened', {
-      instanceId: menuInstanceIdRef.current,
-    });
-    setMenuPosition({
-      mouseX: bounds.left,
-      mouseY: bounds.bottom + 4,
+    contextMenu.show({
+      id: menuId,
+      event,
+      position: { x: bounds.left, y: bounds.bottom + 4 },
     });
   };
 
@@ -156,16 +129,17 @@ export const ContextMenu = ({
     longPressTimeout.current = setTimeout(() => {
       preventClick.current = true;
       event.stopPropagation();
-      setMenuPosition({
-        mouseX: event.touches[0].clientX,
-        mouseY: event.touches[0].clientY,
+      const touch = event.touches[0];
+      contextMenu.show({
+        id: menuId,
+        event,
+        position: { x: touch.clientX, y: touch.clientY },
       });
     }, 500);
   };
 
   const handleTouchEnd = (event) => {
     clearTimeout(longPressTimeout.current);
-
     if (preventClick.current) {
       event.preventDefault();
       event.stopPropagation();
@@ -173,92 +147,8 @@ export const ContextMenu = ({
     }
   };
 
-  const handleSetGroupMute = () => {
-    try {
-      let value = [...mutedGroups];
-      if (isMuted) {
-        value = value.filter((group) => group !== groupId);
-      } else {
-        value.push(groupId);
-      }
-      window
-        .sendMessage('addUserSettings', {
-          keyValue: {
-            key: 'mutedGroups',
-            value,
-          },
-        })
-        .then((response) => {
-          if (response?.error) {
-            console.error('Error adding user settings:', response.error);
-          }
-        })
-        .catch((error) => {
-          console.error(
-            'Failed to add user settings:',
-            error.message || 'An error occurred'
-          );
-        });
-
-      setTimeout(() => {
-        getUserSettings();
-      }, 400);
-    } catch (error) {
-      console.error('Failed to update muted groups:', error);
-    }
-  };
-
-  const handleClose = (e?) => {
-    e?.preventDefault?.();
-    e?.stopPropagation?.();
-    setMenuPosition(null);
-  };
-
   useEffect(() => {
-    if (!reticulumGroup) return undefined;
-    const closeOtherGroupMenu = (event: CustomEvent) => {
-      if (event.detail?.instanceId !== menuInstanceIdRef.current) {
-        setMenuPosition(null);
-      }
-    };
-    document.addEventListener(
-      'reticulumGroupContextMenuOpened',
-      closeOtherGroupMenu as EventListener
-    );
-    return () => {
-      document.removeEventListener(
-        'reticulumGroupContextMenuOpened',
-        closeOtherGroupMenu as EventListener
-      );
-    };
-  }, [reticulumGroup]);
-
-  useEffect(() => {
-    onMenuOpenChange?.(isMenuOpen);
-    return () => {
-      if (isMenuOpen) onMenuOpenChange?.(false);
-    };
-  }, [isMenuOpen, onMenuOpenChange]);
-
-  useEffect(() => {
-    if (!menuPosition || !reticulumGroup) return undefined;
-    const closeOnOutsideRightClick = (event: MouseEvent) => {
-      if (wrapperRef.current?.contains(event.target as Node)) return;
-      event.preventDefault();
-      setMenuPosition(null);
-    };
-    document.addEventListener('contextmenu', closeOnOutsideRightClick, true);
-    return () => {
-      document.removeEventListener(
-        'contextmenu',
-        closeOnOutsideRightClick,
-        true
-      );
-    };
-  }, [menuPosition, reticulumGroup]);
-
-  useEffect(() => {
-    if (!menuPosition || !reticulumGroup?.groupId) return undefined;
+    if (!isVisible || !reticulumGroup?.groupId) return undefined;
     const controller = new AbortController();
     fetch(`${getBaseApiReact()}/groups/${reticulumGroup.groupId}`, {
       signal: controller.signal,
@@ -274,7 +164,7 @@ export const ContextMenu = ({
         }
       });
     return () => controller.abort();
-  }, [menuPosition, reticulumGroup?.groupId]);
+  }, [isVisible, reticulumGroup?.groupId]);
 
   const displayedGroupInfo = useMemo(
     () => ({
@@ -306,8 +196,8 @@ export const ContextMenu = ({
     { postProcess: 'capitalizeFirstChar' }
   );
 
-  const copyInviteLink = async (event) => {
-    handleClose(event);
+  const copyInviteLink = async () => {
+    contextMenu.hideAll();
     try {
       const link = `${QORTAL_PROTOCOL}use-group/action-join/groupid-${displayedGroupInfo.groupId}`;
       await navigator.clipboard.writeText(link);
@@ -325,8 +215,8 @@ export const ContextMenu = ({
     }
   };
 
-  const leaveGroup = async (event) => {
-    handleClose(event);
+  const leaveGroup = async () => {
+    contextMenu.hideAll();
     try {
       const fee = await getFee('LEAVE_GROUP');
       await show({
@@ -372,299 +262,246 @@ export const ContextMenu = ({
     }
   };
 
-  return (
-    <div
-      ref={wrapperRef}
-      onContextMenu={handleContextMenu}
-      onClick={handleClick}
-      onTouchStart={handleTouchStart}
-      onTouchEnd={handleTouchEnd}
-      style={{ width: '100%', height: '100%' }}
-    >
-      {children}
+  const menuStyle = {
+    '--contexify-menu-bgColor': theme.palette.background.paper,
+    '--contexify-menu-shadow': '0 12px 28px rgba(0, 0, 0, 0.28)',
+    '--contexify-menu-radius': '8px',
+    '--contexify-menu-padding': '6px',
+    '--contexify-menu-minWidth': '220px',
+    '--contexify-item-color': theme.palette.text.primary,
+    '--contexify-activeItem-color': theme.palette.text.primary,
+    '--contexify-activeItem-bgColor': theme.palette.action.hover,
+    '--contexify-activeItem-radius': '6px',
+    '--contexify-itemContent-padding': '8px',
+    '--contexify-separator-color': theme.palette.divider,
+    '--contexify-separator-margin': '5px',
+    '--contexify-rightSlot-color': theme.palette.text.secondary,
+    '--contexify-arrow-color': theme.palette.text.primary,
+    fontFamily: theme.typography.fontFamily,
+  } as React.CSSProperties;
 
-      <CustomStyledMenu
-        reticulumMenu={Boolean(reticulumGroup)}
-        disableAutoFocus
-        disableAutoFocusItem
-        disableEnforceFocus
-        disableRestoreFocus
-        open={!!menuPosition}
-        onClose={handleClose}
-        anchorReference="anchorPosition"
-        anchorPosition={
-          menuPosition
-            ? { top: menuPosition.mouseY, left: menuPosition.mouseX }
-            : undefined
-        }
-        onClick={(e) => {
-          e.stopPropagation();
-        }}
+  return (
+    <>
+      <div
+        ref={wrapperRef}
+        onContextMenu={handleContextMenu}
+        onClick={handleClick}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+        style={{ width: '100%', height: '100%' }}
       >
-        {showStandardActions && [
-          <MenuItem
-            key="mark-group-read"
-            onClick={(e) => {
-              handleClose(e);
-              executeEvent('markAsRead', { groupId });
-            }}
-          >
-            <ListItemIcon sx={{ minWidth: '32px' }}>
-              <MailOutlineIcon
-                sx={{ color: theme.palette.text.primary }}
-                fontSize="small"
-              />
-            </ListItemIcon>
-            <Typography variant="inherit" sx={{ fontSize: '14px' }}>
-              {t('group:context_menu.mark_as_read')}
-            </Typography>
-          </MenuItem>,
-          <MenuItem
-            key="mute-group"
-            onClick={(e) => {
-              handleClose(e);
-              handleSetGroupMute();
-            }}
-          >
-            <ListItemIcon sx={{ minWidth: '32px' }}>
-              <NotificationsOffIcon
-                fontSize="small"
+        {children}
+      </div>
+      {createPortal(
+        <Menu
+          id={menuId}
+          theme={theme.palette.mode as 'light' | 'dark'}
+          animation="fade"
+          style={menuStyle}
+          onVisibilityChange={(isVisible) => {
+            setIsVisible(isVisible);
+            onMenuOpenChange?.(isVisible);
+          }}
+        >
+          {showStandardActions && (
+            <>
+              <Item onClick={() => executeEvent('markAsRead', { groupId })}>
+                <MailOutlineIcon sx={itemIconSx} />
+                <Typography component="span" sx={itemTextSx}>
+                  {t('group:context_menu.mark_as_read')}
+                </Typography>
+              </Item>
+              <Item onClick={() => executeEvent('markAllMemberGroupsRead', {})}>
+                <DoneAllRoundedIcon sx={itemIconSx} />
+                <Typography component="span" sx={itemTextSx}>
+                  {t('group:context_menu.mark_all_groups_read')}
+                </Typography>
+              </Item>
+              <NotificationSettingsSubmenu scope={{ groupId }} />
+            </>
+          )}
+          {reticulumGroup && (
+            <Item onClick={copyInviteLink}>
+              <ContentCopyRoundedIcon sx={itemIconSx} />
+              <Typography component="span" sx={itemTextSx}>
+                {t('reticulum:copy_invite_link', {
+                  postProcess: 'capitalizeFirstChar',
+                })}
+              </Typography>
+            </Item>
+          )}
+          {reticulumGroup && isGroupOwner && onOpenUpdateGroup && (
+            <Item
+              onClick={() => {
+                contextMenu.hideAll();
+                onOpenUpdateGroup();
+              }}
+            >
+              <EditRoundedIcon sx={itemIconSx} />
+              <Typography component="span" sx={itemTextSx}>
+                {t('group:context_menu.update_group')}
+              </Typography>
+            </Item>
+          )}
+          {reticulumGroup && onCreateChannel && (
+            <Item
+              onClick={() => {
+                contextMenu.hideAll();
+                onCreateChannel();
+              }}
+            >
+              <ForumRoundedIcon sx={itemIconSx} />
+              <Typography component="span" sx={itemTextSx}>
+                {t('group:context_menu.create_channel')}
+              </Typography>
+            </Item>
+          )}
+          {reticulumGroup && onCreateCategory && (
+            <Item
+              onClick={() => {
+                contextMenu.hideAll();
+                onCreateCategory();
+              }}
+            >
+              <FolderRoundedIcon sx={itemIconSx} />
+              <Typography component="span" sx={itemTextSx}>
+                {t('group:context_menu.create_category')}
+              </Typography>
+            </Item>
+          )}
+          {reticulumGroup && onOpenHiddenUsers && (
+            <Item
+              onClick={() => {
+                contextMenu.hideAll();
+                onOpenHiddenUsers();
+              }}
+            >
+              <VisibilityOffRoundedIcon sx={itemIconSx} />
+              <Typography component="span" sx={itemTextSx}>
+                {t('group:context_menu.hidden_users')}
+              </Typography>
+            </Item>
+          )}
+          {reticulumGroup && !isGroupOwner && (
+            <Item onClick={leaveGroup}>
+              <LogoutRoundedIcon sx={{ ...itemIconSx, color: 'error.main' }} />
+              <Typography
+                component="span"
+                sx={{ ...itemTextSx, color: 'error.main' }}
+              >
+                {t('group:context_menu.leave_group')}
+              </Typography>
+            </Item>
+          )}
+          {reticulumGroup && (
+            <Item
+              onClick={() => {
+                contextMenu.hideAll();
+                executeEvent('openReticulumGroupAbout', {
+                  group: displayedGroupInfo,
+                });
+              }}
+            >
+              <InfoOutlinedIcon
                 sx={{
-                  color: isMuted ? 'red' : theme.palette.text.primary,
+                  ...itemIconSx,
+                  color: theme.palette.mode === 'dark' ? '#a9c9ff' : '#1e40af',
                 }}
               />
-            </ListItemIcon>
-            <Typography
-              variant="inherit"
-              sx={{ fontSize: '14px', color: isMuted && 'red' }}
-            >
-              {isMuted
-                ? t('group:context_menu.unmute_push_notifications')
-                : t('group:context_menu.mute_push_notifications')}
-            </Typography>
-          </MenuItem>,
-          <MenuItem
-            key="mark-all-groups-read"
-            onClick={(e) => {
-              handleClose(e);
-              executeEvent('markAllMemberGroupsRead', {});
-            }}
-          >
-            <ListItemIcon sx={{ minWidth: '32px' }}>
-              <DoneAllRoundedIcon
-                fontSize="small"
-                sx={{ color: theme.palette.text.primary }}
-              />
-            </ListItemIcon>
-            <Typography variant="inherit" sx={{ fontSize: '14px' }}>
-              {t('group:context_menu.mark_all_read')}
-            </Typography>
-          </MenuItem>,
-        ]}
-        {reticulumGroup && (
-          <MenuItem onClick={copyInviteLink}>
-            <ListItemIcon sx={{ minWidth: '32px' }}>
-              <ContentCopyRoundedIcon fontSize="small" />
-            </ListItemIcon>
-            <Typography variant="inherit" sx={{ fontSize: '14px' }}>
-              {t('reticulum:copy_invite_link', {
-                postProcess: 'capitalizeFirstChar',
-              })}
-            </Typography>
-          </MenuItem>
-        )}
-        {reticulumGroup && isGroupOwner && onOpenUpdateGroup && (
-          <MenuItem
-            onClick={(event) => {
-              handleClose(event);
-              onOpenUpdateGroup();
-            }}
-          >
-            <ListItemIcon sx={{ minWidth: '32px' }}>
-              <EditRoundedIcon fontSize="small" />
-            </ListItemIcon>
-            <Typography variant="inherit" sx={{ fontSize: '14px' }}>
-              {t('group:context_menu.update_group')}
-            </Typography>
-          </MenuItem>
-        )}
-        {reticulumGroup && onCreateChannel && (
-          <MenuItem
-            onClick={(event) => {
-              handleClose(event);
-              onCreateChannel();
-            }}
-          >
-            <ListItemIcon sx={{ minWidth: '32px' }}>
-              <ForumRoundedIcon fontSize="small" />
-            </ListItemIcon>
-            <Typography variant="inherit" sx={{ fontSize: '14px' }}>
-              {t('group:context_menu.create_channel')}
-            </Typography>
-          </MenuItem>
-        )}
-        {reticulumGroup && onCreateCategory && (
-          <MenuItem
-            onClick={(event) => {
-              handleClose(event);
-              onCreateCategory();
-            }}
-          >
-            <ListItemIcon sx={{ minWidth: '32px' }}>
-              <FolderRoundedIcon fontSize="small" />
-            </ListItemIcon>
-            <Typography variant="inherit" sx={{ fontSize: '14px' }}>
-              {t('group:context_menu.create_category')}
-            </Typography>
-          </MenuItem>
-        )}
-        {reticulumGroup && onOpenHiddenUsers && (
-          <MenuItem
-            onClick={(event) => {
-              handleClose(event);
-              onOpenHiddenUsers();
-            }}
-          >
-            <ListItemIcon sx={{ minWidth: '32px' }}>
-              <VisibilityOffRoundedIcon fontSize="small" />
-            </ListItemIcon>
-            <Typography variant="inherit" sx={{ fontSize: '14px' }}>
-              {t('group:context_menu.hidden_users')}
-            </Typography>
-          </MenuItem>
-        )}
-        {reticulumGroup && !isGroupOwner && (
-          <MenuItem onClick={leaveGroup} sx={{ color: 'error.main' }}>
-            <ListItemIcon sx={{ color: 'inherit', minWidth: '32px' }}>
-              <LogoutRoundedIcon fontSize="small" />
-            </ListItemIcon>
-            <Typography variant="inherit" sx={{ fontSize: '14px' }}>
-              {t('group:context_menu.leave_group')}
-            </Typography>
-          </MenuItem>
-        )}
-        {reticulumGroup && (
-          <MenuItem
-            onClick={(event) => {
-              handleClose(event);
-              executeEvent('openReticulumGroupAbout', {
-                group: displayedGroupInfo,
-              });
-            }}
-            sx={{
-              backgroundColor:
-                theme.palette.mode === 'dark'
-                  ? 'rgba(76, 141, 255, 0.12)'
-                  : 'rgba(37, 99, 235, 0.1)',
-              color: theme.palette.mode === 'dark' ? '#d7e6ff' : '#1e40af',
-              '&:hover': {
-                backgroundColor:
-                  theme.palette.mode === 'dark'
-                    ? 'rgba(76, 141, 255, 0.2)'
-                    : 'rgba(37, 99, 235, 0.16)',
-              },
-            }}
-          >
-            <ListItemIcon
-              sx={{
-                color: theme.palette.mode === 'dark' ? '#a9c9ff' : '#1e40af',
-                minWidth: '32px',
-              }}
-            >
-              <InfoOutlinedIcon fontSize="small" />
-            </ListItemIcon>
-            <Typography variant="inherit" sx={{ fontSize: '14px' }}>
-              {t('group:context_menu.about_group')}
-            </Typography>
-          </MenuItem>
-        )}
-        {reticulumGroup && isMenuOpen && (
-          <ReticulumMenuGroupScore groupId={displayedGroupInfo.groupId} />
-        )}
-        {reticulumGroup && showGroupInfo && (
-          <>
-            <Divider
-              sx={{
-                borderColor: theme.palette.divider,
-                marginX: 0.75,
-                marginY: 1,
-              }}
-            />
-            <Box
-              sx={{
-                display: 'grid',
-                gap: 0.75,
-                minWidth: 230,
-                px: 1.25,
-                py: 0.5,
-              }}
-            >
-              {[
-                {
-                  id: 'group-name',
-                  label: t('group:group.name'),
-                  value: displayedGroupInfo.groupName,
-                },
-                {
-                  id: 'members',
-                  label: t('group:group.member_other'),
-                  value: displayedGroupInfo.memberCount,
-                },
-                {
-                  id: 'group-type',
-                  label: t('group:group.type'),
-                  value: groupTypeLabel,
-                },
-                {
-                  id: 'group-id',
-                  label: t('group:group.id'),
-                  value: displayedGroupInfo.groupId,
-                },
-              ].map(({ id, label, value }) => (
-                <Box
-                  key={id}
-                  sx={{
-                    alignItems: 'center',
-                    display: 'flex',
-                    gap: 2,
-                    justifyContent: 'space-between',
-                  }}
-                >
-                  <Typography
+              <Typography
+                component="span"
+                sx={{
+                  ...itemTextSx,
+                  color: theme.palette.mode === 'dark' ? '#d7e6ff' : '#1e40af',
+                }}
+              >
+                {t('group:context_menu.about_group')}
+              </Typography>
+            </Item>
+          )}
+          {reticulumGroup && isVisible && (
+            <ReticulumMenuGroupScore groupId={displayedGroupInfo.groupId} />
+          )}
+          {reticulumGroup && showGroupInfo && (
+            <>
+              <div className="contexify_separator" />
+              <Box
+                sx={{
+                  display: 'grid',
+                  gap: 0.75,
+                  minWidth: 230,
+                  px: 1.25,
+                  py: 0.5,
+                }}
+              >
+                {[
+                  {
+                    id: 'group-name',
+                    label: t('group:group.name'),
+                    value: displayedGroupInfo.groupName,
+                  },
+                  {
+                    id: 'members',
+                    label: t('group:group.member_other'),
+                    value: displayedGroupInfo.memberCount,
+                  },
+                  {
+                    id: 'group-type',
+                    label: t('group:group.type'),
+                    value: groupTypeLabel,
+                  },
+                  {
+                    id: 'group-id',
+                    label: t('group:group.id'),
+                    value: displayedGroupInfo.groupId,
+                  },
+                ].map(({ id, label, value }) => (
+                  <Box
+                    key={id}
                     sx={{
-                      color: 'text.secondary',
-                      fontSize: 10,
-                      fontWeight: 800,
-                      textTransform: 'uppercase',
+                      alignItems: 'center',
+                      display: 'flex',
+                      gap: 2,
+                      justifyContent: 'space-between',
                     }}
                   >
-                    {label}
-                  </Typography>
-                  <Typography
-                    title={String(value ?? '-')}
-                    sx={{
-                      fontSize: 12,
-                      fontWeight: 700,
-                      maxWidth: 145,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {value ?? '-'}
-                  </Typography>
-                </Box>
-              ))}
-            </Box>
-          </>
-        )}
-      </CustomStyledMenu>
+                    <Typography
+                      sx={{
+                        color: 'text.secondary',
+                        fontSize: 10,
+                        fontWeight: 800,
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      {label}
+                    </Typography>
+                    <Typography
+                      title={String(value ?? '-')}
+                      sx={{
+                        fontSize: 12,
+                        fontWeight: 700,
+                        maxWidth: 145,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {value ?? '-'}
+                    </Typography>
+                  </Box>
+                ))}
+              </Box>
+            </>
+          )}
+        </Menu>,
+        document.body
+      )}
       <CustomizedSnackbars
         open={openSnack}
         setOpen={setOpenSnack}
         info={infoSnack}
         setInfo={setInfoSnack}
       />
-    </div>
+    </>
   );
 };

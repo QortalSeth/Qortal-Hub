@@ -19,11 +19,13 @@ import {
 } from '../../qortal/qortal-requests';
 import LogoSelected from '../../assets/svgs/LogoSelected.svg';
 import {
-  getQChatMentionNotificationsEnabled,
   QCHAT_MENTION_NOTIFICATION_APP_NAME,
   QCHAT_MENTION_NOTIFICATION_EVENT,
-  QCHAT_MENTION_NOTIFICATIONS_UPDATED_EVENT,
 } from '../../utils/qChatMentionNotifications';
+import {
+  getEffectiveNotificationSettings,
+  shouldFirePushNotification,
+} from '../../utils/qChatNotificationSettings';
 import {
   isHubBeingViewed,
   shouldNotifyForReticulumDm,
@@ -417,12 +419,27 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
       if ((!eventId && !isUnreadCountSync) || !Number.isFinite(groupId)) {
         return;
       }
-      if (!(await getQChatMentionNotificationsEnabled())) return;
+
+      const channelId = String(detail?.channelId || 'general');
+      const isEveryoneOrHere = detail?.isEveryoneOrHere === true;
+      const effectiveSettings = await getEffectiveNotificationSettings(
+        groupId,
+        undefined,
+        channelId
+      ).catch(() => null);
+
+      const shouldPush =
+        effectiveSettings != null &&
+        shouldFirePushNotification(
+          effectiveSettings,
+          true,
+          isEveryoneOrHere,
+          false
+        );
 
       const timestamp = Number(detail?.timestamp || Date.now());
       const groupName =
         String(detail?.groupName || '').trim() || `Group ${groupId}`;
-      const channelId = String(detail?.channelId || 'general');
       let channelName = getReticulumNotificationChannelLabel(channelId, null);
       if (!isUnreadCountSync || Number(detail?.mentionCount || 0) > 0) {
         try {
@@ -538,6 +555,7 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
       // Unread-count synchronization rebuilds the Hub notification state and
       // must not replay old mentions as OS notifications.
       if (
+        shouldPush &&
         !isUnreadCountSync &&
         !qChatMentionOsNotifiedEventIdsRef.current.has(eventId)
       ) {
@@ -573,14 +591,53 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
       }
     };
 
-    const handleMentionSettingUpdated = (
-      event: CustomEvent<{ enabled?: boolean }>
+    const handleQChatReplyNotification = async (
+      event: CustomEvent<{
+        channelId?: string;
+        eventId?: string;
+        groupId?: number;
+        groupName?: string;
+        timestamp?: number;
+      }>
     ) => {
-      if (event.detail?.enabled !== false) return;
-      setPaymentNotifications((previous) =>
-        previous.filter(
-          (notification) => !isQChatMentionNotification(notification)
-        )
+      const detail = event.detail;
+      const eventId = String(detail?.eventId || '');
+      const groupId = Number(detail?.groupId);
+      if (!eventId || !Number.isFinite(groupId)) return;
+
+      const groupName =
+        String(detail?.groupName || '').trim() || `Group ${groupId}`;
+      const channelId = String(detail?.channelId || 'general');
+      let channelName = getReticulumNotificationChannelLabel(channelId, null);
+      try {
+        const channels = await window.reticulumChat?.getChannels?.(
+          groupId,
+          true
+        );
+        channelName = getReticulumNotificationChannelLabel(
+          channelId,
+          channels
+        );
+      } catch {
+        // The stable ID remains a useful fallback while metadata is syncing.
+      }
+
+      void fireOsNotificationPayment(
+        {
+          appName: QCHAT_MENTION_NOTIFICATION_APP_NAME,
+          appService: 'INTERNAL',
+          event: 'Q_CHAT_REPLY',
+        },
+        `Reply in ${groupName}`,
+        `Someone replied to your message in #${channelName}`,
+        LogoSelected,
+        undefined,
+        {
+          channelId,
+          eventId,
+          from: groupId,
+          qChatReply: true,
+        }
       );
     };
 
@@ -589,25 +646,17 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
       handleQChatMention as EventListener
     );
     subscribeToEvent(
-      QCHAT_MENTION_NOTIFICATIONS_UPDATED_EVENT,
-      handleMentionSettingUpdated as EventListener
+      'q-chat-reply-notification',
+      handleQChatReplyNotification as EventListener
     );
-    void getQChatMentionNotificationsEnabled().then((enabled) => {
-      if (enabled) return;
-      setPaymentNotifications((previous) =>
-        previous.filter(
-          (notification) => !isQChatMentionNotification(notification)
-        )
-      );
-    });
     return () => {
       unsubscribeFromEvent(
         'q-chat-mention-notification',
         handleQChatMention as EventListener
       );
       unsubscribeFromEvent(
-        QCHAT_MENTION_NOTIFICATIONS_UPDATED_EVENT,
-        handleMentionSettingUpdated as EventListener
+        'q-chat-reply-notification',
+        handleQChatReplyNotification as EventListener
       );
     };
   }, [setPaymentNotifications]);

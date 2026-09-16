@@ -80,7 +80,6 @@ export const isUsingImportExportSettingsAtom = atomWithReset(null);
 export const memberGroupsAtom = atomWithReset([]);
 /** Address whose complete group-membership list has been loaded into memberGroupsAtom. */
 export const memberGroupsLoadedAddressAtom = atomWithReset('');
-export const mutedGroupsAtom = atomWithReset([]);
 export const myGroupsWhereIAmAdminAtom = atomWithReset([]);
 
 export const navigationControllerAtom = atomWithReset({});

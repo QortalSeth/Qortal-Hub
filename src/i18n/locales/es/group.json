@@ -210,9 +210,11 @@
     "invite_link_copied": "Enlace de invitación copiado",
     "invite_link_copy_failed": "No se pudo copiar el enlace de invitación",
     "leave_group": "Salir del grupo",
+    "mark_all_groups_read": "mark all groups as read",
     "mark_all_read": "Marcar todo como leído",
     "mark_as_read": "Marcar como leído",
     "mute_push_notifications": "Silenciar notificaciones push",
+    "notification_settings": "notification settings",
     "unmute_push_notifications": "Activar notificaciones push",
     "update_group": "Update group"
   },
@@ -767,9 +769,6 @@
       "group_creation": "grupo creado exitosamente. Los cambios pueden tardar unos minutos",
       "group_creation_label": "grupo {{group_name}} creado: ¡éxito!",
       "group_creation_name": "grupo {{group_name}} creado: esperando confirmación",
-      "group_update_label": "updated group {{group_name}}: success!",
-      "group_update_name": "updated group {{group_name}}: awaiting confirmation",
-      "group_updated": "successfully updated group. It may take a couple of minutes for the changes to propagate",
       "group_invite": "{{invitee}} invitado exitosamente. Los cambios pueden tardar unos minutos",
       "group_join": "solicitud para unirse enviada con éxito. Los cambios pueden tardar unos minutos",
       "group_join_label": "te has unido al grupo {{group_name}}: ¡éxito!",
@@ -783,6 +782,9 @@
       "group_member_admin": "miembro promovido a administrador exitosamente. Los cambios pueden tardar unos minutos",
       "group_promotion": "promoción publicada con éxito. Puede tardar unos minutos en aparecer",
       "group_remove_member": "administrador eliminado exitosamente. Los cambios pueden tardar unos minutos",
+      "group_update_label": "updated group {{group_name}}: success!",
+      "group_update_name": "updated group {{group_name}}: awaiting confirmation",
+      "group_updated": "successfully updated group. It may take a couple of minutes for the changes to propagate",
       "invitation_cancellation": "invitación cancelada exitosamente. Los cambios pueden tardar unos minutos",
       "invitation_request": "solicitud de unión aceptada: esperando confirmación",
       "loading_threads": "cargando hilos... espera.",
@@ -822,6 +824,13 @@
     "try_again": "Inténtalo de nuevo",
     "unencrypted": "Sin cifrar",
     "verification_failed": "La verificación ha fallado"
+  },
+  "notification_settings": {
+    "all_messages": "all messages",
+    "none": "none",
+    "notify_on_replies": "notify on replies",
+    "only_mentions": "only @mentions",
+    "suppress_everyone_here": "suppress @everyone and @here"
   },
   "onboarding": {
     "action": {

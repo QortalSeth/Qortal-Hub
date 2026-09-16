@@ -210,9 +210,11 @@
     "invite_link_copied": "Ссылка-приглашение скопирована",
     "invite_link_copy_failed": "Не удалось скопировать ссылку-приглашение",
     "leave_group": "Покинуть группу",
+    "mark_all_groups_read": "mark all groups as read",
     "mark_all_read": "Отметить все как прочитанные",
     "mark_as_read": "Отметить как прочитанное",
     "mute_push_notifications": "Отключить push-уведомления",
+    "notification_settings": "notification settings",
     "unmute_push_notifications": "Включить push-уведомления",
     "update_group": "Update group"
   },
@@ -767,9 +769,6 @@
       "group_creation": "группа успешно создана. Обновление может занять несколько минут",
       "group_creation_label": "группа {{group_name}} создана: успешно!",
       "group_creation_name": "группа {{group_name}} создана: ожидает подтверждения",
-      "group_update_label": "updated group {{group_name}}: success!",
-      "group_update_name": "updated group {{group_name}}: awaiting confirmation",
-      "group_updated": "successfully updated group. It may take a couple of minutes for the changes to propagate",
       "group_invite": "приглашение для {{invitee}} успешно отправлено. Изменения вступят в силу через несколько минут",
       "group_join": "запрос на вступление успешно отправлен. Обновление может занять несколько минут",
       "group_join_label": "вы присоединились к группе {{group_name}}: успешно!",
@@ -783,6 +782,9 @@
       "group_member_admin": "участник назначен администратором. Обновление может занять несколько минут",
       "group_promotion": "промоакция успешно опубликована. Может занять немного времени для отображения",
       "group_remove_member": "администраторские права успешно удалены. Обновление может занять несколько минут",
+      "group_update_label": "updated group {{group_name}}: success!",
+      "group_update_name": "updated group {{group_name}}: awaiting confirmation",
+      "group_updated": "successfully updated group. It may take a couple of minutes for the changes to propagate",
       "invitation_cancellation": "приглашение успешно отменено. Обновление может занять несколько минут",
       "invitation_request": "запрос на вступление принят: ожидается подтверждение",
       "loading_threads": "загрузка тем... подождите.",
@@ -822,6 +824,13 @@
     "try_again": "Повторить",
     "unencrypted": "Не зашифровано",
     "verification_failed": "Проверка не пройдена"
+  },
+  "notification_settings": {
+    "all_messages": "all messages",
+    "none": "none",
+    "notify_on_replies": "notify on replies",
+    "only_mentions": "only @mentions",
+    "suppress_everyone_here": "suppress @everyone and @here"
   },
   "onboarding": {
     "action": {

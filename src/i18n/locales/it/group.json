@@ -210,9 +210,11 @@
     "invite_link_copied": "Link d'invito copiato",
     "invite_link_copy_failed": "Impossibile copiare il link d'invito",
     "leave_group": "Esci dal gruppo",
+    "mark_all_groups_read": "mark all groups as read",
     "mark_all_read": "Segna tutto come letto",
     "mark_as_read": "Segna come letto",
     "mute_push_notifications": "Disattiva notifiche push",
+    "notification_settings": "notification settings",
     "unmute_push_notifications": "Riattiva notifiche push",
     "update_group": "Update group"
   },
@@ -767,9 +769,6 @@
       "group_creation": "gruppo creato correttamente. Potrebbero essere necessari un paio di minuti per propagare le modifiche.",
       "group_creation_label": "creato il gruppo {{group_name}}: successo!",
       "group_creation_name": "creato il gruppo {{group_name}}: attendere la conferma",
-      "group_update_label": "updated group {{group_name}}: success!",
-      "group_update_name": "updated group {{group_name}}: awaiting confirmation",
-      "group_updated": "successfully updated group. It may take a couple of minutes for the changes to propagate",
       "group_invite": "invitato con successo {{invitee}}. Potrebbero essere necessari un paio di minuti per propagare le modifiche.",
       "group_join": "richiesto con successo di unirsi al gruppo. Potrebbero essere necessari un paio di minuti per propagare le modifiche.",
       "group_join_label": "adesione al gruppo {{group_name}}: success!",
@@ -783,6 +782,9 @@
       "group_member_admin": "il membro è ora amministratore. Potrebbero essere necessari un paio di minuti per propagare le modifiche.",
       "group_promotion": "promozione pubblicata con successo. Potrebbero essere necessari un paio di minuti per la promozione",
       "group_remove_member": "rimosso con successo il membro come amministratore. Potrebbero essere necessari un paio di minuti per propagare le modifiche.",
+      "group_update_label": "updated group {{group_name}}: success!",
+      "group_update_name": "updated group {{group_name}}: awaiting confirmation",
+      "group_updated": "successfully updated group. It may take a couple of minutes for the changes to propagate",
       "invitation_cancellation": "invito annullato con successo. Potrebbero essere necessari un paio di minuti per propagare le modifiche.",
       "invitation_request": "richiesta di adesione accettata: in attesa di conferma",
       "loading_threads": "caricamento dei thread ... Attendi.",
@@ -822,6 +824,13 @@
     "try_again": "Riprova",
     "unencrypted": "Non cifrato",
     "verification_failed": "Verifica non riuscita"
+  },
+  "notification_settings": {
+    "all_messages": "all messages",
+    "none": "none",
+    "notify_on_replies": "notify on replies",
+    "only_mentions": "only @mentions",
+    "suppress_everyone_here": "suppress @everyone and @here"
   },
   "onboarding": {
     "action": {

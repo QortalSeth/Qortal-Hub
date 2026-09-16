@@ -210,9 +210,11 @@
     "invite_link_copied": "已复制邀请链接",
     "invite_link_copy_failed": "无法复制邀请链接",
     "leave_group": "退出群组",
+    "mark_all_groups_read": "mark all groups as read",
     "mark_all_read": "全部标为已读",
     "mark_as_read": "标记为已读",
     "mute_push_notifications": "静音推送通知",
+    "notification_settings": "notification settings",
     "unmute_push_notifications": "取消静音推送通知",
     "update_group": "Update group"
   },
@@ -767,9 +769,6 @@
       "group_creation": "群组已成功创建。更改可能需几分钟生效",
       "group_creation_label": "成功创建群组 {{group_name}}！",
       "group_creation_name": "已创建群组 {{group_name}}，等待确认",
-      "group_update_label": "updated group {{group_name}}: success!",
-      "group_update_name": "updated group {{group_name}}: awaiting confirmation",
-      "group_updated": "successfully updated group. It may take a couple of minutes for the changes to propagate",
       "group_invite": "已成功邀请 {{invitee}}。更改可能需几分钟生效",
       "group_join": "已成功发送加入请求。更改可能需几分钟生效",
       "group_join_label": "成功加入群组 {{group_name}}！",
@@ -783,6 +782,9 @@
       "group_member_admin": "已成功设为管理员。更改可能需几分钟生效",
       "group_promotion": "推广发布成功。可能需要几分钟显示",
       "group_remove_member": "已取消管理员身份。更改可能需几分钟生效",
+      "group_update_label": "updated group {{group_name}}: success!",
+      "group_update_name": "updated group {{group_name}}: awaiting confirmation",
+      "group_updated": "successfully updated group. It may take a couple of minutes for the changes to propagate",
       "invitation_cancellation": "邀请已成功取消。更改可能需几分钟生效",
       "invitation_request": "已接受加入请求：等待确认",
       "loading_threads": "正在加载主题，请稍候...",
@@ -822,6 +824,13 @@
     "try_again": "重试",
     "unencrypted": "未加密",
     "verification_failed": "验证失败"
+  },
+  "notification_settings": {
+    "all_messages": "all messages",
+    "none": "none",
+    "notify_on_replies": "notify on replies",
+    "only_mentions": "only @mentions",
+    "suppress_everyone_here": "suppress @everyone and @here"
   },
   "onboarding": {
     "action": {

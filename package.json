@@ -83,6 +83,7 @@
     "npm": "^11.5.1",
     "phaser": "^3.90.0",
     "react": "^19.2.0",
+    "react-contexify": "^6.0.0",
     "react-countdown-circle-timer": "^3.2.1",
     "react-dom": "^19.2.0",
     "react-dropzone": "^14.2.3",

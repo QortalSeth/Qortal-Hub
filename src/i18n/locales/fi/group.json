@@ -210,9 +210,11 @@
     "invite_link_copied": "Kutsulinkki kopioitu",
     "invite_link_copy_failed": "Kutsulinkin kopiointi epäonnistui",
     "leave_group": "Poistu ryhmästä",
+    "mark_all_groups_read": "mark all groups as read",
     "mark_all_read": "Merkitse kaikki luetuksi",
     "mark_as_read": "Merkitse luetuksi",
     "mute_push_notifications": "Mykistä push-ilmoitukset",
+    "notification_settings": "notification settings",
     "unmute_push_notifications": "Poista push-ilmoitusten mykistys",
     "update_group": "Update group"
   },
@@ -767,9 +769,6 @@
       "group_creation": "ryhmä luotu onnistuneesti. Muutosten näkyminen voi kestää muutaman minuutin",
       "group_creation_label": "ryhmä {{group_name}} luotu: onnistui!",
       "group_creation_name": "ryhmä {{group_name}} luotu: odottaa vahvistusta",
-      "group_update_label": "updated group {{group_name}}: success!",
-      "group_update_name": "updated group {{group_name}}: awaiting confirmation",
-      "group_updated": "successfully updated group. It may take a couple of minutes for the changes to propagate",
       "group_invite": "{{invitee}} kutsuttu onnistuneesti. Muutosten näkyminen voi kestää muutaman minuutin",
       "group_join": "liittymispyyntö lähetetty onnistuneesti. Muutosten näkyminen voi kestää muutaman minuutin",
       "group_join_label": "liitytty ryhmään {{group_name}}: onnistui!",
@@ -783,6 +782,9 @@
       "group_member_admin": "jäsen asetettu ylläpitäjäksi onnistuneesti. Muutosten näkyminen voi kestää muutaman minuutin",
       "group_promotion": "mainos julkaistu onnistuneesti. Sen näkymisessä voi kestää muutaman minuutin",
       "group_remove_member": "jäseneltä poistettu ylläpitäjän oikeudet onnistuneesti. Muutosten näkyminen voi kestää muutaman minuutin",
+      "group_update_label": "updated group {{group_name}}: success!",
+      "group_update_name": "updated group {{group_name}}: awaiting confirmation",
+      "group_updated": "successfully updated group. It may take a couple of minutes for the changes to propagate",
       "invitation_cancellation": "kutsu peruutettu onnistuneesti. Muutosten näkyminen voi kestää muutaman minuutin",
       "invitation_request": "liittymispyyntö hyväksytty: odottaa vahvistusta",
       "loading_threads": "ladataan ketjuja... odota hetki.",
@@ -822,6 +824,13 @@
     "try_again": "Yritä uudelleen",
     "unencrypted": "Salaamaton",
     "verification_failed": "Vahvistus epäonnistui"
+  },
+  "notification_settings": {
+    "all_messages": "all messages",
+    "none": "none",
+    "notify_on_replies": "notify on replies",
+    "only_mentions": "only @mentions",
+    "suppress_everyone_here": "suppress @everyone and @here"
   },
   "onboarding": {
     "action": {

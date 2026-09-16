@@ -210,9 +210,11 @@
     "invite_link_copied": "Kutselink kopeeritud",
     "invite_link_copy_failed": "Kutselinki ei õnnestunud kopeerida",
     "leave_group": "Lahku rühmast",
+    "mark_all_groups_read": "mark all groups as read",
     "mark_all_read": "Märgi kõik loetuks",
     "mark_as_read": "Märgi loetuks",
     "mute_push_notifications": "Summuta tõuketeavitused",
+    "notification_settings": "notification settings",
     "unmute_push_notifications": "Lõpeta tõuketeavituste summutamine",
     "update_group": "Update group"
   },
@@ -767,9 +769,6 @@
       "group_creation": "rühma loomine õnnestus. Muutuste levimine võib võtta paar minutit",
       "group_creation_label": "rühma {{group_name}} loomine: õnnestus!",
       "group_creation_name": "rühma {{group_name}} loomine: ootan kinnitust",
-      "group_update_label": "updated group {{group_name}}: success!",
-      "group_update_name": "updated group {{group_name}}: awaiting confirmation",
-      "group_updated": "successfully updated group. It may take a couple of minutes for the changes to propagate",
       "group_invite": "kutsumine {{invitee}} õnnestus. Muutuste levimine võib võtta paar minutit",
       "group_join": "liitumistaotluse saatmine rühmaga õnnestus. Muutuste levimine võib võtta paar minutit",
       "group_join_label": "liitumine rühmaga {{group_name}}: õnnestus!",
@@ -783,6 +782,9 @@
       "group_member_admin": "liikme administraatoriks tegemine õnnestus. Muutuste levimine võib võtta paar minutit",
       "group_promotion": "reklaami avaldamine õnnestus. Reklaami ilmumine võib võtta paar minutit",
       "group_remove_member": "liikme administraatori staatusest eemaldamine õnnestus. Muutuste levimine võib võtta paar minutit",
+      "group_update_label": "updated group {{group_name}}: success!",
+      "group_update_name": "updated group {{group_name}}: awaiting confirmation",
+      "group_updated": "successfully updated group. It may take a couple of minutes for the changes to propagate",
       "invitation_cancellation": "kutse tühistamine õnnestus. Muutuste levimine võib võtta paar minutit",
       "invitation_request": "liitumistaotluse vastuvõtmine: ootan kinnitust",
       "loading_threads": "laadin teemasid... palun oota.",
@@ -822,6 +824,13 @@
     "try_again": "Proovi uuesti",
     "unencrypted": "Krüpteerimata",
     "verification_failed": "Kontrollimine ebaõnnestus"
+  },
+  "notification_settings": {
+    "all_messages": "all messages",
+    "none": "none",
+    "notify_on_replies": "notify on replies",
+    "only_mentions": "only @mentions",
+    "suppress_everyone_here": "suppress @everyone and @here"
   },
   "onboarding": {
     "action": {

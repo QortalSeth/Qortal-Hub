@@ -210,9 +210,11 @@
     "invite_link_copied": "Link de convite copiado",
     "invite_link_copy_failed": "Não foi possível copiar o link de convite",
     "leave_group": "Sair do grupo",
+    "mark_all_groups_read": "mark all groups as read",
     "mark_all_read": "Marcar tudo como lido",
     "mark_as_read": "Marcar como lido",
     "mute_push_notifications": "Silenciar notificações push",
+    "notification_settings": "notification settings",
     "unmute_push_notifications": "Ativar notificações push",
     "update_group": "Update group"
   },
@@ -767,9 +769,6 @@
       "group_creation": "grupo criado com sucesso. Pode levar alguns minutos para que as mudanças se propaguem",
       "group_creation_label": "grupo {{group_name}} criado: sucesso!",
       "group_creation_name": "grupo {{group_name}} criado: aguardando confirmação",
-      "group_update_label": "updated group {{group_name}}: success!",
-      "group_update_name": "updated group {{group_name}}: awaiting confirmation",
-      "group_updated": "successfully updated group. It may take a couple of minutes for the changes to propagate",
       "group_invite": "{{invitee}} convidado com sucesso. Pode levar alguns minutos para que as mudanças se propaguem",
       "group_join": "pedido para entrar no grupo enviado com sucesso. Pode levar alguns minutos para que as mudanças se propaguem",
       "group_join_label": "entrou no grupo {{group_name}}: sucesso!",
@@ -783,6 +782,9 @@
       "group_member_admin": "membro promovido a administrador com sucesso. Pode levar alguns minutos para que as mudanças se propaguem",
       "group_promotion": "promoção publicada com sucesso. Pode levar alguns minutos para aparecer",
       "group_remove_member": "membro removido como administrador com sucesso. Pode levar alguns minutos para que as mudanças se propaguem",
+      "group_update_label": "updated group {{group_name}}: success!",
+      "group_update_name": "updated group {{group_name}}: awaiting confirmation",
+      "group_updated": "successfully updated group. It may take a couple of minutes for the changes to propagate",
       "invitation_cancellation": "convite cancelado com sucesso. Pode levar alguns minutos para que as mudanças se propaguem",
       "invitation_request": "pedido de entrada aceito: aguardando confirmação",
       "loading_threads": "carregando tópicos... por favor, aguarde.",
@@ -822,6 +824,13 @@
     "try_again": "Tentar novamente",
     "unencrypted": "Não encriptado",
     "verification_failed": "A verificação falhou"
+  },
+  "notification_settings": {
+    "all_messages": "all messages",
+    "none": "none",
+    "notify_on_replies": "notify on replies",
+    "only_mentions": "only @mentions",
+    "suppress_everyone_here": "suppress @everyone and @here"
   },
   "onboarding": {
     "action": {

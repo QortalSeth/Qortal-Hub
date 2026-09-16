@@ -23,7 +23,6 @@ import {
   managedSubscriptionsAtom,
   managedSubscriptionsLoadingAtom,
   memberGroupsAtom,
-  mutedGroupsAtom,
   myGroupsWhereIAmAdminAtom,
   myMemberGroupsAtom,
   myMemberGroupsLastFetchedAtom,
@@ -92,7 +91,6 @@ export function useAppReset() {
   );
   const resetGroupsOwnerNamesAtom = useResetAtom(groupsOwnerNamesAtom);
   const resetGroupAnnouncementsAtom = useResetAtom(groupAnnouncementsAtom);
-  const resetMutedGroupsAtom = useResetAtom(mutedGroupsAtom);
   const resetGroupChatTimestampsAtom = useResetAtom(groupChatTimestampsAtom);
   const resetReticulumChatSummariesAtom = useResetAtom(
     reticulumChatSummariesAtom
@@ -175,7 +173,6 @@ export function useAppReset() {
     resetLastPaymentSeenTimestampAtom();
     resetGroupsOwnerNamesAtom();
     resetGroupAnnouncementsAtom();
-    resetMutedGroupsAtom();
     resetGroupChatTimestampsAtom();
     resetReticulumChatSummariesAtom();
     resetReticulumDirectSummariesAtom();
@@ -227,7 +224,6 @@ export function useAppReset() {
     resetLastPaymentSeenTimestampAtom,
     resetGroupsOwnerNamesAtom,
     resetGroupAnnouncementsAtom,
-    resetMutedGroupsAtom,
     resetGroupChatTimestampsAtom,
     resetReticulumChatSummariesAtom,
     resetReticulumDirectSummariesAtom,

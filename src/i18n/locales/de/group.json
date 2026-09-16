@@ -210,9 +210,11 @@
     "invite_link_copied": "Einladungslink kopiert",
     "invite_link_copy_failed": "Einladungslink konnte nicht kopiert werden",
     "leave_group": "Gruppe verlassen",
+    "mark_all_groups_read": "mark all groups as read",
     "mark_all_read": "Alle als gelesen markieren",
     "mark_as_read": "Als gelesen markieren",
     "mute_push_notifications": "Push-Benachrichtigungen stummschalten",
+    "notification_settings": "notification settings",
     "unmute_push_notifications": "Push-Benachrichtigungen aktivieren",
     "update_group": "Update group"
   },
@@ -767,9 +769,6 @@
       "group_creation": "Gruppe erfolgreich erstellt. Änderungen können einige Minuten dauern",
       "group_creation_label": "Gruppe {{group_name}} erstellt: Erfolgreich!",
       "group_creation_name": "Gruppe {{group_name}} erstellt: Warte auf Bestätigung",
-      "group_update_label": "updated group {{group_name}}: success!",
-      "group_update_name": "updated group {{group_name}}: awaiting confirmation",
-      "group_updated": "successfully updated group. It may take a couple of minutes for the changes to propagate",
       "group_invite": "{{invitee}} erfolgreich eingeladen. Änderungen können einige Minuten dauern",
       "group_join": "Beitrittsanfrage erfolgreich gestellt. Änderungen können einige Minuten dauern",
       "group_join_label": "Gruppe {{group_name}} beigetreten: Erfolgreich!",
@@ -783,6 +782,9 @@
       "group_member_admin": "Mitglied erfolgreich zum Admin gemacht. Änderungen können einige Minuten dauern",
       "group_promotion": "Promotion erfolgreich veröffentlicht. Änderungen können einige Minuten dauern",
       "group_remove_member": "Adminrechte erfolgreich entzogen. Änderungen können einige Minuten dauern",
+      "group_update_label": "updated group {{group_name}}: success!",
+      "group_update_name": "updated group {{group_name}}: awaiting confirmation",
+      "group_updated": "successfully updated group. It may take a couple of minutes for the changes to propagate",
       "invitation_cancellation": "Einladung erfolgreich storniert. Änderungen können einige Minuten dauern",
       "invitation_request": "Beitrittsanfrage akzeptiert: Warte auf Bestätigung",
       "loading_threads": "Threads werden geladen... bitte warten.",
@@ -822,6 +824,13 @@
     "try_again": "Erneut versuchen",
     "unencrypted": "Unverschlüsselt",
     "verification_failed": "Überprüfung fehlgeschlagen"
+  },
+  "notification_settings": {
+    "all_messages": "all messages",
+    "none": "none",
+    "notify_on_replies": "notify on replies",
+    "only_mentions": "only @mentions",
+    "suppress_everyone_here": "suppress @everyone and @here"
   },
   "onboarding": {
     "action": {

@@ -210,9 +210,11 @@
     "invite_link_copied": "Lien d'invitation copié",
     "invite_link_copy_failed": "Impossible de copier le lien d'invitation",
     "leave_group": "Quitter le groupe",
+    "mark_all_groups_read": "mark all groups as read",
     "mark_all_read": "Tout marquer comme lu",
     "mark_as_read": "Marquer comme lu",
     "mute_push_notifications": "Couper les notifications push",
+    "notification_settings": "notification settings",
     "unmute_push_notifications": "Réactiver les notifications push",
     "update_group": "Update group"
   },
@@ -767,9 +769,6 @@
       "group_creation": "groupe créé avec succès. Les changements peuvent prendre quelques minutes",
       "group_creation_label": "groupe {{group_name}} créé : succès !",
       "group_creation_name": "groupe {{group_name}} créé : en attente de confirmation",
-      "group_update_label": "updated group {{group_name}}: success!",
-      "group_update_name": "updated group {{group_name}}: awaiting confirmation",
-      "group_updated": "successfully updated group. It may take a couple of minutes for the changes to propagate",
       "group_invite": "{{invitee}} invité avec succès. Les changements peuvent prendre quelques minutes",
       "group_join": "demande de rejoindre le groupe envoyée avec succès. Les changements peuvent prendre quelques minutes",
       "group_join_label": "rejoint le groupe {{group_name}} : succès !",
@@ -783,6 +782,9 @@
       "group_member_admin": "membre promu admin avec succès. Les changements peuvent prendre quelques minutes",
       "group_promotion": "promotion publiée avec succès. Peut prendre quelques minutes pour apparaître",
       "group_remove_member": "droits d’admin retirés avec succès. Les changements peuvent prendre quelques minutes",
+      "group_update_label": "updated group {{group_name}}: success!",
+      "group_update_name": "updated group {{group_name}}: awaiting confirmation",
+      "group_updated": "successfully updated group. It may take a couple of minutes for the changes to propagate",
       "invitation_cancellation": "invitation annulée avec succès. Les changements peuvent prendre quelques minutes",
       "invitation_request": "demande d’adhésion acceptée : en attente de confirmation",
       "loading_threads": "chargement des fils... veuillez patienter.",
@@ -822,6 +824,13 @@
     "try_again": "Réessayer",
     "unencrypted": "Non chiffré",
     "verification_failed": "Échec de la vérification"
+  },
+  "notification_settings": {
+    "all_messages": "all messages",
+    "none": "none",
+    "notify_on_replies": "notify on replies",
+    "only_mentions": "only @mentions",
+    "suppress_everyone_here": "suppress @everyone and @here"
   },
   "onboarding": {
     "action": {

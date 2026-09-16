@@ -50,7 +50,6 @@ import PersonOffIcon from '@mui/icons-material/PersonOff';
 import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined';
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
 import AccessibilityNewOutlinedIcon from '@mui/icons-material/AccessibilityNewOutlined';
-import NotificationsNoneRoundedIcon from '@mui/icons-material/NotificationsNoneRounded';
 import ChatBubbleOutlineRoundedIcon from '@mui/icons-material/ChatBubbleOutlineRounded';
 import ForumRoundedIcon from '@mui/icons-material/ForumRounded';
 import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded';
@@ -89,11 +88,6 @@ import {
   readReticulumGroupOrder,
 } from './reticulumGroupRail';
 import { QChatWhatsNewDialog } from './QChatWhatsNewDialog';
-import {
-  getQChatMentionNotificationsEnabled,
-  QCHAT_MENTION_NOTIFICATIONS_UPDATED_EVENT,
-  setQChatMentionNotificationsEnabled,
-} from '../../utils/qChatMentionNotifications';
 import { subscribeToEvent, unsubscribeFromEvent } from '../../utils/events';
 import {
   ReticulumUnreadCountBadge,
@@ -123,10 +117,9 @@ const ReticulumChatSettingsDialog = ({
   const { t } = useTranslation(['core', 'reticulum']);
   const theme = useTheme();
   const [activeSection, setActiveSection] = useState<
-    'text-size' | 'messages' | 'notifications' | 'legacy-threads'
+    'text-size' | 'messages' | 'legacy-threads'
   >('text-size');
   const [accessibilityExpanded, setAccessibilityExpanded] = useState(true);
-  const [notificationsExpanded, setNotificationsExpanded] = useState(true);
   const [legacyExpanded, setLegacyExpanded] = useState(true);
   const [textScale, setTextScale] = useAtom(reticulumChatTextScaleAtom);
   const [highlightOwnMessages, setHighlightOwnMessages] = useAtom(
@@ -135,32 +128,6 @@ const ReticulumChatSettingsDialog = ({
   const [legacyThreadsEnabled, setLegacyThreadsEnabled] = useAtom(
     reticulumLegacyThreadsEnabledAtom
   );
-  const [mentionNotificationsEnabled, setMentionNotificationsEnabled] =
-    useState(true);
-
-  useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-    void getQChatMentionNotificationsEnabled().then((enabled) => {
-      if (!cancelled) setMentionNotificationsEnabled(enabled);
-    });
-    const handleSettingUpdated = (
-      event: CustomEvent<{ enabled?: boolean }>
-    ) => {
-      setMentionNotificationsEnabled(event.detail?.enabled === true);
-    };
-    subscribeToEvent(
-      QCHAT_MENTION_NOTIFICATIONS_UPDATED_EVENT,
-      handleSettingUpdated as EventListener
-    );
-    return () => {
-      cancelled = true;
-      unsubscribeFromEvent(
-        QCHAT_MENTION_NOTIFICATIONS_UPDATED_EVENT,
-        handleSettingUpdated as EventListener
-      );
-    };
-  }, [open]);
   const navButtonSx = (selected: boolean) => ({
     alignItems: 'center',
     backgroundColor: selected ? theme.palette.action.hover : 'transparent',
@@ -289,27 +256,6 @@ const ReticulumChatSettingsDialog = ({
                 {t('reticulum:settings.nav.messages')}
               </ButtonBase>
             </>
-          )}
-          <ButtonBase
-            aria-expanded={notificationsExpanded}
-            onClick={() => setNotificationsExpanded((expanded) => !expanded)}
-            sx={{ ...categoryButtonSx, mt: 2.25 }}
-          >
-            <span>{t('core:message.generic.notifications')}</span>
-            {notificationsExpanded ? (
-              <ExpandMoreRoundedIcon sx={{ fontSize: 18 }} />
-            ) : (
-              <ChevronRightRoundedIcon sx={{ fontSize: 18 }} />
-            )}
-          </ButtonBase>
-          {notificationsExpanded && (
-            <ButtonBase
-              onClick={() => setActiveSection('notifications')}
-              sx={navButtonSx(activeSection === 'notifications')}
-            >
-              <NotificationsNoneRoundedIcon sx={{ fontSize: 19 }} />{' '}
-              {t('reticulum:settings.nav.mentions')}
-            </ButtonBase>
           )}
           <ButtonBase
             aria-expanded={legacyExpanded}
@@ -488,83 +434,6 @@ const ReticulumChatSettingsDialog = ({
                     ),
                   }}
                   onChange={(_, checked) => setHighlightOwnMessages(checked)}
-                />
-              </Box>
-            </>
-          ) : activeSection === 'notifications' ? (
-            <>
-              <Typography
-                component="h2"
-                sx={{
-                  color: 'text.primary',
-                  fontSize: 20,
-                  fontWeight: 650,
-                  lineHeight: '26px',
-                }}
-              >
-                {t('reticulum:settings.notifications.title')}
-              </Typography>
-              <Typography
-                sx={{
-                  color: 'text.secondary',
-                  fontSize: 14,
-                  fontWeight: 400,
-                  lineHeight: '20px',
-                  maxWidth: 460,
-                  mt: 0.75,
-                }}
-              >
-                {t('reticulum:settings.notifications.description')}
-              </Typography>
-              <Box
-                sx={{
-                  alignItems: 'center',
-                  backgroundColor: 'background.default',
-                  border: `1px solid ${theme.palette.divider}`,
-                  borderRadius: '10px',
-                  display: 'flex',
-                  gap: 2,
-                  justifyContent: 'space-between',
-                  mt: 2.5,
-                  px: 2,
-                  py: 1.5,
-                }}
-              >
-                <Box sx={{ minWidth: 0 }}>
-                  <Typography
-                    sx={{
-                      color: 'text.primary',
-                      fontSize: 14,
-                      fontWeight: 600,
-                      lineHeight: '20px',
-                    }}
-                  >
-                    {t('reticulum:settings.notifications.mentions.label')}
-                  </Typography>
-                  <Typography
-                    sx={{
-                      color: 'text.secondary',
-                      fontSize: 13,
-                      lineHeight: '18px',
-                      mt: 0.25,
-                    }}
-                  >
-                    {t('reticulum:settings.notifications.mentions.description')}
-                  </Typography>
-                </Box>
-                <Switch
-                  checked={mentionNotificationsEnabled === true}
-                  inputProps={{
-                    'aria-label': t(
-                      'reticulum:settings.notifications.mentions.label'
-                    ),
-                  }}
-                  onChange={(_, checked) => {
-                    setMentionNotificationsEnabled(checked);
-                    void setQChatMentionNotificationsEnabled(checked).catch(
-                      () => setMentionNotificationsEnabled(!checked)
-                    );
-                  }}
                 />
               </Box>
             </>

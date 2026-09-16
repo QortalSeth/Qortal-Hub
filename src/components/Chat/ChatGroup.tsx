@@ -11,6 +11,7 @@ import {
   useMemo,
   useReducer,
   useRef,
+  useId,
   useState,
 } from 'react';
 import { useAtom, useAtomValue, useStore } from 'jotai';
@@ -120,7 +121,10 @@ import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined';
 import TagRoundedIcon from '@mui/icons-material/TagRounded';
 import VisibilityOffRoundedIcon from '@mui/icons-material/VisibilityOffRounded';
 import VisibilityRoundedIcon from '@mui/icons-material/VisibilityRounded';
-import { ContextMenu, CustomStyledMenu } from '../ContextMenu';
+import { ContextMenu } from '../ContextMenu';
+import { NotificationSettingsSubmenu } from '../NotificationSettingsSubmenu';
+import { Menu, Item, Separator, contextMenu } from 'react-contexify';
+import { createPortal } from 'react-dom';
 import { messageHasImage } from '../../utils/chat';
 import { useTranslation } from 'react-i18next';
 import {
@@ -988,27 +992,10 @@ function ReticulumSortableChannelButton({
           alignItems: 'center',
           display: 'inline-flex',
           flexShrink: 0,
-          gap: 0.5,
+          gap: 1,
           ml: 1,
         }}
       >
-        {hasAutoExpiry && (
-          <Tooltip title={autoDeleteTooltip}>
-            <Box
-              aria-label={autoDeleteTooltip}
-              component="span"
-              role="img"
-              sx={{
-                alignItems: 'center',
-                display: 'inline-flex',
-                flexShrink: 0,
-                justifyContent: 'center',
-              }}
-            >
-              <ReticulumChannelAutoDeleteIcon />
-            </Box>
-          </Tooltip>
-        )}
         {hasUnreadMention && (
           <Tooltip
             title={
@@ -1074,6 +1061,23 @@ function ReticulumSortableChannelButton({
               }}
             >
               {replyCount > 0 ? (replyCount > 99 ? '99+' : replyCount) : null}
+            </Box>
+          </Tooltip>
+        )}
+        {hasAutoExpiry && (
+          <Tooltip title={autoDeleteTooltip}>
+            <Box
+              aria-label={autoDeleteTooltip}
+              component="span"
+              role="img"
+              sx={{
+                alignItems: 'center',
+                display: 'inline-flex',
+                flexShrink: 0,
+                justifyContent: 'center',
+              }}
+            >
+              <ReticulumChannelAutoDeleteIcon />
             </Box>
           </Tooltip>
         )}
@@ -1713,27 +1717,13 @@ export const ChatGroup = ({
     useRef<HTMLInputElement | null>(null);
   const [collapsedReticulumCategoryIds, setCollapsedReticulumCategoryIds] =
     useState<Set<string>>(() => new Set());
-  const [reticulumCategoryMenuPosition, setReticulumCategoryMenuPosition] =
-    useState<{
-      mouseX: number;
-      mouseY: number;
-    } | null>(null);
   const [reticulumCategoryMenuCategory, setReticulumCategoryMenuCategory] =
     useState<ReticulumGroupCategory | null>(null);
-  const [reticulumChannelMenuPosition, setReticulumChannelMenuPosition] =
-    useState<{
-      mouseX: number;
-      mouseY: number;
-    } | null>(null);
   const [reticulumChannelMenuChannel, setReticulumChannelMenuChannel] =
     useState<ReticulumGroupChannel | null>(null);
-  const [
-    reticulumChannelAreaMenuPosition,
-    setReticulumChannelAreaMenuPosition,
-  ] = useState<{
-    mouseX: number;
-    mouseY: number;
-  } | null>(null);
+  const channelAreaMenuId = useId();
+  const categoryMenuId = useId();
+  const channelMenuId = useId();
   const [reticulumLargeImageChoice, setReticulumLargeImageChoice] = useState<{
     file: File;
     filePath: string;
@@ -8085,42 +8075,32 @@ export const ChatGroup = ({
 
   const openReticulumCategoryContextMenu = useCallback(
     (event: ReactMouseEvent<HTMLElement>, category: ReticulumGroupCategory) => {
-      if (!isReticulumChannelAdmin) return;
       event.preventDefault();
-      setReticulumChannelMenuPosition(null);
       setReticulumChannelMenuChannel(null);
       setReticulumCategoryMenuCategory(category);
-      setReticulumCategoryMenuPosition({
-        mouseX: event.clientX + 2,
-        mouseY: event.clientY - 6,
-      });
+      contextMenu.show({ id: categoryMenuId, event });
     },
-    [isReticulumChannelAdmin]
+    [categoryMenuId]
   );
 
   const closeReticulumCategoryContextMenu = useCallback(() => {
-    setReticulumCategoryMenuPosition(null);
+    contextMenu.hideAll();
     setReticulumCategoryMenuCategory(null);
   }, []);
 
   const openReticulumChannelContextMenu = useCallback(
     (event: ReactMouseEvent<HTMLElement>, channel: ReticulumGroupChannel) => {
-      if (!isReticulumChannelAdmin) return;
       event.preventDefault();
       event.stopPropagation();
-      setReticulumCategoryMenuPosition(null);
       setReticulumCategoryMenuCategory(null);
       setReticulumChannelMenuChannel(channel);
-      setReticulumChannelMenuPosition({
-        mouseX: event.clientX + 2,
-        mouseY: event.clientY - 6,
-      });
+      contextMenu.show({ id: channelMenuId, event });
     },
-    [isReticulumChannelAdmin]
+    [channelMenuId]
   );
 
   const closeReticulumChannelContextMenu = useCallback(() => {
-    setReticulumChannelMenuPosition(null);
+    contextMenu.hideAll();
     setReticulumChannelMenuChannel(null);
   }, []);
 
@@ -8130,50 +8110,14 @@ export const ChatGroup = ({
         return;
       event.preventDefault();
       event.stopPropagation();
-      closeReticulumCategoryContextMenu();
-      closeReticulumChannelContextMenu();
-      setReticulumChannelAreaMenuPosition({
-        mouseX: event.clientX + 2,
-        mouseY: event.clientY - 6,
-      });
+      contextMenu.show({ id: channelAreaMenuId, event });
     },
-    [
-      closeReticulumCategoryContextMenu,
-      closeReticulumChannelContextMenu,
-      isReticulumChannelAdmin,
-    ]
+    [channelAreaMenuId, isReticulumChannelAdmin]
   );
 
   const closeReticulumChannelAreaContextMenu = useCallback(() => {
-    setReticulumChannelAreaMenuPosition(null);
+    contextMenu.hideAll();
   }, []);
-
-  useEffect(() => {
-    if (
-      !reticulumChannelMenuPosition &&
-      !reticulumCategoryMenuPosition &&
-      !reticulumChannelAreaMenuPosition
-    ) {
-      return undefined;
-    }
-    const closeOnSecondaryClick = (event: MouseEvent) => {
-      event.preventDefault();
-      closeReticulumChannelContextMenu();
-      closeReticulumCategoryContextMenu();
-      closeReticulumChannelAreaContextMenu();
-    };
-    document.addEventListener('contextmenu', closeOnSecondaryClick, true);
-    return () => {
-      document.removeEventListener('contextmenu', closeOnSecondaryClick, true);
-    };
-  }, [
-    closeReticulumCategoryContextMenu,
-    closeReticulumChannelAreaContextMenu,
-    closeReticulumChannelContextMenu,
-    reticulumCategoryMenuPosition,
-    reticulumChannelAreaMenuPosition,
-    reticulumChannelMenuPosition,
-  ]);
 
   const reticulumChannelDndSensors = useSensors(
     useSensor(PointerSensor, {
@@ -9185,202 +9129,243 @@ export const ChatGroup = ({
                 </SortableContext>
               </DndContext>
             )}
-            <CustomStyledMenu
-              reticulumMenu
-              disableAutoFocus
-              disableAutoFocusItem
-              disableEnforceFocus
-              disableRestoreFocus
-              open={Boolean(reticulumChannelAreaMenuPosition)}
-              onClose={closeReticulumChannelAreaContextMenu}
-              anchorReference="anchorPosition"
-              anchorPosition={
-                reticulumChannelAreaMenuPosition
-                  ? {
-                      left: reticulumChannelAreaMenuPosition.mouseX,
-                      top: reticulumChannelAreaMenuPosition.mouseY,
-                    }
-                  : undefined
-              }
-              slotProps={{
-                paper: { sx: { minWidth: '180px !important' } },
-              }}
-            >
-              <MenuItem
-                onClick={() => {
-                  closeReticulumChannelAreaContextMenu();
-                  openCreateReticulumChannelDialog();
-                }}
-              >
-                <ListItemIcon sx={{ minWidth: '32px' }}>
-                  <ForumRoundedIcon fontSize="small" />
-                </ListItemIcon>
-                <Typography variant="inherit" sx={{ fontSize: '14px' }}>
-                  {t('group:chat_group.create_channel')}
-                </Typography>
-              </MenuItem>
-              <MenuItem
-                onClick={() => {
-                  closeReticulumChannelAreaContextMenu();
-                  openCreateReticulumCategoryDialog();
-                }}
-              >
-                <ListItemIcon sx={{ minWidth: '32px' }}>
-                  <FolderRoundedIcon fontSize="small" />
-                </ListItemIcon>
-                <Typography variant="inherit" sx={{ fontSize: '14px' }}>
-                  {t('group:chat_group.create_category_menu')}
-                </Typography>
-              </MenuItem>
-            </CustomStyledMenu>
-            <CustomStyledMenu
-              reticulumMenu
-              disableAutoFocus
-              disableAutoFocusItem
-              disableEnforceFocus
-              disableRestoreFocus
-              open={Boolean(reticulumCategoryMenuPosition)}
-              onClose={closeReticulumCategoryContextMenu}
-              anchorReference="anchorPosition"
-              anchorPosition={
-                reticulumCategoryMenuPosition
-                  ? {
-                      left: reticulumCategoryMenuPosition.mouseX,
-                      top: reticulumCategoryMenuPosition.mouseY,
-                    }
-                  : undefined
-              }
-              slotProps={{
-                paper: {
-                  sx: {
-                    minWidth: '180px !important',
-                  },
-                },
-              }}
-            >
-              <MenuItem
-                onClick={() => {
-                  if (reticulumCategoryMenuCategory) {
-                    openRenameReticulumCategoryDialog(
-                      reticulumCategoryMenuCategory
-                    );
-                  }
-                  closeReticulumCategoryContextMenu();
-                }}
-              >
-                <ListItemIcon sx={{ minWidth: '32px' }}>
-                  <SettingsOutlinedIcon fontSize="small" />
-                </ListItemIcon>
-                <Typography variant="inherit" sx={{ fontSize: '14px' }}>
-                  {t('group:chat_group.category_settings_menu')}
-                </Typography>
-              </MenuItem>
-              <Divider sx={{ borderColor: 'divider', my: 0.5 }} />
-              <Tooltip
-                arrow
-                placement="right"
-                title={
-                  reticulumCategoryMenuCategory?.categoryId ===
-                    DEFAULT_RETICULUM_CATEGORY_METADATA_ID &&
-                  reticulumDefaultCategoryHasProtectedChannels
-                    ? t('group:chat_group.default_channels_in_category')
-                    : ''
+            {createPortal(
+              <Menu
+                id={channelAreaMenuId}
+                theme={theme.palette.mode as 'light' | 'dark'}
+                animation="fade"
+                style={
+                  {
+                    '--contexify-menu-bgColor': theme.palette.background.paper,
+                    '--contexify-menu-shadow':
+                      '0 12px 28px rgba(0, 0, 0, 0.28)',
+                    '--contexify-menu-radius': '8px',
+                    '--contexify-menu-padding': '6px',
+                    '--contexify-menu-minWidth': '180px',
+                    '--contexify-item-color': theme.palette.text.primary,
+                    '--contexify-activeItem-color': theme.palette.text.primary,
+                    '--contexify-activeItem-bgColor':
+                      theme.palette.action.hover,
+                    '--contexify-activeItem-radius': '6px',
+                    '--contexify-itemContent-padding': '8px',
+                  '--contexify-separator-color': theme.palette.divider,
+                  '--contexify-arrow-color': theme.palette.text.primary,
+                  fontFamily: theme.typography.fontFamily,
+                  } as React.CSSProperties
                 }
               >
-                <Box component="span" sx={{ display: 'block' }}>
-                  <MenuItem
-                    disabled={
-                      reticulumCategoryMenuCategory?.categoryId ===
-                        DEFAULT_RETICULUM_CATEGORY_METADATA_ID &&
-                      reticulumDefaultCategoryHasProtectedChannels
-                    }
-                    onClick={() => {
-                      if (reticulumCategoryMenuCategory) {
-                        openReticulumCategoryDeleteConfirmation(
-                          reticulumCategoryMenuCategory
-                        );
-                      }
-                      closeReticulumCategoryContextMenu();
-                    }}
-                    sx={{ color: 'error.main' }}
+                <Item
+                  onClick={() => {
+                    closeReticulumChannelAreaContextMenu();
+                    openCreateReticulumChannelDialog();
+                  }}
+                >
+                  <ForumRoundedIcon sx={{ fontSize: 18, mr: 1.5 }} />
+                  <Typography
+                    component="span"
+                    sx={{ fontSize: '14px', fontWeight: 600 }}
                   >
-                    <ListItemIcon sx={{ color: 'inherit', minWidth: '32px' }}>
-                      <DeleteOutlineRoundedIcon fontSize="small" />
-                    </ListItemIcon>
-                    <Typography variant="inherit" sx={{ fontSize: '14px' }}>
-                      {t('group:chat_group.remove_category_menu')}
-                    </Typography>
-                  </MenuItem>
-                </Box>
-              </Tooltip>
-            </CustomStyledMenu>
-            <CustomStyledMenu
-              reticulumMenu
-              disableAutoFocus
-              disableAutoFocusItem
-              disableEnforceFocus
-              disableRestoreFocus
-              open={Boolean(reticulumChannelMenuPosition)}
-              onClose={closeReticulumChannelContextMenu}
-              anchorReference="anchorPosition"
-              anchorPosition={
-                reticulumChannelMenuPosition
-                  ? {
-                      left: reticulumChannelMenuPosition.mouseX,
-                      top: reticulumChannelMenuPosition.mouseY,
-                    }
-                  : undefined
-              }
-              slotProps={{
-                paper: {
-                  sx: {
-                    minWidth: '180px !important',
-                  },
-                },
-              }}
-            >
-              <MenuItem
-                onClick={() => {
-                  if (reticulumChannelMenuChannel) {
-                    openReticulumChannelSettings(reticulumChannelMenuChannel);
-                  }
-                  closeReticulumChannelContextMenu();
-                }}
+                    {t('group:chat_group.create_channel')}
+                  </Typography>
+                </Item>
+                <Item
+                  onClick={() => {
+                    closeReticulumChannelAreaContextMenu();
+                    openCreateReticulumCategoryDialog();
+                  }}
+                >
+                  <FolderRoundedIcon sx={{ fontSize: 18, mr: 1.5 }} />
+                  <Typography
+                    component="span"
+                    sx={{ fontSize: '14px', fontWeight: 600 }}
+                  >
+                    {t('group:chat_group.create_category_menu')}
+                  </Typography>
+                </Item>
+              </Menu>,
+              document.body
+            )}
+            {createPortal(
+              <Menu
+                id={categoryMenuId}
+                theme={theme.palette.mode as 'light' | 'dark'}
+                animation="fade"
+                style={
+                  {
+                    '--contexify-menu-bgColor': theme.palette.background.paper,
+                    '--contexify-menu-shadow':
+                      '0 12px 28px rgba(0, 0, 0, 0.28)',
+                    '--contexify-menu-radius': '8px',
+                    '--contexify-menu-padding': '6px',
+                    '--contexify-menu-minWidth': '180px',
+                    '--contexify-item-color': theme.palette.text.primary,
+                    '--contexify-activeItem-color': theme.palette.text.primary,
+                    '--contexify-activeItem-bgColor':
+                      theme.palette.action.hover,
+                    '--contexify-activeItem-radius': '6px',
+                    '--contexify-itemContent-padding': '8px',
+                  '--contexify-separator-color': theme.palette.divider,
+                  '--contexify-arrow-color': theme.palette.text.primary,
+                  fontFamily: theme.typography.fontFamily,
+                  } as React.CSSProperties
+                }
               >
-                <ListItemIcon sx={{ minWidth: '32px' }}>
-                  <SettingsOutlinedIcon fontSize="small" />
-                </ListItemIcon>
-                <Typography variant="inherit" sx={{ fontSize: '14px' }}>
-                  {t('group:chat_group.channel_settings_menu')}
-                </Typography>
-              </MenuItem>
-              {reticulumChannelMenuChannel &&
-                !isReticulumSystemChannelId(
-                  reticulumChannelMenuChannel.channelId
-                ) && (
+                <NotificationSettingsSubmenu
+                  scope={{
+                    groupId: Number(selectedGroup),
+                    sectionId: reticulumCategoryMenuCategory?.categoryId,
+                  }}
+                />
+                {isReticulumChannelAdmin && (
                   <>
-                    <Divider
-                      sx={{ borderColor: 'rgba(255, 255, 255, 0.08)', my: 0.5 }}
-                    />
-                    <MenuItem
+                    <Item
                       onClick={() => {
-                        openReticulumChannelDeleteConfirmation(
-                          reticulumChannelMenuChannel
-                        );
-                        closeReticulumChannelContextMenu();
+                        if (reticulumCategoryMenuCategory) {
+                          openRenameReticulumCategoryDialog(
+                            reticulumCategoryMenuCategory
+                          );
+                        }
+                        closeReticulumCategoryContextMenu();
                       }}
-                      sx={{ color: 'error.main' }}
                     >
-                      <ListItemIcon sx={{ color: 'inherit', minWidth: '32px' }}>
-                        <DeleteOutlineRoundedIcon fontSize="small" />
-                      </ListItemIcon>
-                      <Typography variant="inherit" sx={{ fontSize: '14px' }}>
-                        {t('group:chat_group.remove_channel_menu')}
+                      <SettingsOutlinedIcon sx={{ fontSize: 18, mr: 1.5 }} />
+                      <Typography
+                        component="span"
+                        sx={{ fontSize: '14px', fontWeight: 600 }}
+                      >
+                        {t('group:chat_group.category_settings_menu')}
                       </Typography>
-                    </MenuItem>
+                    </Item>
+                    <Separator />
+                    <Item
+                      disabled={
+                        reticulumCategoryMenuCategory?.categoryId ===
+                          DEFAULT_RETICULUM_CATEGORY_METADATA_ID &&
+                        reticulumDefaultCategoryHasProtectedChannels
+                      }
+                      onClick={() => {
+                        if (reticulumCategoryMenuCategory) {
+                          openReticulumCategoryDeleteConfirmation(
+                            reticulumCategoryMenuCategory
+                          );
+                        }
+                        closeReticulumCategoryContextMenu();
+                      }}
+                    >
+                      <DeleteOutlineRoundedIcon
+                        sx={{
+                          color: 'error.main',
+                          fontSize: 18,
+                          mr: 1.5,
+                        }}
+                      />
+                      <Typography
+                        component="span"
+                        sx={{
+                          color: 'error.main',
+                          fontSize: '14px',
+                          fontWeight: 600,
+                        }}
+                      >
+                        {t('group:chat_group.remove_category_menu')}
+                      </Typography>
+                    </Item>
                   </>
                 )}
-            </CustomStyledMenu>
+              </Menu>,
+              document.body
+            )}
+            {createPortal(
+              <Menu
+                id={channelMenuId}
+                theme={theme.palette.mode as 'light' | 'dark'}
+                animation="fade"
+                style={
+                  {
+                    '--contexify-menu-bgColor': theme.palette.background.paper,
+                    '--contexify-menu-shadow':
+                      '0 12px 28px rgba(0, 0, 0, 0.28)',
+                    '--contexify-menu-radius': '8px',
+                    '--contexify-menu-padding': '6px',
+                    '--contexify-menu-minWidth': '180px',
+                    '--contexify-item-color': theme.palette.text.primary,
+                    '--contexify-activeItem-color': theme.palette.text.primary,
+                    '--contexify-activeItem-bgColor':
+                      theme.palette.action.hover,
+                    '--contexify-activeItem-radius': '6px',
+                    '--contexify-itemContent-padding': '8px',
+                  '--contexify-separator-color': theme.palette.divider,
+                  '--contexify-arrow-color': theme.palette.text.primary,
+                  fontFamily: theme.typography.fontFamily,
+                  } as React.CSSProperties
+                }
+              >
+                <NotificationSettingsSubmenu
+                  scope={{
+                    groupId: Number(selectedGroup),
+                    sectionId: reticulumChannelMenuChannel?.categoryId,
+                    channelId: reticulumChannelMenuChannel?.channelId,
+                  }}
+                />
+                {isReticulumChannelAdmin && (
+                  <>
+                    <Item
+                      onClick={() => {
+                        if (reticulumChannelMenuChannel) {
+                          openReticulumChannelSettings(
+                            reticulumChannelMenuChannel
+                          );
+                        }
+                        closeReticulumChannelContextMenu();
+                      }}
+                    >
+                      <SettingsOutlinedIcon sx={{ fontSize: 18, mr: 1.5 }} />
+                      <Typography
+                        component="span"
+                        sx={{ fontSize: '14px', fontWeight: 600 }}
+                      >
+                        {t('group:chat_group.channel_settings_menu')}
+                      </Typography>
+                    </Item>
+                    {reticulumChannelMenuChannel &&
+                      !isReticulumSystemChannelId(
+                        reticulumChannelMenuChannel.channelId
+                      ) && (
+                        <>
+                          <Separator />
+                          <Item
+                            onClick={() => {
+                              openReticulumChannelDeleteConfirmation(
+                                reticulumChannelMenuChannel
+                              );
+                              closeReticulumChannelContextMenu();
+                            }}
+                          >
+                            <DeleteOutlineRoundedIcon
+                              sx={{
+                                color: 'error.main',
+                                fontSize: 18,
+                                mr: 1.5,
+                              }}
+                            />
+                            <Typography
+                              component="span"
+                              sx={{
+                                color: 'error.main',
+                                fontSize: '14px',
+                                fontWeight: 600,
+                              }}
+                            >
+                              {t('group:chat_group.remove_channel_menu')}
+                            </Typography>
+                          </Item>
+                        </>
+                      )}
+                  </>
+                )}
+              </Menu>,
+              document.body
+            )}
           </Box>
         )}
 
