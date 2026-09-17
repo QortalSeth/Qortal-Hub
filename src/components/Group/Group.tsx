@@ -113,7 +113,10 @@ import {
 import { mergeDirectsWithFriends } from '../../lib/dm/mergeDirectsWithFriends';
 import { validateAddress } from '../../utils/validateAddress';
 import { sortArrayByTimestampAndGroupName } from '../../utils/time';
-import { migrateNotificationSettings, getEffectiveNotificationSettings } from '../../utils/qChatNotificationSettings';
+import {
+  migrateNotificationSettings,
+  getEffectiveNotificationSettings,
+} from '../../utils/qChatNotificationSettings';
 import { WalletsAppWrapper } from './WalletsAppWrapper';
 import { useTranslation } from 'react-i18next';
 import { GroupList } from './GroupList';
@@ -2825,20 +2828,17 @@ export const Group = ({
               ? (parentEvents[0] as any)
               : null;
             if (parentEvent?.authorAddress === myAddressRef.current) {
-              const effectiveSettings =
-                await getEffectiveNotificationSettings(
-                  groupId,
-                  undefined,
-                  channelId
-                ).catch(() => null);
+              const effectiveSettings = await getEffectiveNotificationSettings(
+                groupId,
+                undefined,
+                channelId
+              ).catch(() => null);
               if (effectiveSettings?.notifyOnReplies) {
                 const group = memberGroupsRef.current?.find(
                   (item: any) => Number(item?.groupId) === groupId
                 );
                 const groupName =
-                  group?.groupName ||
-                  group?.name ||
-                  `Group ${String(groupId)}`;
+                  group?.groupName || group?.name || `Group ${String(groupId)}`;
                 executeEvent('q-chat-reply-notification', {
                   channelId,
                   eventId: String(event.eventId || ''),
@@ -3568,6 +3568,84 @@ export const Group = ({
     }, 200);
   }, [getGroupAnnouncements, getTimestampEnterChat, markReticulumGroupsRead]);
 
+  const handleMarkChannelRead = useCallback(
+    async (e: Event) => {
+      const { groupId, channelId } = (e as CustomEvent).detail;
+      if (
+        !reticulumChatEnabled ||
+        !myAddress ||
+        typeof window.reticulumChat?.markRead !== 'function'
+      ) {
+        return;
+      }
+      const numericGroupId = Number(groupId);
+      if (
+        !Number.isInteger(numericGroupId) ||
+        numericGroupId <= 0 ||
+        !channelId
+      ) {
+        return;
+      }
+      try {
+        const result = await window.reticulumChat.markRead(
+          numericGroupId,
+          String(channelId),
+          Date.now(),
+          myAddress
+        );
+        if (result?.success !== true) {
+          throw new Error('Reticulum chat markRead failed');
+        }
+      } catch (error) {
+        console.error('[ReticulumChat] Failed to mark channel as read:', error);
+      }
+      executeEvent('reticulum-chat-summaries-refresh', {});
+    },
+    [myAddress, reticulumChatEnabled]
+  );
+
+  const handleMarkSectionRead = useCallback(
+    async (e: Event) => {
+      const { groupId, channelIds } = (e as CustomEvent).detail;
+      if (
+        !reticulumChatEnabled ||
+        !myAddress ||
+        typeof window.reticulumChat?.markRead !== 'function'
+      ) {
+        return;
+      }
+      const numericGroupId = Number(groupId);
+      if (
+        !Number.isInteger(numericGroupId) ||
+        numericGroupId <= 0 ||
+        !Array.isArray(channelIds) ||
+        channelIds.length === 0
+      ) {
+        return;
+      }
+      for (const channelId of channelIds) {
+        try {
+          const result = await window.reticulumChat.markRead(
+            numericGroupId,
+            String(channelId),
+            Date.now(),
+            myAddress
+          );
+          if (result?.success !== true) {
+            throw new Error('Reticulum chat markRead failed');
+          }
+        } catch (error) {
+          console.error(
+            '[ReticulumChat] Failed to mark channel as read:',
+            error
+          );
+        }
+      }
+      executeEvent('reticulum-chat-summaries-refresh', {});
+    },
+    [myAddress, reticulumChatEnabled]
+  );
+
   useEffect(() => {
     subscribeToEvent('markAsRead', handleMarkAsRead);
 
@@ -3586,6 +3664,22 @@ export const Group = ({
       );
     };
   }, [handleMarkAllMemberGroupsRead]);
+
+  useEffect(() => {
+    subscribeToEvent('markChannelRead', handleMarkChannelRead);
+
+    return () => {
+      unsubscribeFromEvent('markChannelRead', handleMarkChannelRead);
+    };
+  }, [handleMarkChannelRead]);
+
+  useEffect(() => {
+    subscribeToEvent('markSectionRead', handleMarkSectionRead);
+
+    return () => {
+      unsubscribeFromEvent('markSectionRead', handleMarkSectionRead);
+    };
+  }, [handleMarkSectionRead]);
 
   const resetAllStatesAndRefs = useCallback(() => {
     // Reset all useState values to their initial states

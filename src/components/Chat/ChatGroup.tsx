@@ -121,6 +121,7 @@ import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined';
 import TagRoundedIcon from '@mui/icons-material/TagRounded';
 import VisibilityOffRoundedIcon from '@mui/icons-material/VisibilityOffRounded';
 import VisibilityRoundedIcon from '@mui/icons-material/VisibilityRounded';
+import MailOutlineIcon from '@mui/icons-material/MailOutline';
 import { ContextMenu } from '../ContextMenu';
 import { NotificationSettingsSubmenu } from '../NotificationSettingsSubmenu';
 import { Menu, Item, Separator, contextMenu } from 'react-contexify';
@@ -910,7 +911,6 @@ function ReticulumSortableChannelButton({
       {...listeners}
       onClick={() => onSelect(channel.channelId)}
       onContextMenu={(event) => {
-        if (!isAdmin) return;
         onContextMenu(event, channel);
       }}
       sx={{
@@ -2328,6 +2328,31 @@ export const ChatGroup = ({
     reticulumDefaultCategoryChannels.some((channel) =>
       isReticulumSystemChannelId(channel.channelId)
     );
+
+  const channelMenuSummary = reticulumChannelMenuChannel
+    ? reticulumChannelSummariesById.get(reticulumChannelMenuChannel.channelId)
+    : undefined;
+  const channelMenuHasUnread =
+    Math.max(0, Number(channelMenuSummary?.unreadCount) || 0) > 0 ||
+    channelMenuSummary?.hasUnreadMention === true ||
+    Math.max(0, Number(channelMenuSummary?.mentionCount) || 0) > 0;
+
+  const sectionMenuChannelIds = reticulumCategoryMenuCategory
+    ? (
+        reticulumChannelsByCategory.get(
+          reticulumCategoryMenuCategory.categoryId
+        ) ?? []
+      ).map((ch) => ch.channelId)
+    : [];
+  const sectionMenuHasUnread = sectionMenuChannelIds.some((id) => {
+    const s = reticulumChannelSummariesById.get(id);
+    return (
+      Math.max(0, Number(s?.unreadCount) || 0) > 0 ||
+      s?.hasUnreadMention === true ||
+      Math.max(0, Number(s?.mentionCount) || 0) > 0
+    );
+  });
+
   const reticulumDefaultCategoryIsHidden =
     reticulumDefaultCategoryMetadata?.name ===
       HIDDEN_RETICULUM_DEFAULT_CATEGORY_NAME &&
@@ -9148,9 +9173,9 @@ export const ChatGroup = ({
                       theme.palette.action.hover,
                     '--contexify-activeItem-radius': '6px',
                     '--contexify-itemContent-padding': '8px',
-                  '--contexify-separator-color': theme.palette.divider,
-                  '--contexify-arrow-color': theme.palette.text.primary,
-                  fontFamily: theme.typography.fontFamily,
+                    '--contexify-separator-color': theme.palette.divider,
+                    '--contexify-arrow-color': theme.palette.text.primary,
+                    fontFamily: theme.typography.fontFamily,
                   } as React.CSSProperties
                 }
               >
@@ -9204,12 +9229,32 @@ export const ChatGroup = ({
                       theme.palette.action.hover,
                     '--contexify-activeItem-radius': '6px',
                     '--contexify-itemContent-padding': '8px',
-                  '--contexify-separator-color': theme.palette.divider,
-                  '--contexify-arrow-color': theme.palette.text.primary,
-                  fontFamily: theme.typography.fontFamily,
+                    '--contexify-separator-color': theme.palette.divider,
+                    '--contexify-arrow-color': theme.palette.text.primary,
+                    fontFamily: theme.typography.fontFamily,
                   } as React.CSSProperties
                 }
               >
+                <Item
+                  disabled={!sectionMenuHasUnread}
+                  onClick={() => {
+                    if (sectionMenuChannelIds.length > 0) {
+                      executeEvent('markSectionRead', {
+                        groupId: Number(selectedGroup),
+                        channelIds: sectionMenuChannelIds,
+                      });
+                    }
+                    closeReticulumCategoryContextMenu();
+                  }}
+                >
+                  <MailOutlineIcon sx={{ fontSize: 18, mr: 1.5 }} />
+                  <Typography
+                    component="span"
+                    sx={{ fontSize: '14px', fontWeight: 600 }}
+                  >
+                    {t('group:context_menu.mark_as_read')}
+                  </Typography>
+                </Item>
                 <NotificationSettingsSubmenu
                   scope={{
                     groupId: Number(selectedGroup),
@@ -9294,12 +9339,32 @@ export const ChatGroup = ({
                       theme.palette.action.hover,
                     '--contexify-activeItem-radius': '6px',
                     '--contexify-itemContent-padding': '8px',
-                  '--contexify-separator-color': theme.palette.divider,
-                  '--contexify-arrow-color': theme.palette.text.primary,
-                  fontFamily: theme.typography.fontFamily,
+                    '--contexify-separator-color': theme.palette.divider,
+                    '--contexify-arrow-color': theme.palette.text.primary,
+                    fontFamily: theme.typography.fontFamily,
                   } as React.CSSProperties
                 }
               >
+                <Item
+                  disabled={!channelMenuHasUnread}
+                  onClick={() => {
+                    if (reticulumChannelMenuChannel) {
+                      executeEvent('markChannelRead', {
+                        groupId: Number(selectedGroup),
+                        channelId: reticulumChannelMenuChannel.channelId,
+                      });
+                    }
+                    closeReticulumChannelContextMenu();
+                  }}
+                >
+                  <MailOutlineIcon sx={{ fontSize: 18, mr: 1.5 }} />
+                  <Typography
+                    component="span"
+                    sx={{ fontSize: '14px', fontWeight: 600 }}
+                  >
+                    {t('group:context_menu.mark_as_read')}
+                  </Typography>
+                </Item>
                 <NotificationSettingsSubmenu
                   scope={{
                     groupId: Number(selectedGroup),
