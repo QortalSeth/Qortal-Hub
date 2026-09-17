@@ -1,6 +1,13 @@
 import { useId, useState, useRef, useMemo, useContext, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Box, Divider, Typography, styled, useTheme } from '@mui/material';
+import {
+  Box,
+  Divider,
+  Menu as MuiMenu,
+  Typography,
+  styled,
+  useTheme,
+} from '@mui/material';
 import { Menu, Item, Separator, contextMenu } from 'react-contexify';
 import 'react-contexify/dist/ReactContexify.css';
 import MailOutlineIcon from '@mui/icons-material/MailOutline';
@@ -24,7 +31,7 @@ import { GroupScoreBadge } from './Group/ReticulumGroupLevel';
 import { NotificationSettingsSubmenu } from './NotificationSettingsSubmenu';
 import { useReticulumGroupScore } from './Group/reticulumGroupScore';
 
-export const CustomStyledMenu = styled(Menu, {
+export const CustomStyledMenu = styled(MuiMenu, {
   shouldForwardProp: (prop) => prop !== 'reticulumMenu',
 })(({ theme, reticulumMenu }) => ({
   '& .MuiPaper-root': {
