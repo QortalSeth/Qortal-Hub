@@ -24,6 +24,7 @@ import {
   reticulumChatTextScaleAtom,
   reticulumLegacyThreadsEnabledAtom,
   reticulumChatSummariesAtom,
+  notificationSettingsCacheAtom,
   type ReticulumChatSummaryAtomEntry,
 } from '../../atoms/global';
 import {
@@ -124,6 +125,8 @@ import VisibilityRoundedIcon from '@mui/icons-material/VisibilityRounded';
 import MailOutlineIcon from '@mui/icons-material/MailOutline';
 import { ContextMenu } from '../ContextMenu';
 import { NotificationSettingsSubmenu } from '../NotificationSettingsSubmenu';
+import { MuteSubmenu } from '../MuteSubmenu';
+import { isScopeMuted } from '../../utils/qChatNotificationSettings';
 import { Menu, Item, Separator, contextMenu } from 'react-contexify';
 import { createPortal } from 'react-dom';
 import { messageHasImage } from '../../utils/chat';
@@ -824,7 +827,9 @@ type ReticulumSortableChannelButtonProps = {
   channel: ReticulumGroupChannel;
   dropPosition?: ReticulumDragInsertionPosition;
   hasUnreadMention: boolean;
+  hideMuted: boolean;
   isAdmin: boolean;
+  isMuted: boolean;
   mentionCount: number;
   onContextMenu: (
     event: ReactMouseEvent<HTMLElement>,
@@ -877,7 +882,9 @@ function ReticulumSortableChannelButton({
   channel,
   dropPosition,
   hasUnreadMention,
+  hideMuted,
   isAdmin,
+  isMuted,
   mentionCount,
   onContextMenu,
   onSelect,
@@ -892,7 +899,6 @@ function ReticulumSortableChannelButton({
     disabled: !isAdmin,
   });
   const hasUnread = unreadCount > 0 || hasUnreadMention;
-  const emphasized = selected || hasUnread;
   const channelTypeOption = reticulumChannelTypeOptionByAccess(
     reticulumChannelAccessFromModes(channel.writeMode, channel.readMode)
   );
@@ -917,7 +923,7 @@ function ReticulumSortableChannelButton({
         alignItems: 'center',
         backgroundColor: selected ? 'action.selected' : 'transparent',
         borderRadius: '6px',
-        color: emphasized ? 'text.primary' : 'text.secondary',
+        color: isMuted ? 'text.secondary' : 'text.primary',
         cursor: 'pointer',
         display: 'flex',
         fontSize: reticulumTextSize(textScale, 14),
@@ -949,7 +955,6 @@ function ReticulumSortableChannelButton({
         WebkitFontSmoothing: 'antialiased',
         '&:hover': {
           backgroundColor: selected ? 'action.selected' : 'action.hover',
-          color: 'text.primary',
         },
       }}
     >
@@ -969,7 +974,7 @@ function ReticulumSortableChannelButton({
         <ChannelTypeIcon
           aria-hidden
           sx={{
-            color: emphasized ? 'inherit' : 'text.disabled',
+            color: isMuted ? 'text.disabled' : 'inherit',
             flexShrink: 0,
             fontSize: 18,
           }}
@@ -996,7 +1001,7 @@ function ReticulumSortableChannelButton({
           ml: 1,
         }}
       >
-        {hasUnreadMention && (
+        {hasUnreadMention && !hideMuted && (
           <Tooltip
             title={
               mentionCount > 1
@@ -1033,38 +1038,39 @@ function ReticulumSortableChannelButton({
             </Box>
           </Tooltip>
         )}
-        {(replyCount > 0 || (unreadCount > 0 && !hasUnreadMention)) && (
-          <Tooltip
-            title={
-              replyCount > 1
-                ? `${replyCount} unread replies`
-                : replyCount === 1
-                  ? t('group:chat_group.unread_reply')
-                  : t('group:chat_group.unread_messages')
-            }
-          >
-            <Box
-              component="span"
-              sx={{
-                alignItems: 'center',
-                backgroundColor: 'error.main',
-                borderRadius: '999px',
-                color: 'error.contrastText',
-                display: 'inline-flex',
-                fontSize: 11,
-                fontWeight: 800,
-                height: replyCount > 0 ? 18 : 8,
-                justifyContent: 'center',
-                lineHeight: 1,
-                minWidth: replyCount > 0 ? 18 : 8,
-                px: replyCount > 0 ? 0.5 : 0,
-              }}
+        {(replyCount > 0 || (unreadCount > 0 && !hasUnreadMention)) &&
+          !isMuted && (
+            <Tooltip
+              title={
+                replyCount > 1
+                  ? `${replyCount} unread replies`
+                  : replyCount === 1
+                    ? t('group:chat_group.unread_reply')
+                    : t('group:chat_group.unread_messages')
+              }
             >
-              {replyCount > 0 ? (replyCount > 99 ? '99+' : replyCount) : null}
-            </Box>
-          </Tooltip>
-        )}
-        {hasAutoExpiry && (
+              <Box
+                component="span"
+                sx={{
+                  alignItems: 'center',
+                  backgroundColor: 'error.main',
+                  borderRadius: '999px',
+                  color: 'error.contrastText',
+                  display: 'inline-flex',
+                  fontSize: 11,
+                  fontWeight: 800,
+                  height: replyCount > 0 ? 18 : 8,
+                  justifyContent: 'center',
+                  lineHeight: 1,
+                  minWidth: replyCount > 0 ? 18 : 8,
+                  px: replyCount > 0 ? 0.5 : 0,
+                }}
+              >
+                {replyCount > 0 ? (replyCount > 99 ? '99+' : replyCount) : null}
+              </Box>
+            </Tooltip>
+          )}
+        {hasAutoExpiry ? (
           <Tooltip title={autoDeleteTooltip}>
             <Box
               aria-label={autoDeleteTooltip}
@@ -1080,6 +1086,17 @@ function ReticulumSortableChannelButton({
               <ReticulumChannelAutoDeleteIcon />
             </Box>
           </Tooltip>
+        ) : (
+          <Box
+            component="span"
+            aria-hidden
+            sx={{
+              display: 'inline-flex',
+              flexShrink: 0,
+              height: 13,
+              width: 13,
+            }}
+          />
         )}
       </Box>
     </ButtonBase>
@@ -1122,6 +1139,7 @@ function ReticulumSortableCategory({
   dropPosition,
   isAdmin,
   isCollapsed,
+  isMuted,
   onContextMenu,
   onCreateChannel,
   onToggleCollapsed,
@@ -1132,6 +1150,7 @@ function ReticulumSortableCategory({
   dropPosition?: ReticulumDragInsertionPosition;
   isAdmin: boolean;
   isCollapsed: boolean;
+  isMuted: boolean;
   onContextMenu: (
     event: ReactMouseEvent<HTMLElement>,
     category: ReticulumGroupCategory
@@ -1849,6 +1868,7 @@ export const ChatGroup = ({
   > | null>(null);
   const reticulumTypingActiveRef = useRef(false);
   const reticulumChatSummaries = useAtomValue(reticulumChatSummariesAtom);
+  const notificationSettingsCache = useAtomValue(notificationSettingsCacheAtom);
   const [windowSize, setWindowSize] = useState(() =>
     typeof window !== 'undefined'
       ? {
@@ -2297,6 +2317,43 @@ export const ChatGroup = ({
     selectedReticulumChannelId,
   ]);
 
+  const reticulumGroupSettings =
+    notificationSettingsCache[String(selectedGroup)];
+  const reticulumHideMutedChannels =
+    reticulumGroupSettings?.hideMutedChannels === true;
+
+  useEffect(() => {
+    if (!reticulumChatEnabled || !reticulumHideMutedChannels) return;
+    if (!reticulumGroupSettings) return;
+    const selectedChannel = reticulumChannelsForSelectedGroup.find(
+      (channel) => channel.channelId === selectedReticulumChannelId
+    );
+    if (!selectedChannel) return;
+    const isSelectedHidden = isScopeMuted(
+      reticulumGroupSettings,
+      selectedChannel.categoryId,
+      selectedChannel.channelId
+    );
+    if (!isSelectedHidden) return;
+    const firstVisible = reticulumChannelsForSelectedGroup.find(
+      (channel) =>
+        !isScopeMuted(
+          reticulumGroupSettings,
+          channel.categoryId,
+          channel.channelId
+        )
+    );
+    setSelectedReticulumChannelId(
+      firstVisible?.channelId ?? DEFAULT_RETICULUM_CHANNEL_ID
+    );
+  }, [
+    reticulumChatEnabled,
+    reticulumHideMutedChannels,
+    reticulumGroupSettings,
+    reticulumChannelsForSelectedGroup,
+    selectedReticulumChannelId,
+  ]);
+
   const reticulumChannelsByCategory = useMemo(() => {
     const categoryIds = new Set(
       reticulumCategoriesForSelectedGroup.map((category) => category.categoryId)
@@ -2324,6 +2381,13 @@ export const ChatGroup = ({
   }, [reticulumCategoriesForSelectedGroup, reticulumChannelsForSelectedGroup]);
   const reticulumDefaultCategoryChannels =
     reticulumChannelsByCategory.get('') ?? [];
+  const reticulumVisibleDefaultCategoryChannels =
+    reticulumHideMutedChannels && reticulumGroupSettings
+      ? reticulumDefaultCategoryChannels.filter(
+          (ch) =>
+            !isScopeMuted(reticulumGroupSettings, ch.categoryId, ch.channelId)
+        )
+      : reticulumDefaultCategoryChannels;
   const reticulumDefaultCategoryHasProtectedChannels =
     reticulumDefaultCategoryChannels.some((channel) =>
       isReticulumSystemChannelId(channel.channelId)
@@ -8503,6 +8567,10 @@ export const ChatGroup = ({
     const mentionCount = Math.max(0, Number(channelSummary?.mentionCount) || 0);
     const hasUnreadMention =
       channelSummary?.hasUnreadMention === true || mentionCount > 0;
+    const groupSettings = notificationSettingsCache[String(selectedGroup)];
+    const channelMuted = groupSettings
+      ? isScopeMuted(groupSettings, channel.categoryId, channel.channelId)
+      : false;
     return (
       <ReticulumSortableChannelButton
         key={channel.channelId}
@@ -8515,7 +8583,9 @@ export const ChatGroup = ({
             : undefined
         }
         hasUnreadMention={hasUnreadMention}
+        hideMuted={channelMuted && groupSettings?.hideMutedChannels === true}
         isAdmin={isReticulumChannelAdmin}
+        isMuted={channelMuted}
         mentionCount={mentionCount}
         onContextMenu={openReticulumChannelContextMenu}
         onSelect={(channelId) => {
@@ -9098,7 +9168,7 @@ export const ChatGroup = ({
                             px: '8px',
                           }}
                         >
-                          {reticulumDefaultCategoryChannels.map(
+                          {reticulumVisibleDefaultCategoryChannels.map(
                             renderReticulumChannelButton
                           )}
                         </Box>
@@ -9109,10 +9179,21 @@ export const ChatGroup = ({
                       strategy={verticalListSortingStrategy}
                     >
                       {reticulumCategoriesForSelectedGroup.map((category) => {
-                        const channels =
+                        const allChannels =
                           reticulumChannelsByCategory.get(
                             category.categoryId
                           ) ?? [];
+                        const channels =
+                          reticulumHideMutedChannels && reticulumGroupSettings
+                            ? allChannels.filter(
+                                (ch) =>
+                                  !isScopeMuted(
+                                    reticulumGroupSettings,
+                                    category.categoryId,
+                                    ch.channelId
+                                  )
+                              )
+                            : allChannels;
                         return (
                           <ReticulumSortableCategory
                             category={category}
@@ -9140,6 +9221,16 @@ export const ChatGroup = ({
                             isCollapsed={collapsedReticulumCategoryIds.has(
                               category.categoryId
                             )}
+                            isMuted={
+                              notificationSettingsCache[String(selectedGroup)]
+                                ? isScopeMuted(
+                                    notificationSettingsCache[
+                                      String(selectedGroup)
+                                    ],
+                                    category.categoryId
+                                  )
+                                : false
+                            }
                             key={category.categoryId}
                             onContextMenu={openReticulumCategoryContextMenu}
                             onCreateChannel={openCreateReticulumChannelDialog}
@@ -9261,6 +9352,13 @@ export const ChatGroup = ({
                     sectionId: reticulumCategoryMenuCategory?.categoryId,
                   }}
                 />
+                <MuteSubmenu
+                  scope={{
+                    groupId: Number(selectedGroup),
+                    sectionId: reticulumCategoryMenuCategory?.categoryId,
+                  }}
+                  scopeType="Section"
+                />
                 {isReticulumChannelAdmin && (
                   <>
                     <Item
@@ -9371,6 +9469,14 @@ export const ChatGroup = ({
                     sectionId: reticulumChannelMenuChannel?.categoryId,
                     channelId: reticulumChannelMenuChannel?.channelId,
                   }}
+                />
+                <MuteSubmenu
+                  scope={{
+                    groupId: Number(selectedGroup),
+                    sectionId: reticulumChannelMenuChannel?.categoryId,
+                    channelId: reticulumChannelMenuChannel?.channelId,
+                  }}
+                  scopeType="Channel"
                 />
                 {isReticulumChannelAdmin && (
                   <>

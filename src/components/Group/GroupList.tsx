@@ -1,15 +1,20 @@
 import {
   Avatar,
   Box,
+  Button,
   ButtonBase,
+  Checkbox,
   Dialog,
   DialogContent,
   DialogTitle,
+  FormControlLabel,
   GlobalStyles,
   List,
   ListItem,
   ListItemAvatar,
   ListItemText,
+  Radio,
+  RadioGroup,
   Switch,
   Tooltip,
   Typography,
@@ -48,6 +53,7 @@ import { CustomButton } from '../../styles/App-styles';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import PersonOffIcon from '@mui/icons-material/PersonOff';
 import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined';
+import NotificationsNoneRoundedIcon from '@mui/icons-material/NotificationsNoneRounded';
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
 import AccessibilityNewOutlinedIcon from '@mui/icons-material/AccessibilityNewOutlined';
 import ChatBubbleOutlineRoundedIcon from '@mui/icons-material/ChatBubbleOutlineRounded';
@@ -63,6 +69,7 @@ import {
   groupsOwnerNamesSelector,
   isRunningPublicNodeAtom,
   memberGroupsWithReticulumChatAtom,
+  memberGroupsAtom,
   qortalGroupMeshCallActiveAtom,
   qortalGroupMeshCallMaxParticipantsAtom,
   qortalGroupMeshCallParticipantCountAtom,
@@ -71,10 +78,23 @@ import {
   reticulumLegacyThreadsEnabledAtom,
   reticulumChatTextScaleAtom,
   timestampEnterDataSelector,
+  notificationSettingsCacheAtom,
+  muteExpiryTickAtom,
+  unreadWelcomeEventIdsAtom,
+  globalNotificationFormAtom,
+  DEFAULT_GLOBAL_NOTIF_FORM,
 } from '../../atoms/global';
 import { timeDifferenceForNotificationChats } from './Group';
 import { useAtom, useAtomValue } from 'jotai';
 import { useTranslation } from 'react-i18next';
+import {
+  isScopeMuted,
+  groupHasUnreadConsideringMute,
+  getWelcomeUnreadCount,
+  DEFAULT_NOTIFICATION_SETTINGS,
+  applyNotificationSettingsToAllGroups,
+  type PushLevel,
+} from '../../utils/qChatNotificationSettings';
 import { AvatarPreviewModal } from '../Chat/AvatarPreviewModal';
 import { getClickableAvatarSx } from '../Chat/clickableAvatarStyles';
 import {
@@ -107,20 +127,32 @@ const GROUP_RAIL_TOOLTIP_MODIFIERS = [
 /** Atom values, doubling as key suffixes under reticulum:settings.text_size */
 const reticulumTextScaleOptions = ['default', 'medium', 'high'] as const;
 
-const ReticulumChatSettingsDialog = ({
+export const ReticulumChatSettingsDialog = ({
   open,
   onClose,
 }: {
   open: boolean;
   onClose: () => void;
 }) => {
-  const { t } = useTranslation(['core', 'reticulum']);
+  const { t } = useTranslation(['core', 'reticulum', 'group']);
   const theme = useTheme();
+  const memberGroups = useAtomValue(memberGroupsAtom);
   const [activeSection, setActiveSection] = useState<
-    'text-size' | 'messages' | 'legacy-threads'
+    'text-size' | 'messages' | 'notifications' | 'legacy-threads'
   >('text-size');
   const [accessibilityExpanded, setAccessibilityExpanded] = useState(true);
+  const [notificationsExpanded, setNotificationsExpanded] = useState(true);
   const [legacyExpanded, setLegacyExpanded] = useState(true);
+  const [notifForm, setNotifForm] = useAtom(globalNotificationFormAtom);
+  const [applying, setApplying] = useState(false);
+  const notifFormChanged =
+    notifForm.pushLevel !== DEFAULT_GLOBAL_NOTIF_FORM.pushLevel ||
+    notifForm.suppressEveryoneHere !==
+      DEFAULT_GLOBAL_NOTIF_FORM.suppressEveryoneHere ||
+    notifForm.notifyOnReplies !== DEFAULT_GLOBAL_NOTIF_FORM.notifyOnReplies ||
+    notifForm.notifyOnWelcomePosts !==
+      DEFAULT_GLOBAL_NOTIF_FORM.notifyOnWelcomePosts ||
+    notifForm.hideMutedChannels !== DEFAULT_GLOBAL_NOTIF_FORM.hideMutedChannels;
   const [textScale, setTextScale] = useAtom(reticulumChatTextScaleAtom);
   const [highlightOwnMessages, setHighlightOwnMessages] = useAtom(
     reticulumHighlightOwnMessagesAtom
@@ -256,6 +288,27 @@ const ReticulumChatSettingsDialog = ({
                 {t('reticulum:settings.nav.messages')}
               </ButtonBase>
             </>
+          )}
+          <ButtonBase
+            aria-expanded={notificationsExpanded}
+            onClick={() => setNotificationsExpanded((expanded) => !expanded)}
+            sx={{ ...categoryButtonSx, mt: 2.25 }}
+          >
+            <span>{t('reticulum:settings.nav.notifications')}</span>
+            {notificationsExpanded ? (
+              <ExpandMoreRoundedIcon sx={{ fontSize: 18 }} />
+            ) : (
+              <ChevronRightRoundedIcon sx={{ fontSize: 18 }} />
+            )}
+          </ButtonBase>
+          {notificationsExpanded && (
+            <ButtonBase
+              onClick={() => setActiveSection('notifications')}
+              sx={navButtonSx(activeSection === 'notifications')}
+            >
+              <NotificationsNoneRoundedIcon sx={{ fontSize: 19 }} />{' '}
+              {t('reticulum:settings.nav.notifications')}
+            </ButtonBase>
           )}
           <ButtonBase
             aria-expanded={legacyExpanded}
@@ -435,6 +488,287 @@ const ReticulumChatSettingsDialog = ({
                   }}
                   onChange={(_, checked) => setHighlightOwnMessages(checked)}
                 />
+              </Box>
+            </>
+          ) : activeSection === 'notifications' ? (
+            <>
+              <Typography
+                component="h2"
+                sx={{
+                  color: 'text.primary',
+                  fontSize: 20,
+                  fontWeight: 650,
+                  lineHeight: '26px',
+                }}
+              >
+                {t('reticulum:settings.notifications.title')}
+              </Typography>
+              <Typography
+                sx={{
+                  color: 'text.secondary',
+                  fontSize: 14,
+                  fontWeight: 400,
+                  lineHeight: '20px',
+                  maxWidth: 460,
+                  mt: 0.75,
+                }}
+              >
+                {t('reticulum:settings.notifications.description')}
+              </Typography>
+              <RadioGroup
+                value={notifForm.pushLevel}
+                onChange={(_, value: string) =>
+                  setNotifForm((prev) => ({
+                    ...prev,
+                    pushLevel: value as PushLevel,
+                  }))
+                }
+                sx={{
+                  display: 'flex',
+                  gap: 0,
+                  mt: 2.5,
+                }}
+              >
+                <FormControlLabel
+                  value="all"
+                  control={<Radio size="small" />}
+                  label={
+                    <Typography sx={{ fontSize: 14, fontWeight: 600 }}>
+                      {t('group:notification_settings.all_messages')}
+                    </Typography>
+                  }
+                  sx={{
+                    m: 0,
+                    px: 1.5,
+                    py: 0.75,
+                    borderRadius: '8px',
+                    '&:hover': {
+                      backgroundColor: theme.palette.action.hover,
+                    },
+                  }}
+                />
+                <FormControlLabel
+                  value="mentions"
+                  control={<Radio size="small" />}
+                  label={
+                    <Typography sx={{ fontSize: 14, fontWeight: 600 }}>
+                      {t('group:notification_settings.only_mentions')}
+                    </Typography>
+                  }
+                  sx={{
+                    m: 0,
+                    px: 1.5,
+                    py: 0.75,
+                    borderRadius: '8px',
+                    '&:hover': {
+                      backgroundColor: theme.palette.action.hover,
+                    },
+                  }}
+                />
+                <FormControlLabel
+                  value="none"
+                  control={<Radio size="small" />}
+                  label={
+                    <Typography sx={{ fontSize: 14, fontWeight: 600 }}>
+                      {t('group:notification_settings.none')}
+                    </Typography>
+                  }
+                  sx={{
+                    m: 0,
+                    px: 1.5,
+                    py: 0.75,
+                    borderRadius: '8px',
+                    '&:hover': {
+                      backgroundColor: theme.palette.action.hover,
+                    },
+                  }}
+                />
+              </RadioGroup>
+              <Box
+                sx={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 0,
+                  mt: 1.5,
+                }}
+              >
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      size="small"
+                      checked={notifForm.suppressEveryoneHere}
+                      onChange={(_, checked) =>
+                        setNotifForm((prev) => ({
+                          ...prev,
+                          suppressEveryoneHere: checked,
+                        }))
+                      }
+                    />
+                  }
+                  label={
+                    <Typography sx={{ fontSize: 14, fontWeight: 600 }}>
+                      {t('group:notification_settings.suppress_everyone_here')}
+                    </Typography>
+                  }
+                  sx={{
+                    m: 0,
+                    px: 1.5,
+                    py: 0.75,
+                    borderRadius: '8px',
+                    '&:hover': {
+                      backgroundColor: theme.palette.action.hover,
+                    },
+                  }}
+                />
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      size="small"
+                      checked={notifForm.notifyOnReplies}
+                      onChange={(_, checked) =>
+                        setNotifForm((prev) => ({
+                          ...prev,
+                          notifyOnReplies: checked,
+                        }))
+                      }
+                    />
+                  }
+                  label={
+                    <Typography sx={{ fontSize: 14, fontWeight: 600 }}>
+                      {t('group:notification_settings.notify_on_replies')}
+                    </Typography>
+                  }
+                  sx={{
+                    m: 0,
+                    px: 1.5,
+                    py: 0.75,
+                    borderRadius: '8px',
+                    '&:hover': {
+                      backgroundColor: theme.palette.action.hover,
+                    },
+                  }}
+                />
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      size="small"
+                      checked={notifForm.notifyOnWelcomePosts}
+                      onChange={(_, checked) =>
+                        setNotifForm((prev) => ({
+                          ...prev,
+                          notifyOnWelcomePosts: checked,
+                        }))
+                      }
+                    />
+                  }
+                  label={
+                    <Typography sx={{ fontSize: 14, fontWeight: 600 }}>
+                      {t('group:notification_settings.notify_on_welcome_posts')}
+                    </Typography>
+                  }
+                  sx={{
+                    m: 0,
+                    px: 1.5,
+                    py: 0.75,
+                    borderRadius: '8px',
+                    '&:hover': {
+                      backgroundColor: theme.palette.action.hover,
+                    },
+                  }}
+                />
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      size="small"
+                      checked={notifForm.hideMutedChannels}
+                      onChange={(_, checked) =>
+                        setNotifForm((prev) => ({
+                          ...prev,
+                          hideMutedChannels: checked,
+                        }))
+                      }
+                    />
+                  }
+                  label={
+                    <Typography sx={{ fontSize: 14, fontWeight: 600 }}>
+                      {t('group:notification_settings.hide_muted_channels')}
+                    </Typography>
+                  }
+                  sx={{
+                    m: 0,
+                    px: 1.5,
+                    py: 0.75,
+                    borderRadius: '8px',
+                    '&:hover': {
+                      backgroundColor: theme.palette.action.hover,
+                    },
+                  }}
+                />
+              </Box>
+              <Box
+                sx={{
+                  display: 'flex',
+                  gap: 2,
+                  mt: 3,
+                  alignItems: 'center',
+                }}
+              >
+                <Button
+                  variant="contained"
+                  disabled={applying}
+                  onClick={async () => {
+                    setApplying(true);
+                    try {
+                      const groupIds = memberGroups
+                        .map((g: { groupId: number | string }) => g.groupId)
+                        .filter((id) => id != null && id !== '' && id !== '0');
+                      await applyNotificationSettingsToAllGroups(
+                        groupIds,
+                        notifForm
+                      );
+                      onClose();
+                    } finally {
+                      setApplying(false);
+                    }
+                  }}
+                  sx={{
+                    textTransform: 'none',
+                    fontWeight: 600,
+                    color: 'common.white',
+                  }}
+                >
+                  {t('reticulum:settings.notifications.apply_button')}
+                </Button>
+                {notifFormChanged && (
+                  <Button
+                    variant="text"
+                    disabled={applying}
+                    onClick={async () => {
+                      setApplying(true);
+                      try {
+                        const groupIds = memberGroups
+                          .map((g: { groupId: number | string }) => g.groupId)
+                          .filter(
+                            (id) => id != null && id !== '' && id !== '0'
+                          );
+                        await applyNotificationSettingsToAllGroups(
+                          groupIds,
+                          DEFAULT_GLOBAL_NOTIF_FORM
+                        );
+                        setNotifForm(DEFAULT_GLOBAL_NOTIF_FORM);
+                        onClose();
+                      } finally {
+                        setApplying(false);
+                      }
+                    }}
+                    sx={{
+                      textTransform: 'none',
+                      fontWeight: 600,
+                    }}
+                  >
+                    {t('reticulum:settings.notifications.revert_button')}
+                  </Button>
+                )}
               </Box>
             </>
           ) : activeSection === 'legacy-threads' ? (
@@ -721,6 +1055,8 @@ const GroupListInner = ({
   const groups = useAtomValue(memberGroupsWithReticulumChatAtom);
   const groupChatHasUnread = useAtomValue(groupChatHasUnreadAtom);
   const groupsAnnHasUnread = useAtomValue(groupsAnnHasUnreadAtom);
+  const muteSettingsCache = useAtomValue(notificationSettingsCacheAtom);
+  useAtomValue(muteExpiryTickAtom);
   const railMode = Boolean(reticulumChatEnabled);
   const [manualGroupOrder, setManualGroupOrder] = useState<string[]>(
     readReticulumGroupOrder
@@ -1413,6 +1749,9 @@ const GroupItem = memo(
   }: GroupItemProps) => {
     const theme = useTheme();
     const { t } = useTranslation(['core', 'group']);
+    const muteSettingsCache = useAtomValue(notificationSettingsCacheAtom);
+    const welcomeUnreadMap = useAtomValue(unreadWelcomeEventIdsAtom);
+    useAtomValue(muteExpiryTickAtom);
     const { attributes, listeners, setNodeRef, isDragging } = useSortable({
       id: String(group?.groupId),
       disabled: !railMode,
@@ -1479,7 +1818,14 @@ const GroupItem = memo(
     }, [setIsPreviewOpen, setPreviewSrc]);
 
     const isSelected = group?.groupId === selectedGroupId;
-    const reticulumUnreadCount = Math.max(
+    const groupMuteSettings = muteSettingsCache[String(group?.groupId)];
+    const welcomeUnreadCount = getWelcomeUnreadCount(
+      welcomeUnreadMap,
+      String(group?.groupId)
+    );
+    const notifyOnWelcomePosts =
+      groupMuteSettings?.notifyOnWelcomePosts !== false;
+    const reticulumRawUnreadCount = Math.max(
       0,
       Number(group?.reticulumChatSummary?.unreadCount || 0)
     );
@@ -1487,10 +1833,21 @@ const GroupItem = memo(
       0,
       Number(group?.reticulumChatSummary?.replyCount || 0)
     );
-    const hasReticulumUnread = reticulumUnreadCount > 0;
+    const hasReticulumUnread = reticulumRawUnreadCount > 0;
     const hasReticulumMention =
-      group?.reticulumChatSummary?.hasUnreadMention === true ||
-      (group?.reticulumChatSummary?.mentionCount ?? 0) > 0;
+      (group?.reticulumChatSummary?.hasUnreadMention === true ||
+        (group?.reticulumChatSummary?.mentionCount ?? 0) > 0) &&
+      (notifyOnWelcomePosts ||
+        (group?.reticulumChatSummary?.mentionCount ?? 0) - welcomeUnreadCount >
+          0);
+    const isGroupMuted = groupMuteSettings
+      ? isScopeMuted(groupMuteSettings) &&
+        !groupHasUnreadConsideringMute(
+          groupMuteSettings,
+          group?.reticulumChatSummary,
+          welcomeUnreadCount
+        )
+      : false;
 
     const gcallRoomIdForRow =
       group?.groupId &&
@@ -1727,7 +2084,7 @@ const GroupItem = memo(
               >
                 {avatarNode}
 
-                {(hasReticulumUnread ||
+                {((hasReticulumUnread && !isGroupMuted) ||
                   (!reticulumChatEnabled &&
                     group?.data &&
                     groupChatTimestamp &&
@@ -1750,7 +2107,7 @@ const GroupItem = memo(
                   />
                 )}
 
-                {hasReticulumMention && (
+                {hasReticulumMention && !isGroupMuted && (
                   <AlternateEmailIcon
                     sx={{
                       backgroundColor: theme.palette.background.surface,
@@ -1992,7 +2349,7 @@ const GroupItem = memo(
                 marginLeft: '4px',
               }}
             >
-              {(hasReticulumUnread ||
+              {((hasReticulumUnread && !isGroupMuted) ||
                 (!reticulumChatEnabled &&
                   group?.data &&
                   groupChatTimestamp &&
@@ -2012,7 +2369,7 @@ const GroupItem = memo(
                 />
               )}
 
-              {hasReticulumMention && (
+              {hasReticulumMention && !isGroupMuted && (
                 <AlternateEmailIcon
                   sx={{
                     color: RETICULUM_NOTIFICATION_RED,

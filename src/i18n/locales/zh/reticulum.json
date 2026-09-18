@@ -213,15 +213,18 @@
     "nav": {
       "mentions": "提及",
       "messages": "消息",
+      "notifications": "Notifications",
       "text_size": "文字大小",
       "threads": "Threads"
     },
     "notifications": {
+      "apply_button": "Apply to All Groups",
       "description": "在 Hub 通知面板中显示 Reticulum Q-Chat 的提及。普通未读消息不会产生 Hub 通知。",
       "mentions": {
         "description": "当有人在频道中提及我时通知我。",
         "label": "提及通知"
       },
+      "revert_button": "Revert to Defaults",
       "title": "通知"
     },
     "text_size": {

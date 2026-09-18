@@ -36,6 +36,7 @@ import {
   quitterDashboardFeedCacheAtom,
   reticulumChatSummariesAtom,
   reticulumDirectSummariesAtom,
+  notificationSettingsCacheAtom,
   resourceDownloadControllerAtom,
   selectedGroupIdAtom,
   settingsLocalLastUpdatedAtom,
@@ -97,6 +98,9 @@ export function useAppReset() {
   );
   const resetReticulumDirectSummariesAtom = useResetAtom(
     reticulumDirectSummariesAtom
+  );
+  const resetNotificationSettingsCacheAtom = useResetAtom(
+    notificationSettingsCacheAtom
   );
   const resetTimestampEnterAtom = useResetAtom(timestampEnterDataAtom);
   const resettxListAtomAtom = useResetAtom(txListAtom);
@@ -176,6 +180,7 @@ export function useAppReset() {
     resetGroupChatTimestampsAtom();
     resetReticulumChatSummariesAtom();
     resetReticulumDirectSummariesAtom();
+    resetNotificationSettingsCacheAtom();
     resetTimestampEnterAtom();
     resettxListAtomAtom();
     resetmemberGroupsAtomAtom();
@@ -227,6 +232,7 @@ export function useAppReset() {
     resetGroupChatTimestampsAtom,
     resetReticulumChatSummariesAtom,
     resetReticulumDirectSummariesAtom,
+    resetNotificationSettingsCacheAtom,
     resetTimestampEnterAtom,
     resettxListAtomAtom,
     resetmemberGroupsAtomAtom,

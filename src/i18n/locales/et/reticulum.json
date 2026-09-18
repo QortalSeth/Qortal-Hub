@@ -213,15 +213,18 @@
     "nav": {
       "mentions": "Mainimised",
       "messages": "Sõnumid",
+      "notifications": "Notifications",
       "text_size": "Teksti suurus",
       "threads": "Threads"
     },
     "notifications": {
+      "apply_button": "Apply to All Groups",
       "description": "Näita Reticulum Q-Chati mainimisi Hubi teavituspaneelil. Tavalised lugemata sõnumid Hubi teavitusi ei tekita.",
       "mentions": {
         "description": "Teavita mind, kui keegi mind kanalis mainib.",
         "label": "Mainimiste teavitused"
       },
+      "revert_button": "Revert to Defaults",
       "title": "Teavitused"
     },
     "text_size": {

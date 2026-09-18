@@ -213,15 +213,18 @@
     "nav": {
       "mentions": "Erwähnungen",
       "messages": "Nachrichten",
+      "notifications": "Notifications",
       "text_size": "Textgröße",
       "threads": "Threads"
     },
     "notifications": {
+      "apply_button": "Apply to All Groups",
       "description": "Zeige Reticulum-Q-Chat-Erwähnungen im Benachrichtigungsbereich des Hubs an. Normale ungelesene Nachrichten erzeugen keine Hub-Benachrichtigungen.",
       "mentions": {
         "description": "Benachrichtige mich, wenn mich jemand in einem Kanal erwähnt.",
         "label": "Erwähnungsbenachrichtigungen"
       },
+      "revert_button": "Revert to Defaults",
       "title": "Benachrichtigungen"
     },
     "text_size": {

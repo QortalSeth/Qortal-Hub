@@ -156,6 +156,33 @@ export function NotificationSettingsSubmenu({
           {t('group:notification_settings.notify_on_replies')}
         </Typography>
       </Item>
+      {scope.sectionId == null && scope.channelId == null && (
+        <Item
+          closeOnClick={false}
+          onClick={() =>
+            updateSettings({
+              notifyOnWelcomePosts: !settings.notifyOnWelcomePosts,
+            })
+          }
+        >
+          <Checkbox
+            size="small"
+            checked={settings.notifyOnWelcomePosts}
+            sx={{
+              mr: 1.5,
+              pointerEvents: 'none',
+              padding: 0,
+              '& .MuiSvgIcon-root': { fontSize: 18 },
+            }}
+          />
+          <Typography
+            component="span"
+            sx={{ fontSize: '14px', fontWeight: 600 }}
+          >
+            {t('group:notification_settings.notify_on_welcome_posts')}
+          </Typography>
+        </Item>
+      )}
     </Submenu>
   );
 }

@@ -207,14 +207,20 @@
     "create_category": "Создать категорию",
     "create_channel": "Создать канал",
     "hidden_users": "Скрытые пользователи",
+    "hide_muted_channels": "Hide Muted Channels",
     "invite_link_copied": "Ссылка-приглашение скопирована",
     "invite_link_copy_failed": "Не удалось скопировать ссылку-приглашение",
     "leave_group": "Покинуть группу",
     "mark_all_groups_read": "mark all groups as read",
     "mark_all_read": "Отметить все как прочитанные",
     "mark_as_read": "Отметить как прочитанное",
+    "mute_channel": "Mute Channel",
+    "mute_group": "Mute Group",
     "mute_push_notifications": "Отключить push-уведомления",
+    "mute_section": "Mute Section",
+    "muted_for": "Muted for {{hours}}",
     "notification_settings": "notification settings",
+    "unmute": "Unmute",
     "unmute_push_notifications": "Включить push-уведомления",
     "update_group": "Update group"
   },
@@ -825,10 +831,20 @@
     "unencrypted": "Не зашифровано",
     "verification_failed": "Проверка не пройдена"
   },
+  "mute": {
+    "for_15_minutes": "For 15 Minutes",
+    "for_1_hour": "For 1 Hour",
+    "for_24_hours": "For 24 Hours",
+    "for_3_hours": "For 3 Hours",
+    "for_8_hours": "For 8 Hours",
+    "until_i_turn_it_back_on": "Until I turn it back on"
+  },
   "notification_settings": {
     "all_messages": "all messages",
+    "hide_muted_channels": "Hide Muted Channels",
     "none": "none",
     "notify_on_replies": "notify on replies",
+    "notify_on_welcome_posts": "notify on welcome posts",
     "only_mentions": "only @mentions",
     "suppress_everyone_here": "suppress @everyone and @here"
   },

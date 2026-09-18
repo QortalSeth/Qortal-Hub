@@ -213,15 +213,18 @@
     "nav": {
       "mentions": "Menciones",
       "messages": "Mensajes",
+      "notifications": "Notifications",
       "text_size": "Tamaño del texto",
       "threads": "Threads"
     },
     "notifications": {
+      "apply_button": "Apply to All Groups",
       "description": "Mostrar las menciones de Reticulum Q-Chat en el panel de notificaciones del Hub. Los mensajes no leídos normales no generan notificaciones del Hub.",
       "mentions": {
         "description": "Avisarme cuando alguien me mencione en un canal.",
         "label": "Notificaciones de menciones"
       },
+      "revert_button": "Revert to Defaults",
       "title": "Notificaciones"
     },
     "text_size": {

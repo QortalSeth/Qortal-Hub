@@ -2,6 +2,7 @@ import { useId, useState, useRef, useMemo, useContext, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Box,
+  Checkbox,
   Divider,
   Menu as MuiMenu,
   Typography,
@@ -21,14 +22,16 @@ import VisibilityOffRoundedIcon from '@mui/icons-material/VisibilityOffRounded';
 import EditRoundedIcon from '@mui/icons-material/EditRounded';
 import { useTranslation } from 'react-i18next';
 import { executeEvent } from '../utils/events';
-import { txListAtom } from '../atoms/global';
-import { useSetAtom } from 'jotai';
+import { txListAtom, notificationSettingsCacheAtom } from '../atoms/global';
+import { useSetAtom, useAtomValue } from 'jotai';
 import { getBaseApiReact, QORTAL_APP_CONTEXT } from '../App';
 import { getFee } from '../background/background.ts';
 import { QORTAL_PROTOCOL } from '../constants/constants.ts';
 import { CustomizedSnackbars } from './Snackbar/Snackbar';
 import { GroupScoreBadge } from './Group/ReticulumGroupLevel';
 import { NotificationSettingsSubmenu } from './NotificationSettingsSubmenu';
+import { MuteSubmenu } from './MuteSubmenu';
+import { setHideMutedChannels } from '../utils/qChatNotificationSettings';
 import { useReticulumGroupScore } from './Group/reticulumGroupScore';
 
 export const CustomStyledMenu = styled(MuiMenu, {
@@ -83,6 +86,35 @@ const ReticulumMenuGroupScore = ({
 
 const itemIconSx = { fontSize: 18, mr: 1.5 } as const;
 const itemTextSx = { fontSize: '14px', fontWeight: 600 } as const;
+
+function HideMutedChannelsItem({ groupId }: { groupId: string | number }) {
+  const { t } = useTranslation(['group']);
+  const cache = useAtomValue(notificationSettingsCacheAtom);
+  const groupSettings = cache[String(groupId)];
+  const hideMuted = groupSettings?.hideMutedChannels === true;
+
+  const toggle = () => {
+    void setHideMutedChannels(groupId, !hideMuted);
+  };
+
+  return (
+    <Item closeOnClick={false} onClick={toggle}>
+      <Checkbox
+        size="small"
+        checked={hideMuted}
+        sx={{
+          mr: 1.5,
+          pointerEvents: 'none',
+          padding: 0,
+          '& .MuiSvgIcon-root': { fontSize: 18 },
+        }}
+      />
+      <Typography component="span" sx={itemTextSx}>
+        {t('group:context_menu.hide_muted_channels')}
+      </Typography>
+    </Item>
+  );
+}
 
 export const ContextMenu = ({
   children,
@@ -325,6 +357,8 @@ export const ContextMenu = ({
                 </Typography>
               </Item>
               <NotificationSettingsSubmenu scope={{ groupId }} />
+              <MuteSubmenu scope={{ groupId }} scopeType="Group" />
+              <HideMutedChannelsItem groupId={groupId} />
             </>
           )}
           {reticulumGroup && (

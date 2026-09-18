@@ -109,6 +109,7 @@ import {
   qortalGroupCallPrimaryNamesAtom,
   dmFriendsByAddressAtom,
   showActionDrawerAtom,
+  unreadWelcomeEventIdsAtom,
 } from '../../atoms/global';
 import { mergeDirectsWithFriends } from '../../lib/dm/mergeDirectsWithFriends';
 import { validateAddress } from '../../utils/validateAddress';
@@ -116,6 +117,10 @@ import { sortArrayByTimestampAndGroupName } from '../../utils/time';
 import {
   migrateNotificationSettings,
   getEffectiveNotificationSettings,
+  getGroupNotificationSettings,
+  addWelcomeUnreadEventId,
+  removeWelcomeUnreadEventId,
+  clearWelcomeUnreadForGroup,
 } from '../../utils/qChatNotificationSettings';
 import { WalletsAppWrapper } from './WalletsAppWrapper';
 import { useTranslation } from 'react-i18next';
@@ -136,6 +141,7 @@ import {
   TIME_DAYS_1_IN_MILLISECONDS,
 } from '../../constants/constants';
 import { useWebsocketStatus } from './useWebsocketStatus';
+import { useNotificationSettingsCache } from '../../hooks/useNotificationSettingsCache';
 import { DirectsSidebar } from './DirectsSidebar';
 import { GlobalChatWidget } from './GlobalChatWidget';
 import { openQChatTab, QCHAT_INTERNAL_TAB_ID } from '../../utils/openQChatTab';
@@ -881,6 +887,7 @@ export const Group = ({
   desktopViewMode,
   onOpenSettings,
 }: GroupProps) => {
+  useNotificationSettingsCache();
   const [desktopSideView, setDesktopSideView] = useState('groups');
   const [chatWidgetClosed, setChatWidgetClosed] = useAtom(chatWidgetClosedAtom);
   const [lastQappViewMode, setLastQappViewMode] = useState('apps');
@@ -993,6 +1000,9 @@ export const Group = ({
     groupChatTimestampsAtom
   );
   const setReticulumChatSummaries = useSetAtom(reticulumChatSummariesAtom);
+  const setUnreadWelcomeEventIds = useSetAtom(unreadWelcomeEventIdsAtom);
+  const unreadWelcomeEventIdsRef = useRef(setUnreadWelcomeEventIds);
+  unreadWelcomeEventIdsRef.current = setUnreadWelcomeEventIds;
   const [reticulumChatEnabled, setReticulumChatEnabled] = useAtom(
     reticulumChatEnabledAtom
   );
@@ -1610,6 +1620,21 @@ export const Group = ({
           {} as Record<string, any>
         );
         setReticulumChatSummaries(next);
+        unreadWelcomeEventIdsRef.current((prev) => {
+          let updated = prev;
+          for (const [groupIdStr, summary] of Object.entries(next)) {
+            const unreadCount = Number((summary as any)?.unreadCount ?? 0);
+            const mentionCount = Number((summary as any)?.mentionCount ?? 0);
+            if (
+              unreadCount === 0 &&
+              mentionCount === 0 &&
+              updated[groupIdStr]
+            ) {
+              updated = clearWelcomeUnreadForGroup(updated, groupIdStr);
+            }
+          }
+          return updated;
+        });
         syncReticulumMentionNotifications(next);
         void window.reticulumChat?.updateMentionBadge?.(
           getReticulumMentionBadgeCount(next)
@@ -1888,19 +1913,9 @@ export const Group = ({
   ]);
 
   useEffect(() => {
-    const offSummaryChanged = window.reticulumChat?.onSummaryChanged?.(
-      (payload) => {
-        const groupId = Number(payload?.groupId);
-        if (
-          Number.isInteger(groupId) &&
-          groupId > 0 &&
-          !reticulumSubscribedGroupIdsRef.current.has(groupId)
-        ) {
-          return;
-        }
-        scheduleReticulumChatSummariesRefresh();
-      }
-    );
+    const offSummaryChanged = window.reticulumChat?.onSummaryChanged?.(() => {
+      scheduleReticulumChatSummariesRefresh();
+    });
     const refreshHandler = () => {
       scheduleReticulumChatSummariesRefresh();
     };
@@ -2723,7 +2738,10 @@ export const Group = ({
   const processReticulumBackgroundEvent = useCallback(
     async (
       event: ReticulumBackgroundEvent,
-      options: { recordMentionNotification?: boolean } = {}
+      options: {
+        recordMentionNotification?: boolean;
+        skipReplyNotification?: boolean;
+      } = {}
     ) => {
       if (!event?.eventId || !event?.groupId || !event?.eventType) return;
       const alreadyProcessed = hasProcessedReticulumBackgroundEvent(
@@ -2738,6 +2756,13 @@ export const Group = ({
         if (event.targetEventId) {
           await window.reticulumChat?.deleteSearchText?.(event.targetEventId);
           await window.reticulumChat?.deleteMentions?.(event.targetEventId);
+          unreadWelcomeEventIdsRef.current((prev) =>
+            removeWelcomeUnreadEventId(
+              prev,
+              Number(event.groupId),
+              event.targetEventId
+            )
+          );
           noteProcessedReticulumBackgroundEvent(event.eventId);
           scheduleReticulumChatSummariesRefresh();
         }
@@ -2768,6 +2793,9 @@ export const Group = ({
         payload = event.encryptedPayload || '';
       }
 
+      const isWelcomePost =
+        (payload as any)?.qchatSystem?.type === 'group-welcome';
+
       const text = reticulumVisibleSearchTextFromPayload(payload);
       const targetEventId =
         event.eventType === 'edit' && event.targetEventId
@@ -2791,26 +2819,44 @@ export const Group = ({
         targetEventId,
         mentionedAddresses
       );
-      if (options.recordMentionNotification === true) {
-        const localAddress = myAddressRef.current || '';
-        const authorizedBroadcast = authorizedReticulumBroadcastApplies(event);
-        const directMention = event.directMentionAuthorized === true;
-        const notificationMentionedAddresses =
-          localAddress && (authorizedBroadcast || directMention)
-            ? [localAddress]
-            : [];
-        recordReticulumMentionNotification(
-          event,
-          groupId,
-          notificationMentionedAddresses,
-          authorizedBroadcast
+      if (isWelcomePost && event.eventId) {
+        unreadWelcomeEventIdsRef.current((prev) =>
+          addWelcomeUnreadEventId(prev, groupId, event.eventId)
         );
+      }
+      if (options.recordMentionNotification === true) {
+        let suppressMention = false;
+        if (isWelcomePost) {
+          const groupSettings = await getGroupNotificationSettings(
+            groupId
+          ).catch(() => null);
+          if (groupSettings?.notifyOnWelcomePosts === false) {
+            suppressMention = true;
+          }
+        }
+        if (!suppressMention) {
+          const localAddress = myAddressRef.current || '';
+          const authorizedBroadcast =
+            authorizedReticulumBroadcastApplies(event);
+          const directMention = event.directMentionAuthorized === true;
+          const notificationMentionedAddresses =
+            localAddress && (authorizedBroadcast || directMention)
+              ? [localAddress]
+              : [];
+          recordReticulumMentionNotification(
+            event,
+            groupId,
+            notificationMentionedAddresses,
+            authorizedBroadcast
+          );
+        }
       }
 
       if (
         event.eventType === 'message' &&
         event.authorAddress !== myAddressRef.current &&
-        myAddressRef.current
+        myAddressRef.current &&
+        !options.skipReplyNotification
       ) {
         const repliedTo =
           (payload as any)?.repliedTo || (payload as any)?.replyToEventId;
@@ -2912,7 +2958,9 @@ export const Group = ({
         if (cancelled || !Array.isArray(history)) continue;
         for (const event of history as ReticulumBackgroundEvent[]) {
           if (cancelled) return;
-          await processReticulumBackgroundEvent(event);
+          await processReticulumBackgroundEvent(event, {
+            skipReplyNotification: true,
+          });
         }
       }
     })();

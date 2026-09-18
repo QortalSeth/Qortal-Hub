@@ -213,15 +213,14 @@
     "nav": {
       "mentions": "Mentions",
       "messages": "Messages",
+      "notifications": "Notifications",
       "text_size": "Text size",
       "threads": "Threads"
     },
     "notifications": {
-      "description": "Show Reticulum Q-Chat mentions in the Hub notification panel. Regular unread messages will not create Hub notifications.",
-      "mentions": {
-        "description": "Alert me when someone mentions me in a channel.",
-        "label": "Mention notifications"
-      },
+      "apply_button": "Apply to All Groups",
+      "description": "Configure notification preferences that apply to all of your groups at once. Per-section and per-channel overrides are preserved.",
+      "revert_button": "Revert to Defaults",
       "title": "Notifications"
     },
     "text_size": {

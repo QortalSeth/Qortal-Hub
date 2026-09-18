@@ -213,15 +213,18 @@
     "nav": {
       "mentions": "الإشارات",
       "messages": "الرسائل",
+      "notifications": "Notifications",
       "text_size": "حجم النص",
       "threads": "Threads"
     },
     "notifications": {
+      "apply_button": "Apply to All Groups",
       "description": "إظهار إشارات Reticulum Q-Chat في لوحة إشعارات Hub. الرسائل غير المقروءة العادية لا تنشئ إشعارات في Hub.",
       "mentions": {
         "description": "نبّهني عندما يشير إليّ أحد في قناة.",
         "label": "إشعارات الإشارات"
       },
+      "revert_button": "Revert to Defaults",
       "title": "الإشعارات"
     },
     "text_size": {

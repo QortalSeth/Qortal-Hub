@@ -213,15 +213,18 @@
     "nav": {
       "mentions": "メンション",
       "messages": "メッセージ",
+      "notifications": "Notifications",
       "text_size": "文字サイズ",
       "threads": "Threads"
     },
     "notifications": {
+      "apply_button": "Apply to All Groups",
       "description": "Reticulum Q-ChatのメンションをHubの通知パネルに表示します。通常の未読メッセージではHubの通知は作成されません。",
       "mentions": {
         "description": "チャンネルで誰かが自分をメンションしたときに知らせます。",
         "label": "メンションの通知"
       },
+      "revert_button": "Revert to Defaults",
       "title": "通知"
     },
     "text_size": {

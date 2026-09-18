@@ -207,14 +207,20 @@
     "create_category": "Create category",
     "create_channel": "Create channel",
     "hidden_users": "Hidden users",
+    "hide_muted_channels": "Hide Muted Channels",
     "invite_link_copied": "Invite link copied",
     "invite_link_copy_failed": "Could not copy invite link",
     "leave_group": "Leave Group",
     "mark_all_groups_read": "Mark All Groups as Read",
     "mark_all_read": "Mark All as Read",
     "mark_as_read": "Mark as Read",
+    "mute_channel": "Mute Channel",
+    "mute_group": "Mute Group",
     "mute_push_notifications": "Mute push notifications",
+    "mute_section": "Mute Section",
+    "muted_for": "Muted for {{hours}}",
     "notification_settings": "Notification Settings",
+    "unmute": "Unmute",
     "unmute_push_notifications": "Unmute push notifications",
     "update_group": "Update group"
   },
@@ -831,10 +837,20 @@
     "unencrypted": "Unencrypted",
     "verification_failed": "Verification failed"
   },
+  "mute": {
+    "for_15_minutes": "For 15 Minutes",
+    "for_1_hour": "For 1 Hour",
+    "for_24_hours": "For 24 Hours",
+    "for_3_hours": "For 3 Hours",
+    "for_8_hours": "For 8 Hours",
+    "until_i_turn_it_back_on": "Until I turn it back on"
+  },
   "notification_settings": {
     "all_messages": "All Messages",
+    "hide_muted_channels": "Hide Muted Channels",
     "none": "None",
     "notify_on_replies": "Notify on Replies",
+    "notify_on_welcome_posts": "Notify on Welcome Posts",
     "only_mentions": "Only @Mentions",
     "suppress_everyone_here": "Suppress @Everyone and @Here"
   },

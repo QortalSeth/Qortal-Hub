@@ -11,6 +11,7 @@ import {
   notificationSeenInAppKeysAtom,
   filterSeenInAppKeysByRules,
   reticulumChatEnabledAtom,
+  unreadWelcomeEventIdsAtom,
 } from '../../atoms/global';
 import { fireOsNotificationPayment } from '../../background/background';
 import {
@@ -24,7 +25,10 @@ import {
 } from '../../utils/qChatMentionNotifications';
 import {
   getEffectiveNotificationSettings,
+  getGroupNotificationSettings,
+  isScopeMuted,
   shouldFirePushNotification,
+  getWelcomeUnreadCount,
 } from '../../utils/qChatNotificationSettings';
 import {
   isHubBeingViewed,
@@ -115,6 +119,9 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
   const setCustomSubscriptions = useSetAtom(customWebsocketSubscriptionsAtom);
   const seenInAppKeys = useAtomValue(notificationSeenInAppKeysAtom);
   const setSeenInAppKeys = useSetAtom(notificationSeenInAppKeysAtom);
+  const welcomeUnreadMap = useAtomValue(unreadWelcomeEventIdsAtom);
+  const welcomeUnreadMapRef = useRef(welcomeUnreadMap);
+  welcomeUnreadMapRef.current = welcomeUnreadMap;
 
   const [socketOpen, setSocketOpen] = useState(false);
   const socketRef = useRef<WebSocket | null>(null);
@@ -131,6 +138,7 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
   const listOfMyNamesRef = useRef<string[]>([]);
   const initWebsocketRef = useRef<(() => Promise<void>) | null>(null);
   const qChatMentionOsNotifiedEventIdsRef = useRef<Set<string>>(new Set());
+  const qChatReplyOsNotifiedEventIdsRef = useRef<Set<string>>(new Set());
   const reticulumDmOsNotifiedEventIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -428,6 +436,13 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
         channelId
       ).catch(() => null);
 
+      const groupSettings = await getGroupNotificationSettings(groupId).catch(
+        () => null
+      );
+      const channelMuted = groupSettings
+        ? isScopeMuted(groupSettings, undefined, channelId)
+        : false;
+
       const shouldPush =
         effectiveSettings != null &&
         shouldFirePushNotification(
@@ -435,7 +450,8 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
           true,
           isEveryoneOrHere,
           false
-        );
+        ) &&
+        !(channelMuted && effectiveSettings.pushLevel === 'all');
 
       const timestamp = Number(detail?.timestamp || Date.now());
       const groupName =
@@ -463,7 +479,17 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
             Number(notification?.data?.groupId) === groupId
         );
         if (isUnreadCountSync) {
-          const mentionCount = Math.max(0, Number(detail?.mentionCount) || 0);
+          let mentionCount = Math.max(0, Number(detail?.mentionCount) || 0);
+          if (
+            mentionCount > 0 &&
+            groupSettings?.notifyOnWelcomePosts === false
+          ) {
+            const welcomeCount = getWelcomeUnreadCount(
+              welcomeUnreadMapRef.current,
+              groupId
+            );
+            mentionCount = Math.max(0, mentionCount - welcomeCount);
+          }
           if (mentionCount === 0) {
             return trimmed.filter(
               (notification) =>
@@ -614,12 +640,20 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
           groupId,
           true
         );
-        channelName = getReticulumNotificationChannelLabel(
-          channelId,
-          channels
-        );
+        channelName = getReticulumNotificationChannelLabel(channelId, channels);
       } catch {
         // The stable ID remains a useful fallback while metadata is syncing.
+      }
+
+      if (qChatReplyOsNotifiedEventIdsRef.current.has(eventId)) return;
+      qChatReplyOsNotifiedEventIdsRef.current.add(eventId);
+      if (qChatReplyOsNotifiedEventIdsRef.current.size > 500) {
+        const oldestEventId = qChatReplyOsNotifiedEventIdsRef.current
+          .values()
+          .next().value;
+        if (oldestEventId !== undefined) {
+          qChatReplyOsNotifiedEventIdsRef.current.delete(oldestEventId);
+        }
       }
 
       void fireOsNotificationPayment(

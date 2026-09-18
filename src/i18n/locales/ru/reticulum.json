@@ -213,15 +213,18 @@
     "nav": {
       "mentions": "Упоминания",
       "messages": "Сообщения",
+      "notifications": "Notifications",
       "text_size": "Размер текста",
       "threads": "Threads"
     },
     "notifications": {
+      "apply_button": "Apply to All Groups",
       "description": "Показывать упоминания из Reticulum Q-Chat на панели уведомлений Hub. Обычные непрочитанные сообщения не создают уведомлений Hub.",
       "mentions": {
         "description": "Уведомлять меня, когда кто-то упоминает меня в канале.",
         "label": "Уведомления об упоминаниях"
       },
+      "revert_button": "Revert to Defaults",
       "title": "Уведомления"
     },
     "text_size": {

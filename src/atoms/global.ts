@@ -15,6 +15,10 @@ import { defaultPinnedApps } from '../components/Apps/config/officialApps';
 import { getElectronPersistentStorage } from '../utils/electronPersistentStorage';
 import type { QuitterDashboardFeedCache } from '../components/Widgets/quitter/quitterFeedTypes';
 import type { P2pHealthLevel } from '../lib/p2pHealth';
+import {
+  isScopeMuted,
+  groupHasUnreadConsideringMute,
+} from '../utils/qChatNotificationSettings';
 
 export const sortablePinnedAppsAtom = atomWithReset(defaultPinnedApps);
 
@@ -66,6 +70,31 @@ export const reticulumDirectSummariesAtom = atomWithReset<Record<string, any>>(
 );
 export const reticulumChatEnabledAtom = atomWithReset(true);
 export const reticulumEnabledAtom = atomWithReset(true);
+
+/**
+ * Cache of per-group notification settings (including mute state).
+ * Keyed by group ID (string). Populated on app load and updated via
+ * NOTIFICATION_SETTINGS_UPDATED_EVENT. Derived unread atoms read this
+ * to exclude muted channels from their computation.
+ */
+export const notificationSettingsCacheAtom = atomWithReset<
+  Record<
+    string,
+    import('../utils/qChatNotificationSettings').GroupNotificationSettingsData
+  >
+>({});
+
+/** Monotonic tick that increments every ~30s (or on visibility change) to trigger re-evaluation of mute expiry in derived atoms. */
+export const muteExpiryTickAtom = atom(0);
+
+/**
+ * Tracks unread welcome-post event IDs per group (groupId → Set<eventId>).
+ * Populated in processReticulumBackgroundEvent when qchatSystem.type ===
+ * 'group-welcome' is detected. Used by derived red-dot atoms to subtract
+ * welcome-post unreads when notifyOnWelcomePosts is false. Cleared when
+ * a group's summary drops to zero unread.
+ */
+export const unreadWelcomeEventIdsAtom = atom<Record<string, Set<string>>>({});
 export const groupsOwnerNamesAtom = atomWithReset({});
 export const groupsPropertiesAtom = atomWithReset({});
 export const hasSettingsChangedAtom = atomWithReset(false);
@@ -203,6 +232,29 @@ export const reticulumLegacyThreadsEnabledAtom = atomWithStorage<boolean>(
   false,
   electronStorage as any
 );
+
+export interface GlobalNotificationFormState {
+  pushLevel: 'all' | 'mentions' | 'none';
+  suppressEveryoneHere: boolean;
+  notifyOnReplies: boolean;
+  notifyOnWelcomePosts: boolean;
+  hideMutedChannels: boolean;
+}
+
+export const DEFAULT_GLOBAL_NOTIF_FORM: GlobalNotificationFormState = {
+  pushLevel: 'mentions',
+  suppressEveryoneHere: false,
+  notifyOnReplies: true,
+  notifyOnWelcomePosts: true,
+  hideMutedChannels: false,
+};
+
+export const globalNotificationFormAtom =
+  atomWithStorage<GlobalNotificationFormState>(
+    'qortal_global_notification_form',
+    DEFAULT_GLOBAL_NOTIF_FORM,
+    electronStorage as any
+  );
 
 /** Persisted: true = Q-Wallets embedded workspace opens edge-to-edge. */
 export const qWalletsWorkspaceFullScreenAtom = atomWithStorage<boolean>(
@@ -836,20 +888,26 @@ const TIME_DIFF_UNREAD_CHATS_MS = 900000;
 
 /** Derived: any group chat has unread. Subscribe here instead of memberGroupsAtom to avoid re-renders on list change. */
 export const groupChatHasUnreadAtom = atom((get) => {
+  get(muteExpiryTickAtom);
   const groups = get(memberGroupsWithReticulumChatAtom);
   const myAddress = get(userInfoAtom)?.address;
   const groupChatTimestamps = get(groupChatTimestampsAtom);
   const timestampEnterData = get(timestampEnterDataAtom) || {};
   const reticulumChatEnabled = get(reticulumChatEnabledAtom);
-  if (!groups?.length || !myAddress) return false;
+  const muteCache = get(notificationSettingsCacheAtom);
+  if (!groups?.length || !myAddress) {
+    return false;
+  }
   return groups.some((group: any) => {
     if (group?.groupId === '0') return false;
     if (reticulumChatEnabled) {
-      return (
-        group?.reticulumChatSummary?.hasUnreadMention === true ||
-        (group?.reticulumChatSummary?.mentionCount ?? 0) > 0 ||
-        (group?.reticulumChatSummary?.unreadCount ?? 0) > 0
+      const groupSettings = muteCache[String(group?.groupId)];
+      const result = groupHasUnreadConsideringMute(
+        groupSettings,
+        group?.reticulumChatSummary,
+        0
       );
+      return result;
     }
     return (
       group?.data &&
@@ -885,17 +943,22 @@ export const hasUnreadGroupsAtom = atom((get) => {
 export const isUnreadChatAtomFamily = atomFamily((selectedGroupId: string) =>
   atom((get) => {
     if (!selectedGroupId) return false;
+    get(muteExpiryTickAtom);
     const groups = get(memberGroupsWithReticulumChatAtom);
     const myAddress = get(userInfoAtom)?.address;
     const groupChatTimestamps = get(groupChatTimestampsAtom);
     const timestampEnterData = get(timestampEnterDataAtom) || {};
     const reticulumChatEnabled = get(reticulumChatEnabledAtom);
-    const findGroup = groups?.find((g: any) => g?.groupId === selectedGroupId);
+    const muteCache = get(notificationSettingsCacheAtom);
+    const findGroup = groups?.find(
+      (g: any) => String(g?.groupId) === String(selectedGroupId)
+    );
     if (reticulumChatEnabled) {
-      return (
-        findGroup?.reticulumChatSummary?.hasUnreadMention === true ||
-        (findGroup?.reticulumChatSummary?.mentionCount ?? 0) > 0 ||
-        (findGroup?.reticulumChatSummary?.unreadCount ?? 0) > 0
+      const groupSettings = muteCache[String(selectedGroupId)];
+      return groupHasUnreadConsideringMute(
+        groupSettings,
+        findGroup?.reticulumChatSummary,
+        0
       );
     }
     if (!findGroup?.data || !findGroup?.timestamp) return false;

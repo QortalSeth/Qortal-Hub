@@ -213,15 +213,18 @@
     "nav": {
       "mentions": "Maininnat",
       "messages": "Viestit",
+      "notifications": "Notifications",
       "text_size": "Tekstin koko",
       "threads": "Threads"
     },
     "notifications": {
+      "apply_button": "Apply to All Groups",
       "description": "Näytä Reticulum Q-Chatin maininnat Hubin ilmoituspaneelissa. Tavalliset lukemattomat viestit eivät luo Hub-ilmoituksia.",
       "mentions": {
         "description": "Ilmoita minulle, kun joku mainitsee minut kanavalla.",
         "label": "Mainintojen ilmoitukset"
       },
+      "revert_button": "Revert to Defaults",
       "title": "Ilmoitukset"
     },
     "text_size": {
