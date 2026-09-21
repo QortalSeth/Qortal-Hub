@@ -208,6 +208,39 @@ describe('shouldFirePushNotification', () => {
       )
     ).toBe(true);
   });
+
+  it('fires for non-mentioned message when pushLevel is all', () => {
+    expect(
+      shouldFirePushNotification(
+        { ...base, pushLevel: 'all' },
+        false,
+        false,
+        false
+      )
+    ).toBe(true);
+  });
+
+  it('does not fire for non-mentioned message when pushLevel is mentions', () => {
+    expect(
+      shouldFirePushNotification(
+        { ...base, pushLevel: 'mentions' },
+        false,
+        false,
+        false
+      )
+    ).toBe(false);
+  });
+
+  it('does not fire for non-mentioned message when pushLevel is none', () => {
+    expect(
+      shouldFirePushNotification(
+        { ...base, pushLevel: 'none' },
+        false,
+        false,
+        false
+      )
+    ).toBe(false);
+  });
 });
 
 describe('setScopeNotificationSettings', () => {

@@ -139,6 +139,7 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
   const initWebsocketRef = useRef<(() => Promise<void>) | null>(null);
   const qChatMentionOsNotifiedEventIdsRef = useRef<Set<string>>(new Set());
   const qChatReplyOsNotifiedEventIdsRef = useRef<Set<string>>(new Set());
+  const qChatMessageOsNotifiedEventIdsRef = useRef<Set<string>>(new Set());
   const reticulumDmOsNotifiedEventIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -675,6 +676,91 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
       );
     };
 
+    const handleQChatMessageNotification = async (
+      event: CustomEvent<{
+        channelId?: string;
+        eventId?: string;
+        groupId?: number;
+        groupName?: string;
+        timestamp?: number;
+      }>
+    ) => {
+      const detail = event.detail;
+      const eventId = String(detail?.eventId || '');
+      const groupId = Number(detail?.groupId);
+      if (!eventId || !Number.isFinite(groupId)) return;
+
+      const channelId = String(detail?.channelId || 'general');
+      const effectiveSettings = await getEffectiveNotificationSettings(
+        groupId,
+        undefined,
+        channelId
+      ).catch(() => null);
+
+      const groupSettings = await getGroupNotificationSettings(groupId).catch(
+        () => null
+      );
+      const channelMuted = groupSettings
+        ? isScopeMuted(groupSettings, undefined, channelId)
+        : false;
+
+      const shouldPush =
+        effectiveSettings != null &&
+        shouldFirePushNotification(effectiveSettings, false, false, false) &&
+        !(channelMuted && effectiveSettings.pushLevel === 'all');
+
+      if (!shouldPush) return;
+
+      if (qChatMessageOsNotifiedEventIdsRef.current.has(eventId)) return;
+      qChatMessageOsNotifiedEventIdsRef.current.add(eventId);
+      if (
+        qChatMessageOsNotifiedEventIdsRef.current.size >
+        QCHAT_MENTION_OS_NOTIFICATION_MAX_TRACKED
+      ) {
+        const oldestEventId = qChatMessageOsNotifiedEventIdsRef.current
+          .values()
+          .next().value;
+        if (oldestEventId) {
+          qChatMessageOsNotifiedEventIdsRef.current.delete(oldestEventId);
+        }
+      }
+
+      const groupName =
+        String(detail?.groupName || '').trim() || `Group ${groupId}`;
+      let channelName = getReticulumNotificationChannelLabel(channelId, null);
+      try {
+        const channels = await window.reticulumChat?.getChannels?.(
+          groupId,
+          true
+        );
+        channelName = getReticulumNotificationChannelLabel(channelId, channels);
+      } catch {
+        // The stable ID remains a useful fallback while metadata is syncing.
+      }
+
+      void fireOsNotificationPayment(
+        {
+          appName: QCHAT_MENTION_NOTIFICATION_APP_NAME,
+          appService: 'INTERNAL',
+          event: 'Q_CHAT_MESSAGE',
+        },
+        i18n.t('group:notification_settings.all_messages_title', {
+          groupName,
+        }),
+        i18n.t('group:notification_settings.all_messages_body', {
+          channelName,
+        }),
+        LogoSelected,
+        undefined,
+        {
+          channelId,
+          eventId,
+          from: groupId,
+          qChatMessage: true,
+        }
+      );
+    };
+
     subscribeToEvent(
       'q-chat-mention-notification',
       handleQChatMention as EventListener
@@ -682,6 +768,10 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
     subscribeToEvent(
       'q-chat-reply-notification',
       handleQChatReplyNotification as EventListener
+    );
+    subscribeToEvent(
+      'q-chat-message-notification',
+      handleQChatMessageNotification as EventListener
     );
     return () => {
       unsubscribeFromEvent(
@@ -691,6 +781,10 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
       unsubscribeFromEvent(
         'q-chat-reply-notification',
         handleQChatReplyNotification as EventListener
+      );
+      unsubscribeFromEvent(
+        'q-chat-message-notification',
+        handleQChatMessageNotification as EventListener
       );
     };
   }, [setPaymentNotifications]);

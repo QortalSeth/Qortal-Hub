@@ -841,6 +841,8 @@
   },
   "notification_settings": {
     "all_messages": "all messages",
+    "all_messages_body": "New message in #{{channelName}}",
+    "all_messages_title": "New message in {{groupName}}",
     "hide_muted_channels": "Hide Muted Channels",
     "none": "none",
     "notify_on_replies": "notify on replies",

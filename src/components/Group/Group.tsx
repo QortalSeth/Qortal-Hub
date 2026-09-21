@@ -2735,6 +2735,37 @@ export const Group = ({
     []
   );
 
+  const recordReticulumMessageNotification = useCallback(
+    (event: ReticulumBackgroundEvent, groupId: number) => {
+      const eventId = String(event?.eventId || '');
+      if (
+        !eventId ||
+        !myAddressRef.current ||
+        event.authorAddress === myAddressRef.current ||
+        event.eventType !== 'message'
+      ) {
+        return;
+      }
+
+      const group = memberGroupsRef.current?.find(
+        (item: any) => Number(item?.groupId) === groupId
+      );
+      const groupName =
+        group?.groupName || group?.name || `Group ${String(groupId)}`;
+      const channelId = String(event.channelId || 'general');
+      const timestamp = Number(event.timestamp || Date.now());
+
+      executeEvent('q-chat-message-notification', {
+        channelId,
+        eventId,
+        groupId,
+        groupName,
+        timestamp,
+      });
+    },
+    []
+  );
+
   const processReticulumBackgroundEvent = useCallback(
     async (
       event: ReticulumBackgroundEvent,
@@ -2824,8 +2855,11 @@ export const Group = ({
           addWelcomeUnreadEventId(prev, groupId, event.eventId)
         );
       }
+      let suppressMention = false;
+      let authorizedBroadcast = false;
+      let directMention = false;
+
       if (options.recordMentionNotification === true) {
-        let suppressMention = false;
         if (isWelcomePost) {
           const groupSettings = await getGroupNotificationSettings(
             groupId
@@ -2836,9 +2870,8 @@ export const Group = ({
         }
         if (!suppressMention) {
           const localAddress = myAddressRef.current || '';
-          const authorizedBroadcast =
-            authorizedReticulumBroadcastApplies(event);
-          const directMention = event.directMentionAuthorized === true;
+          authorizedBroadcast = authorizedReticulumBroadcastApplies(event);
+          directMention = event.directMentionAuthorized === true;
           const notificationMentionedAddresses =
             localAddress && (authorizedBroadcast || directMention)
               ? [localAddress]
@@ -2852,6 +2885,7 @@ export const Group = ({
         }
       }
 
+      let replyNotificationEmitted = false;
       if (
         event.eventType === 'message' &&
         event.authorAddress !== myAddressRef.current &&
@@ -2892,12 +2926,26 @@ export const Group = ({
                   groupName,
                   timestamp: Number(event.timestamp || Date.now()),
                 });
+                replyNotificationEmitted = true;
               }
             }
           } catch {
             // Parent message lookup failed — skip reply notification
           }
         }
+      }
+
+      if (
+        options.recordMentionNotification === true &&
+        !suppressMention &&
+        !replyNotificationEmitted &&
+        event.eventType === 'message' &&
+        event.authorAddress !== myAddressRef.current &&
+        myAddressRef.current &&
+        !authorizedBroadcast &&
+        !directMention
+      ) {
+        recordReticulumMessageNotification(event, groupId);
       }
 
       noteProcessedReticulumBackgroundEvent(event.eventId);
@@ -2908,6 +2956,7 @@ export const Group = ({
       hasProcessedReticulumBackgroundEvent,
       noteProcessedReticulumBackgroundEvent,
       recordReticulumMentionNotification,
+      recordReticulumMessageNotification,
       scheduleReticulumChatSummariesRefresh,
     ]
   );
