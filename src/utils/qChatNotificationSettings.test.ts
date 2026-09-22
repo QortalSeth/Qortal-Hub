@@ -21,6 +21,7 @@ import {
   applyNotificationSettingsToAllGroups,
   DEFAULT_NOTIFICATION_SETTINGS,
   type GroupNotificationSettingsData,
+  type EffectiveNotificationSettings,
 } from './qChatNotificationSettings';
 
 afterEach(() => {
@@ -1354,5 +1355,185 @@ describe('applyNotificationSettingsToAllGroups', () => {
     expect(stored.notifyOnReplies).toBe(false);
     expect(stored.notifyOnWelcomePosts).toBe(false);
     expect(stored.hideMutedChannels).toBe(true);
+  });
+});
+
+describe('resolveEffectiveSettings — fallback parameter', () => {
+  const customFallback: EffectiveNotificationSettings = {
+    pushLevel: 'none',
+    suppressEveryoneHere: true,
+    notifyOnReplies: false,
+    notifyOnWelcomePosts: false,
+  };
+
+  it('all four fields fall back to supplied fallback when no settings stored', () => {
+    const result = resolveEffectiveSettings({}, undefined, undefined, customFallback);
+    expect(result).toEqual(customFallback);
+  });
+
+  it('stored group field overrides corresponding fallback field', () => {
+    const settings: GroupNotificationSettingsData = {
+      pushLevel: 'all',
+    };
+    const result = resolveEffectiveSettings(
+      settings,
+      undefined,
+      undefined,
+      customFallback
+    );
+    expect(result.pushLevel).toBe('all');
+    expect(result.suppressEveryoneHere).toBe(true);
+    expect(result.notifyOnReplies).toBe(false);
+    expect(result.notifyOnWelcomePosts).toBe(false);
+  });
+
+  it('section override wins over both fallback and group', () => {
+    const settings: GroupNotificationSettingsData = {
+      pushLevel: 'all',
+      sections: {
+        'sec-1': {
+          pushLevel: 'mentions',
+          suppressEveryoneHere: false,
+        },
+      },
+    };
+    const result = resolveEffectiveSettings(
+      settings,
+      'sec-1',
+      undefined,
+      customFallback
+    );
+    expect(result.pushLevel).toBe('mentions');
+    expect(result.suppressEveryoneHere).toBe(false);
+    expect(result.notifyOnReplies).toBe(false);
+    expect(result.notifyOnWelcomePosts).toBe(false);
+  });
+
+  it('channel override wins over section, group, and fallback', () => {
+    const settings: GroupNotificationSettingsData = {
+      pushLevel: 'all',
+      sections: {
+        'sec-1': {
+          pushLevel: 'mentions',
+          channels: {
+            'ch-1': {
+              pushLevel: 'none',
+            },
+          },
+        },
+      },
+    };
+    const result = resolveEffectiveSettings(
+      settings,
+      'sec-1',
+      'ch-1',
+      customFallback
+    );
+    expect(result.pushLevel).toBe('none');
+  });
+
+  it('defaults to DEFAULT_NOTIFICATION_SETTINGS when no fallback supplied', () => {
+    const result = resolveEffectiveSettings({});
+    expect(result).toEqual(DEFAULT_NOTIFICATION_SETTINGS);
+  });
+});
+
+describe('getEffectiveNotificationSettings — fallback parameter', () => {
+  const customFallback: EffectiveNotificationSettings = {
+    pushLevel: 'none',
+    suppressEveryoneHere: true,
+    notifyOnReplies: false,
+    notifyOnWelcomePosts: false,
+  };
+
+  it('returns fallback values when no settings stored', async () => {
+    mockSendMessage({});
+    const result = await getEffectiveNotificationSettings(
+      123,
+      undefined,
+      undefined,
+      customFallback
+    );
+    expect(result).toEqual(customFallback);
+  });
+
+  it('stored group field overrides fallback', async () => {
+    mockSendMessage({
+      'q-chat-notification-settings-123': { pushLevel: 'all' },
+    });
+    const result = await getEffectiveNotificationSettings(
+      123,
+      undefined,
+      undefined,
+      customFallback
+    );
+    expect(result.pushLevel).toBe('all');
+    expect(result.suppressEveryoneHere).toBe(true);
+    expect(result.notifyOnReplies).toBe(false);
+    expect(result.notifyOnWelcomePosts).toBe(false);
+  });
+
+  it('defaults to DEFAULT_NOTIFICATION_SETTINGS when no fallback supplied', async () => {
+    mockSendMessage({});
+    const result = await getEffectiveNotificationSettings(123);
+    expect(result).toEqual(DEFAULT_NOTIFICATION_SETTINGS);
+  });
+});
+
+describe('groupHasUnreadConsideringMute — fallback parameter', () => {
+  const fallbackNotifyOff: EffectiveNotificationSettings = {
+    pushLevel: 'mentions',
+    suppressEveryoneHere: false,
+    notifyOnReplies: true,
+    notifyOnWelcomePosts: false,
+  };
+
+  const fallbackNotifyOn: EffectiveNotificationSettings = {
+    pushLevel: 'mentions',
+    suppressEveryoneHere: false,
+    notifyOnReplies: true,
+    notifyOnWelcomePosts: true,
+  };
+
+  it('uses fallback.notifyOnWelcomePosts when group has no stored value', () => {
+    const settings: GroupNotificationSettingsData = {};
+    const summary = { unreadCount: 1, mentionCount: 0 };
+    expect(
+      groupHasUnreadConsideringMute(settings, summary, 1, fallbackNotifyOff)
+    ).toBe(false);
+  });
+
+  it('uses fallback.notifyOnWelcomePosts=true when fallback says true', () => {
+    const settings: GroupNotificationSettingsData = {};
+    const summary = { unreadCount: 1, mentionCount: 0 };
+    expect(
+      groupHasUnreadConsideringMute(settings, summary, 1, fallbackNotifyOn)
+    ).toBe(true);
+  });
+
+  it('stored notifyOnWelcomePosts overrides fallback', () => {
+    const settings: GroupNotificationSettingsData = {
+      notifyOnWelcomePosts: true,
+    };
+    const summary = { unreadCount: 1, mentionCount: 0 };
+    expect(
+      groupHasUnreadConsideringMute(settings, summary, 1, fallbackNotifyOff)
+    ).toBe(true);
+  });
+
+  it('mute state comes only from per-group storage, not fallback', () => {
+    const settings: GroupNotificationSettingsData = {
+      mutedUntil: null,
+    };
+    const summary = { unreadCount: 5, mentionCount: 0 };
+    expect(
+      groupHasUnreadConsideringMute(settings, summary, 0, fallbackNotifyOn)
+    ).toBe(false);
+  });
+
+  it('defaults to true when no fallback supplied and no stored value', () => {
+    const settings: GroupNotificationSettingsData = {};
+    const summary = { unreadCount: 1, mentionCount: 0 };
+    expect(groupHasUnreadConsideringMute(settings, summary, 1)).toBe(true);
   });
 });

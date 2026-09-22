@@ -106,7 +106,14 @@ import {
   orderReticulumGroups,
   persistReticulumGroupOrder,
   readReticulumGroupOrder,
+  subscribeToReticulumGroupOrder,
 } from './reticulumGroupRail';
+import {
+  readGroupSortMode,
+  subscribeToGroupSortMode,
+  persistGroupSortMode,
+  type GroupSortMode,
+} from './SortGroupsSubmenu';
 import { QChatWhatsNewDialog } from './QChatWhatsNewDialog';
 import { subscribeToEvent, unsubscribeFromEvent } from '../../utils/events';
 import {
@@ -1061,6 +1068,17 @@ const GroupListInner = ({
   const [manualGroupOrder, setManualGroupOrder] = useState<string[]>(
     readReticulumGroupOrder
   );
+
+  useEffect(() => {
+    const unsubscribe = subscribeToReticulumGroupOrder(setManualGroupOrder);
+    return unsubscribe;
+  }, []);
+  const [sortMode, setSortMode] = useState<GroupSortMode>(readGroupSortMode);
+
+  useEffect(() => {
+    const unsubscribe = subscribeToGroupSortMode(setSortMode);
+    return unsubscribe;
+  }, []);
   const [groupDragTarget, setGroupDragTarget] =
     useState<GroupDragTarget | null>(null);
   const groupDragTargetRef = useRef<GroupDragTarget | null>(null);
@@ -1069,9 +1087,28 @@ const GroupListInner = ({
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
   const orderedGroups = useMemo(() => {
-    if (!railMode) return groups;
-    return orderReticulumGroups(groups, manualGroupOrder);
-  }, [groups, manualGroupOrder, railMode]);
+    if (!railMode) {
+      if (sortMode === 'alphabetical') {
+        return [...groups].sort((a: any, b: any) =>
+          String(a?.groupName || '').localeCompare(
+            String(b?.groupName || '')
+          )
+        );
+      }
+      return groups;
+    }
+    if (sortMode === 'manual') {
+      return orderReticulumGroups(groups, manualGroupOrder);
+    }
+    if (sortMode === 'alphabetical') {
+      return [...groups].sort((a: any, b: any) =>
+        String(a?.groupName || '').localeCompare(
+          String(b?.groupName || '')
+        )
+      );
+    }
+    return groups;
+  }, [groups, manualGroupOrder, railMode, sortMode]);
   const orderedGroupIds = useMemo(
     () => orderedGroups.map((group: any) => String(group?.groupId)),
     [orderedGroups]
@@ -1097,8 +1134,12 @@ const GroupListInner = ({
           groupDragInsertionPosition(event)
         )
       );
+      if (sortMode !== 'manual') {
+        setSortMode('manual');
+        persistGroupSortMode('manual');
+      }
     },
-    [orderedGroupIds, persistManualGroupOrder]
+    [orderedGroupIds, persistManualGroupOrder, sortMode]
   );
 
   const updateGroupDragTarget = useCallback(
@@ -1651,7 +1692,7 @@ const GroupListInner = ({
           className="group-list"
           dense={false}
         >
-          {groups.map((group: any) => (
+          {orderedGroups.map((group: any) => (
             <GroupItem
               selectGroupFunc={selectGroupFunc}
               key={group.groupId}
@@ -1752,6 +1793,7 @@ const GroupItem = memo(
     const muteSettingsCache = useAtomValue(notificationSettingsCacheAtom);
     const welcomeUnreadMap = useAtomValue(unreadWelcomeEventIdsAtom);
     useAtomValue(muteExpiryTickAtom);
+    const globalNotifForm = useAtomValue(globalNotificationFormAtom);
     const { attributes, listeners, setNodeRef, isDragging } = useSortable({
       id: String(group?.groupId),
       disabled: !railMode,
@@ -1824,7 +1866,9 @@ const GroupItem = memo(
       String(group?.groupId)
     );
     const notifyOnWelcomePosts =
-      groupMuteSettings?.notifyOnWelcomePosts !== false;
+      groupMuteSettings?.notifyOnWelcomePosts ??
+      globalNotifForm.notifyOnWelcomePosts ??
+      true;
     const reticulumRawUnreadCount = Math.max(
       0,
       Number(group?.reticulumChatSummary?.unreadCount || 0)
@@ -1845,7 +1889,8 @@ const GroupItem = memo(
         !groupHasUnreadConsideringMute(
           groupMuteSettings,
           group?.reticulumChatSummary,
-          welcomeUnreadCount
+          welcomeUnreadCount,
+          globalNotifForm
         )
       : false;
 

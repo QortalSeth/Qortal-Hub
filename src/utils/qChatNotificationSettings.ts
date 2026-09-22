@@ -79,19 +79,26 @@ export async function setGroupNotificationSettings(
 export async function getEffectiveNotificationSettings(
   groupId: string | number,
   sectionId?: string,
-  channelId?: string
+  channelId?: string,
+  fallback?: EffectiveNotificationSettings
 ): Promise<EffectiveNotificationSettings> {
   const groupSettings = await getGroupNotificationSettings(groupId);
-  return resolveEffectiveSettings(groupSettings, sectionId, channelId);
+  return resolveEffectiveSettings(
+    groupSettings,
+    sectionId,
+    channelId,
+    fallback
+  );
 }
 
 export function resolveEffectiveSettings(
   groupSettings: GroupNotificationSettingsData,
   sectionId?: string,
-  channelId?: string
+  channelId?: string,
+  fallback: EffectiveNotificationSettings = DEFAULT_NOTIFICATION_SETTINGS
 ): EffectiveNotificationSettings {
   const result: EffectiveNotificationSettings = {
-    ...DEFAULT_NOTIFICATION_SETTINGS,
+    ...fallback,
     ...(groupSettings.pushLevel !== undefined
       ? { pushLevel: groupSettings.pushLevel }
       : {}),
@@ -381,13 +388,15 @@ function buildChannelSectionMap(
 export function groupHasUnreadConsideringMute(
   groupSettings: GroupNotificationSettingsData | undefined,
   summary: any,
-  welcomeUnreadCount?: number
+  welcomeUnreadCount?: number,
+  fallback: EffectiveNotificationSettings = DEFAULT_NOTIFICATION_SETTINGS
 ): boolean {
   if (!summary) {
     return false;
   }
 
-  const notifyOnWelcomePosts = groupSettings?.notifyOnWelcomePosts !== false;
+  const notifyOnWelcomePosts =
+    groupSettings?.notifyOnWelcomePosts ?? fallback.notifyOnWelcomePosts ?? true;
   const welcomeCount =
     !notifyOnWelcomePosts && welcomeUnreadCount ? welcomeUnreadCount : 0;
 

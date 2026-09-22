@@ -12,6 +12,7 @@ import {
   filterSeenInAppKeysByRules,
   reticulumChatEnabledAtom,
   unreadWelcomeEventIdsAtom,
+  globalNotificationFormAtom,
 } from '../../atoms/global';
 import { fireOsNotificationPayment } from '../../background/background';
 import {
@@ -122,6 +123,9 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
   const welcomeUnreadMap = useAtomValue(unreadWelcomeEventIdsAtom);
   const welcomeUnreadMapRef = useRef(welcomeUnreadMap);
   welcomeUnreadMapRef.current = welcomeUnreadMap;
+  const globalNotifForm = useAtomValue(globalNotificationFormAtom);
+  const globalNotifFormRef = useRef(globalNotifForm);
+  globalNotifFormRef.current = globalNotifForm;
 
   const [socketOpen, setSocketOpen] = useState(false);
   const socketRef = useRef<WebSocket | null>(null);
@@ -434,7 +438,8 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
       const effectiveSettings = await getEffectiveNotificationSettings(
         groupId,
         undefined,
-        channelId
+        channelId,
+        globalNotifFormRef.current
       ).catch(() => null);
 
       const groupSettings = await getGroupNotificationSettings(groupId).catch(
@@ -483,7 +488,8 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
           let mentionCount = Math.max(0, Number(detail?.mentionCount) || 0);
           if (
             mentionCount > 0 &&
-            groupSettings?.notifyOnWelcomePosts === false
+            (groupSettings?.notifyOnWelcomePosts ??
+              globalNotifFormRef.current.notifyOnWelcomePosts) === false
           ) {
             const welcomeCount = getWelcomeUnreadCount(
               welcomeUnreadMapRef.current,
@@ -694,7 +700,8 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
       const effectiveSettings = await getEffectiveNotificationSettings(
         groupId,
         undefined,
-        channelId
+        channelId,
+        globalNotifFormRef.current
       ).catch(() => null);
 
       const groupSettings = await getGroupNotificationSettings(groupId).catch(

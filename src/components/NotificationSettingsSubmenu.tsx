@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useAtomValue } from 'jotai';
 import { Item, Separator, Submenu } from 'react-contexify';
 import { Box, Checkbox, Radio, Typography } from '@mui/material';
 import NotificationsRoundedIcon from '@mui/icons-material/NotificationsRounded';
@@ -12,6 +13,7 @@ import {
   setScopeNotificationSettings,
   DEFAULT_NOTIFICATION_SETTINGS,
 } from '../utils/qChatNotificationSettings';
+import { globalNotificationFormAtom } from '../atoms/global';
 
 export interface NotificationSettingsSubmenuProps {
   scope: ScopeDescriptor;
@@ -23,6 +25,7 @@ export function NotificationSettingsSubmenu({
   const [settings, setSettings] = useState<EffectiveNotificationSettings>(
     DEFAULT_NOTIFICATION_SETTINGS
   );
+  const globalNotifForm = useAtomValue(globalNotificationFormAtom);
   const { t } = useTranslation(['group']);
 
   useEffect(() => {
@@ -30,14 +33,15 @@ export function NotificationSettingsSubmenu({
     void getEffectiveNotificationSettings(
       scope.groupId,
       scope.sectionId,
-      scope.channelId
+      scope.channelId,
+      globalNotifForm
     ).then((result) => {
       if (!cancelled) setSettings(result);
     });
     return () => {
       cancelled = true;
     };
-  }, [scope.groupId, scope.sectionId, scope.channelId]);
+  }, [scope.groupId, scope.sectionId, scope.channelId, globalNotifForm]);
 
   const updateSettings = (partial: Partial<EffectiveNotificationSettings>) => {
     const next = { ...settings, ...partial };

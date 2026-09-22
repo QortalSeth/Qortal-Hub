@@ -4,6 +4,7 @@ import { createStore, Provider } from 'jotai';
 import {
   groupChatHasUnreadAtom,
   memberGroupsAtom,
+  memberGroupsWithReticulumChatAtom,
   reticulumChatSummariesAtom,
   reticulumChatEnabledAtom,
   userInfoAtom,
@@ -11,8 +12,14 @@ import {
   muteExpiryTickAtom,
   groupChatTimestampsAtom,
   timestampEnterDataAtom,
+  globalNotificationFormAtom,
+  DEFAULT_GLOBAL_NOTIF_FORM,
+  groupJoinBumpTimestampsAtom,
 } from './global';
-import type { GroupNotificationSettingsData } from '../utils/qChatNotificationSettings';
+import {
+  type GroupNotificationSettingsData,
+  groupHasUnreadConsideringMute,
+} from '../utils/qChatNotificationSettings';
 
 function setupStore(overrides: {
   groups?: any[];
@@ -312,5 +319,136 @@ describe('groupChatHasUnreadAtom', () => {
     });
     const { result } = renderHookWithStore(store);
     expect(result.current).toBe(true);
+  });
+});
+
+describe('groupHasUnreadConsideringMute with globalNotificationFormAtom fallback', () => {
+  it('uncustomized group unread dot reflects global notifyOnWelcomePosts=false', () => {
+    const store = createStore();
+    store.set(memberGroupsAtom, []);
+    store.set(reticulumChatSummariesAtom, null as any);
+    store.set(reticulumChatEnabledAtom, true);
+    store.set(userInfoAtom, { address: 'test-address' });
+    store.set(notificationSettingsCacheAtom, { '1': {} });
+    store.set(muteExpiryTickAtom, 0);
+    store.set(groupChatTimestampsAtom, {});
+    store.set(timestampEnterDataAtom, {});
+    store.set(globalNotificationFormAtom, {
+      ...DEFAULT_GLOBAL_NOTIF_FORM,
+      notifyOnWelcomePosts: false,
+    });
+
+    const globalForm = store.get(globalNotificationFormAtom);
+    const groupSettings: GroupNotificationSettingsData = {};
+    const summary = { unreadCount: 1, mentionCount: 0 };
+
+    expect(
+      groupHasUnreadConsideringMute(groupSettings, summary, 1, globalForm)
+    ).toBe(false);
+  });
+
+  it('uncustomized group unread dot reflects global notifyOnWelcomePosts=true', () => {
+    const store = createStore();
+    store.set(memberGroupsAtom, []);
+    store.set(reticulumChatSummariesAtom, null as any);
+    store.set(reticulumChatEnabledAtom, true);
+    store.set(userInfoAtom, { address: 'test-address' });
+    store.set(notificationSettingsCacheAtom, { '1': {} });
+    store.set(muteExpiryTickAtom, 0);
+    store.set(groupChatTimestampsAtom, {});
+    store.set(timestampEnterDataAtom, {});
+    store.set(globalNotificationFormAtom, {
+      ...DEFAULT_GLOBAL_NOTIF_FORM,
+      notifyOnWelcomePosts: true,
+    });
+
+    const globalForm = store.get(globalNotificationFormAtom);
+    const groupSettings: GroupNotificationSettingsData = {};
+    const summary = { unreadCount: 1, mentionCount: 0 };
+
+    expect(
+      groupHasUnreadConsideringMute(groupSettings, summary, 1, globalForm)
+    ).toBe(true);
+  });
+});
+
+describe('memberGroupsWithReticulumChatAtom — join bump', () => {
+  function setupBumpStore(
+    groups: any[],
+    bumpTimestamps: Record<string, number> = {},
+    reticulumChatEnabled = false
+  ) {
+    const store = createStore();
+    store.set(memberGroupsAtom, groups);
+    store.set(reticulumChatSummariesAtom, {} as any);
+    store.set(reticulumChatEnabledAtom, reticulumChatEnabled);
+    store.set(userInfoAtom, { address: 'test-address' });
+    store.set(notificationSettingsCacheAtom, {});
+    store.set(muteExpiryTickAtom, 0);
+    store.set(groupChatTimestampsAtom, {});
+    store.set(timestampEnterDataAtom, {});
+    store.set(groupJoinBumpTimestampsAtom, bumpTimestamps);
+    return store;
+  }
+
+  it('bumps a group with timestamp 0 to the top when it has a join bump', () => {
+    const store = setupBumpStore(
+      [
+        { groupId: '1', groupName: 'Alpha', timestamp: 1000 },
+        { groupId: '2', groupName: 'Beta', timestamp: 0 },
+      ],
+      { '2': 9999 }
+    );
+    const result = store.get(memberGroupsWithReticulumChatAtom);
+    expect(String(result[0].groupId)).toBe('2');
+    expect(String(result[1].groupId)).toBe('1');
+  });
+
+  it('does not bump when no join bump timestamp is set', () => {
+    const store = setupBumpStore([
+      { groupId: '1', groupName: 'Alpha', timestamp: 1000 },
+      { groupId: '2', groupName: 'Beta', timestamp: 0 },
+    ]);
+    const result = store.get(memberGroupsWithReticulumChatAtom);
+    expect(String(result[0].groupId)).toBe('1');
+    expect(String(result[1].groupId)).toBe('2');
+  });
+
+  it('a group with a real message timestamp newer than the bump sorts above the bump', () => {
+    const store = setupBumpStore(
+      [
+        { groupId: '1', groupName: 'Alpha', timestamp: 20000 },
+        { groupId: '2', groupName: 'Beta', timestamp: 0 },
+      ],
+      { '2': 9999 }
+    );
+    const result = store.get(memberGroupsWithReticulumChatAtom);
+    expect(String(result[0].groupId)).toBe('1');
+    expect(String(result[1].groupId)).toBe('2');
+  });
+
+  it('General group (id 0) is not affected by bump', () => {
+    const store = setupBumpStore(
+      [{ groupId: '0', groupName: 'General', timestamp: 0 }],
+      { '0': 9999 }
+    );
+    const result = store.get(memberGroupsWithReticulumChatAtom);
+    expect(String(result[0].groupId)).toBe('0');
+  });
+
+  it('reticulum enabled but no summaries — sorts by core timestamp, not alphabetically', () => {
+    const store = setupBumpStore(
+      [
+        { groupId: '1', groupName: 'Zebra', timestamp: 100 },
+        { groupId: '2', groupName: 'Alpha', timestamp: 500 },
+        { groupId: '3', groupName: 'Middle', timestamp: 300 },
+      ],
+      {},
+      true
+    );
+    const result = store.get(memberGroupsWithReticulumChatAtom);
+    expect(String(result[0].groupId)).toBe('2');
+    expect(String(result[1].groupId)).toBe('3');
+    expect(String(result[2].groupId)).toBe('1');
   });
 });

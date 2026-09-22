@@ -110,6 +110,7 @@ import {
   dmFriendsByAddressAtom,
   showActionDrawerAtom,
   unreadWelcomeEventIdsAtom,
+  globalNotificationFormAtom,
 } from '../../atoms/global';
 import { mergeDirectsWithFriends } from '../../lib/dm/mergeDirectsWithFriends';
 import { validateAddress } from '../../utils/validateAddress';
@@ -142,6 +143,7 @@ import {
 } from '../../constants/constants';
 import { useWebsocketStatus } from './useWebsocketStatus';
 import { useNotificationSettingsCache } from '../../hooks/useNotificationSettingsCache';
+import { useBumpNewlyJoinedGroups } from '../../hooks/useBumpNewlyJoinedGroups';
 import { DirectsSidebar } from './DirectsSidebar';
 import { GlobalChatWidget } from './GlobalChatWidget';
 import { openQChatTab, QCHAT_INTERNAL_TAB_ID } from '../../utils/openQChatTab';
@@ -888,6 +890,7 @@ export const Group = ({
   onOpenSettings,
 }: GroupProps) => {
   useNotificationSettingsCache();
+  useBumpNewlyJoinedGroups();
   const [desktopSideView, setDesktopSideView] = useState('groups');
   const [chatWidgetClosed, setChatWidgetClosed] = useAtom(chatWidgetClosedAtom);
   const [lastQappViewMode, setLastQappViewMode] = useState('apps');
@@ -906,6 +909,9 @@ export const Group = ({
   const hasInitializedWebsocket = useRef(false);
   const memberGroupsRef = useRef<any[]>([]);
   const memberGroupsLoadedAddressRef = useRef('');
+  const globalNotifForm = useAtomValue(globalNotificationFormAtom);
+  const globalNotifFormRef = useRef(globalNotifForm);
+  globalNotifFormRef.current = globalNotifForm;
   const [directs, setDirects] = useState([]);
   const [admins, setAdmins] = useState([]);
   const [adminsWithNames, setAdminsWithNames] = useState([]);
@@ -2864,7 +2870,10 @@ export const Group = ({
           const groupSettings = await getGroupNotificationSettings(
             groupId
           ).catch(() => null);
-          if (groupSettings?.notifyOnWelcomePosts === false) {
+          if (
+            (groupSettings?.notifyOnWelcomePosts ??
+              globalNotifFormRef.current.notifyOnWelcomePosts) === false
+          ) {
             suppressMention = true;
           }
         }
@@ -2911,7 +2920,8 @@ export const Group = ({
               const effectiveSettings = await getEffectiveNotificationSettings(
                 groupId,
                 undefined,
-                channelId
+                channelId,
+                globalNotifFormRef.current
               ).catch(() => null);
               if (effectiveSettings?.notifyOnReplies) {
                 const group = memberGroupsRef.current?.find(

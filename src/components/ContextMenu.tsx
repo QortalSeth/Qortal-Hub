@@ -31,6 +31,7 @@ import { CustomizedSnackbars } from './Snackbar/Snackbar';
 import { GroupScoreBadge } from './Group/ReticulumGroupLevel';
 import { NotificationSettingsSubmenu } from './NotificationSettingsSubmenu';
 import { MuteSubmenu } from './MuteSubmenu';
+import { SortGroupsSubmenu } from './Group/SortGroupsSubmenu';
 import { setHideMutedChannels } from '../utils/qChatNotificationSettings';
 import { useReticulumGroupScore } from './Group/reticulumGroupScore';
 
@@ -356,6 +357,7 @@ export const ContextMenu = ({
                   {t('group:context_menu.mark_all_groups_read')}
                 </Typography>
               </Item>
+              <SortGroupsSubmenu />
               <NotificationSettingsSubmenu scope={{ groupId }} />
               <MuteSubmenu scope={{ groupId }} scopeType="Group" />
               <HideMutedChannelsItem groupId={groupId} />

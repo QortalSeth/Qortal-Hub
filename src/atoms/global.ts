@@ -44,6 +44,16 @@ export const fullScreenAtom = atomWithReset(false);
 export const p2pHealthAtom = atom<P2pHealthLevel | 'unknown'>('unknown');
 export const groupAnnouncementsAtom = atomWithReset({});
 export const groupChatTimestampsAtom = atomWithReset({});
+
+/**
+ * Ephemeral map of `groupId → bump timestamp` set when a user joins a group.
+ * The sort in `memberGroupsWithReticulumChatAtom` uses
+ * `Math.max(group.timestamp, bumpTimestamp)` so newly-joined groups
+ * (which have `timestamp: 0`) sort to the top of the sidebar, as if a
+ * new post was made there. Cleared on reload (not persisted).
+ */
+export const groupJoinBumpTimestampsAtom =
+  atomWithReset<Record<string, number>>({});
 export type ReticulumChatSummaryAtomEntry = {
   groupId: number;
   channelId?: string;
@@ -157,6 +167,7 @@ export const memberGroupsWithReticulumChatAtom = atom((get) => {
   const groups = get(memberGroupsAtom);
   const reticulumSummaries = get(reticulumChatSummariesAtom);
   const reticulumChatEnabled = get(reticulumChatEnabledAtom);
+  const joinBumpTimestamps = get(groupJoinBumpTimestampsAtom);
   if (!Array.isArray(groups) || !reticulumSummaries) return groups;
   return groups
     .map((group: any) => {
@@ -174,6 +185,8 @@ export const memberGroupsWithReticulumChatAtom = atom((get) => {
             ? lastEvent.timestamp
             : 0;
       if (reticulumChatEnabled) {
+        const coreTimestamp =
+          typeof group?.timestamp === 'number' ? group.timestamp : 0;
         return {
           ...group,
           data: reticulumTimestamp
@@ -181,7 +194,7 @@ export const memberGroupsWithReticulumChatAtom = atom((get) => {
             : undefined,
           reticulumChatSummary: summary,
           sender: reticulumTimestamp ? lastEvent?.authorAddress : undefined,
-          timestamp: reticulumTimestamp || undefined,
+          timestamp: reticulumTimestamp || coreTimestamp || undefined,
         };
       }
       const coreTimestamp =
@@ -198,8 +211,12 @@ export const memberGroupsWithReticulumChatAtom = atom((get) => {
       };
     })
     .sort((a: any, b: any) => {
-      const timestampA = typeof a?.timestamp === 'number' ? a.timestamp : 0;
-      const timestampB = typeof b?.timestamp === 'number' ? b.timestamp : 0;
+      const rawTimestampA = typeof a?.timestamp === 'number' ? a.timestamp : 0;
+      const rawTimestampB = typeof b?.timestamp === 'number' ? b.timestamp : 0;
+      const bumpA = joinBumpTimestamps[String(a?.groupId)] || 0;
+      const bumpB = joinBumpTimestamps[String(b?.groupId)] || 0;
+      const timestampA = Math.max(rawTimestampA, bumpA);
+      const timestampB = Math.max(rawTimestampB, bumpB);
       if (timestampA !== timestampB) return timestampB - timestampA;
       return String(a?.groupName || '').localeCompare(
         String(b?.groupName || '')
@@ -905,7 +922,8 @@ export const groupChatHasUnreadAtom = atom((get) => {
       const result = groupHasUnreadConsideringMute(
         groupSettings,
         group?.reticulumChatSummary,
-        0
+        0,
+        get(globalNotificationFormAtom)
       );
       return result;
     }
@@ -958,7 +976,8 @@ export const isUnreadChatAtomFamily = atomFamily((selectedGroupId: string) =>
       return groupHasUnreadConsideringMute(
         groupSettings,
         findGroup?.reticulumChatSummary,
-        0
+        0,
+        get(globalNotificationFormAtom)
       );
     }
     if (!findGroup?.data || !findGroup?.timestamp) return false;
