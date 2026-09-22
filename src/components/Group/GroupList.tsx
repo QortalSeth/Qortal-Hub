@@ -2074,10 +2074,14 @@ const GroupItem = memo(
             sx={{
               alignItems: 'center',
               backgroundColor:
-                isSelected && desktopSideView === 'groups'
-                  ? theme.palette.mode === 'dark'
-                    ? RETICULUM_ACTIVE_BLUE_DARK
-                    : RETICULUM_ACTIVE_BLUE_LIGHT
+                isSelected
+                  ? desktopSideView === 'groups'
+                    ? theme.palette.mode === 'dark'
+                      ? RETICULUM_ACTIVE_BLUE_DARK
+                      : RETICULUM_ACTIVE_BLUE_LIGHT
+                    : theme.palette.mode === 'dark'
+                      ? `${RETICULUM_ACTIVE_BLUE_DARK}66`
+                      : `${RETICULUM_ACTIVE_BLUE_LIGHT}66`
                   : 'transparent',
               borderRadius: '8px',
               boxSizing: 'border-box',
@@ -2097,10 +2101,14 @@ const GroupItem = memo(
               zIndex: isDragging ? 4 : 'auto',
               '&:hover': {
                 backgroundColor:
-                  isSelected && desktopSideView === 'groups'
-                    ? theme.palette.mode === 'dark'
-                      ? RETICULUM_ACTIVE_BLUE_DARK
-                      : RETICULUM_ACTIVE_BLUE_LIGHT
+                  isSelected
+                    ? desktopSideView === 'groups'
+                      ? theme.palette.mode === 'dark'
+                        ? RETICULUM_ACTIVE_BLUE_DARK
+                        : RETICULUM_ACTIVE_BLUE_LIGHT
+                      : theme.palette.mode === 'dark'
+                        ? `${RETICULUM_ACTIVE_BLUE_DARK}66`
+                        : `${RETICULUM_ACTIVE_BLUE_LIGHT}66`
                     : theme.palette.action.hover,
               },
             }}
