@@ -10,7 +10,6 @@ import {
 } from '@mui/material';
 import AllInclusiveRoundedIcon from '@mui/icons-material/AllInclusiveRounded';
 import CheckRoundedIcon from '@mui/icons-material/CheckRounded';
-import LockRoundedIcon from '@mui/icons-material/LockRounded';
 import { useTranslation } from 'react-i18next';
 import { CustomStyledMenu } from '../ContextMenu';
 import {
@@ -25,8 +24,6 @@ type ReticulumMessageExpiryButtonProps = {
   disabled?: boolean;
   disabledReason?: string;
   onChange: (durationMs: number | null | undefined) => void;
-  onPreferredExpiryChange?: (durationMs: number | undefined) => void;
-  preferredExpiryDurationMs?: number;
   segmented?: boolean;
   value?: number | null;
 };
@@ -54,14 +51,6 @@ const expiryMenuItemSx = {
     lineHeight: '15px',
   },
   '& .MuiSvgIcon-root': { fontSize: 18 },
-  '& .reticulum-expiry-lock': {
-    opacity: 0,
-    transition: 'color 120ms ease, opacity 120ms ease',
-  },
-  '&:hover .reticulum-expiry-lock, &:focus-within .reticulum-expiry-lock, & .reticulum-expiry-lock--preferred':
-    {
-      opacity: 1,
-    },
 };
 
 const expiryIndicatorLabel = (durationMs?: number): string | null => {
@@ -78,8 +67,6 @@ export function ReticulumMessageExpiryButton({
   disabled = false,
   disabledReason,
   onChange,
-  onPreferredExpiryChange,
-  preferredExpiryDurationMs,
   segmented = false,
   value,
 }: ReticulumMessageExpiryButtonProps) {
@@ -289,26 +276,15 @@ export function ReticulumMessageExpiryButton({
               option.durationMs,
               channelExpiryDurationMs
             );
-            const isPreferred = preferredExpiryDurationMs === option.durationMs;
-            const preferenceAvailable = Boolean(onPreferredExpiryChange);
             return (
               <MenuItem
-                disabled={!allowed && !preferenceAvailable}
+                disabled={!allowed}
                 key={option.durationMs}
                 selected={value === option.durationMs}
                 onClick={() => {
                   if (allowed) select(option.durationMs);
                 }}
-                sx={{
-                  ...expiryMenuItemSx,
-                  ...(!allowed && preferenceAvailable
-                    ? {
-                        '& .MuiListItemIcon-root, & .MuiListItemText-root': {
-                          opacity: theme.palette.action.disabledOpacity,
-                        },
-                      }
-                    : {}),
-                }}
+                sx={expiryMenuItemSx}
               >
                 <ListItemIcon>
                   {value === option.durationMs ? <CheckRoundedIcon /> : null}
@@ -326,54 +302,6 @@ export function ReticulumMessageExpiryButton({
                         })
                   }
                 />
-                {onPreferredExpiryChange && (
-                  <Tooltip
-                    title={t('reticulum:expiry.preferred_locked', {
-                      postProcess: 'capitalizeFirstChar',
-                    })}
-                    placement="right"
-                  >
-                    <IconButton
-                      aria-label={
-                        isPreferred
-                          ? t('reticulum:expiry.remove_preferred', {
-                              duration: option.label,
-                              postProcess: 'capitalizeFirstChar',
-                            })
-                          : t('reticulum:expiry.lock_preferred', {
-                              duration: option.label,
-                              postProcess: 'capitalizeFirstChar',
-                            })
-                      }
-                      className={`reticulum-expiry-lock${
-                        isPreferred ? ' reticulum-expiry-lock--preferred' : ''
-                      }`}
-                      onClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        onPreferredExpiryChange(
-                          isPreferred ? undefined : option.durationMs
-                        );
-                      }}
-                      onKeyDown={(event) => event.stopPropagation()}
-                      onMouseDown={(event) => event.stopPropagation()}
-                      size="small"
-                      sx={{
-                        color: isPreferred ? 'primary.main' : 'text.disabled',
-                        flexShrink: 0,
-                        height: 28,
-                        ml: 0.5,
-                        width: 28,
-                        '&:hover': {
-                          backgroundColor: 'action.hover',
-                          color: isPreferred ? 'primary.light' : 'text.primary',
-                        },
-                      }}
-                    >
-                      <LockRoundedIcon sx={{ fontSize: '16px !important' }} />
-                    </IconButton>
-                  </Tooltip>
-                )}
               </MenuItem>
             );
           })}

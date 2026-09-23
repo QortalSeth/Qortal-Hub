@@ -62,11 +62,8 @@
     "channel_default_no_expiry": "channel default (no expiry)",
     "channel_default_with": "channel default ({{duration}})",
     "do_not_auto_delete": "do not auto-delete",
-    "lock_preferred": "lock {{duration}} as preferred expiry",
     "maximum": "maximum {{duration}}",
     "no_expiry": "no expiry",
-    "preferred_locked": "preferred locked expiry",
-    "remove_preferred": "remove {{duration}} preferred expiry",
     "set": "set message expiry",
     "title": "message expiry",
     "tooltip_value": "message expiry: {{value}}",
@@ -219,6 +216,10 @@
     },
     "notifications": {
       "apply_button": "Apply to All Groups",
+      "delivery_description": "Choose how Q-Chat push notifications are delivered to your system.",
+      "delivery_ephemeral": "Use Ephemeral Notifications",
+      "delivery_title": "Notification Delivery",
+      "delivery_native": "Use Push Notifications",
       "description": "Configure notification preferences that apply to all of your groups at once. Per-section and per-channel overrides are preserved.",
       "revert_button": "Revert to Defaults",
       "title": "Notifications"

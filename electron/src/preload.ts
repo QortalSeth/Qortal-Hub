@@ -2643,6 +2643,33 @@ try {
           ipcRenderer.send('reticulumChat:landCall:unsubscribe');
         };
       },
+      showNotification: async (payload: {
+        title: string;
+        body: string;
+        icon?: string;
+        notificationId?: string;
+        data?: Record<string, unknown>;
+      }) =>
+        ipcRenderer.invoke(
+          'reticulumChat:showNotification',
+          payload
+        ) as Promise<{ success: boolean }>,
+      onNotificationClicked: (
+        cb: (notificationId: string, data?: Record<string, unknown>) => void
+      ) => {
+        const handler = (
+          _event: unknown,
+          notificationId: string,
+          data?: Record<string, unknown>
+        ) => cb(notificationId, data);
+        ipcRenderer.on('reticulumChat:notificationClicked', handler);
+        return () => {
+          ipcRenderer.removeListener(
+            'reticulumChat:notificationClicked',
+            handler
+          );
+        };
+      },
     });
   }
 
@@ -3704,6 +3731,33 @@ try {
         return () => {
           ipcRenderer.removeListener('reticulumChat:landCall', handler);
           ipcRenderer.send('reticulumChat:landCall:unsubscribe');
+        };
+      },
+      showNotification: async (payload: {
+        title: string;
+        body: string;
+        icon?: string;
+        notificationId?: string;
+        data?: Record<string, unknown>;
+      }) =>
+        ipcRenderer.invoke(
+          'reticulumChat:showNotification',
+          payload
+        ) as Promise<{ success: boolean }>,
+      onNotificationClicked: (
+        cb: (notificationId: string, data?: Record<string, unknown>) => void
+      ) => {
+        const handler = (
+          _event: unknown,
+          notificationId: string,
+          data?: Record<string, unknown>
+        ) => cb(notificationId, data);
+        ipcRenderer.on('reticulumChat:notificationClicked', handler);
+        return () => {
+          ipcRenderer.removeListener(
+            'reticulumChat:notificationClicked',
+            handler
+          );
         };
       },
     });

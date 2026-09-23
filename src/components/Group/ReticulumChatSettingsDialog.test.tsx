@@ -29,6 +29,8 @@ vi.mock('../../utils/qChatNotificationSettings', async () => {
   return {
     ...actual,
     applyNotificationSettingsToAllGroups: vi.fn(async () => {}),
+    getNotificationDeliveryMethod: vi.fn(async () => 'native'),
+    setNotificationDeliveryMethod: vi.fn(async () => {}),
   };
 });
 

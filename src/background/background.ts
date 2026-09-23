@@ -1,6 +1,7 @@
 // @ts-nocheck
 import '../qortal/qortal-requests.ts';
 import { getNotificationOsPushDisabled } from '../qortal/qortal-requests';
+import { NOTIFICATION_DISPLAY_DURATION_MS } from '../constants/notificationConstants';
 import { isArray } from 'lodash';
 import { uint8ArrayToObject } from '../encryption/encryption.ts';
 import Base58 from '../encryption/Base58';
@@ -151,7 +152,7 @@ const requestQueueAnnouncements = new RequestQueueWithPromise(1);
 
 const generalNotificationPayloadById = new Map();
 
-function handleNotificationClick(notificationId) {
+export function handleNotificationClick(notificationId) {
   if (typeof window?.electronAPI?.focusWindow === 'function') {
     window.electronAPI.focusWindow();
   }
@@ -3344,7 +3345,8 @@ export const fireOsNotificationPayment = async (
   messageBody,
   icon,
   qortalLink,
-  internalPayload
+  internalPayload,
+  deliveryMethod: 'native' | 'ephemeral' = 'native'
 ) => {
   try {
     const isDisableNotifications =
@@ -3371,21 +3373,32 @@ export const fireOsNotificationPayment = async (
         (qortalLink ? { link: qortalLink } : { openWallets: true })
     );
 
-    const notification = new window.Notification(title, {
-      body: messageBody,
-      icon,
-      data: { id: notificationId },
-    });
+    if (deliveryMethod === 'native' && window.reticulumChat?.showNotification) {
+      await window.reticulumChat.showNotification({
+        title,
+        body: messageBody,
+        icon: typeof icon === 'string' ? icon : undefined,
+        notificationId,
+        data: internalPayload || {},
+      });
+    } else {
+      const notification = new window.Notification(title, {
+        body: messageBody,
+        icon,
+        data: { id: notificationId },
+      });
 
-    notification.onclick = () => {
-      handleNotificationClick(notificationId);
-      notification.close();
-    };
+      notification.onclick = () => {
+        generalNotificationPayloadById.delete(notificationId);
+        handleNotificationClick(notificationId);
+        notification.close();
+      };
 
-    setTimeout(() => {
-      generalNotificationPayloadById.delete(notificationId);
-      notification.close();
-    }, 10000);
+      setTimeout(() => {
+        generalNotificationPayloadById.delete(notificationId);
+        notification.close();
+      }, NOTIFICATION_DISPLAY_DURATION_MS);
+    }
   } catch (error) {
     console.error(error);
   }

@@ -13,6 +13,7 @@ import {
   Menu,
   MenuItem,
   nativeImage,
+  Notification,
   Tray,
   session,
   ipcMain,
@@ -6035,6 +6036,83 @@ ipcMain.handle(
     const count = typeof mentionCount === 'number' ? mentionCount : 0;
     myCapacitorApp.updateReticulumChatMentionBadge(count);
     return { success: true };
+  }
+);
+
+const activeNotifications = new Map<string, Notification>();
+const NOTIFICATION_DISPLAY_DURATION_MS = 10_000;
+
+ipcMain.handle(
+  'reticulumChat:showNotification',
+  async (
+    _event,
+    payload: {
+      title: string;
+      body: string;
+      icon?: string;
+      notificationId?: string;
+      data?: Record<string, unknown>;
+    }
+  ) => {
+    try {
+      const mainWindow = myCapacitorApp.getMainWindow();
+      let notificationIcon: Electron.NativeImage | undefined;
+      if (typeof payload.icon === 'string' && payload.icon.length > 0) {
+        try {
+          if (payload.icon.startsWith('data:')) {
+            notificationIcon = nativeImage.createFromDataURL(payload.icon);
+          } else if (payload.icon.startsWith('file://') || payload.icon.startsWith('/')) {
+            notificationIcon = nativeImage.createFromPath(
+              payload.icon.startsWith('file://')
+                ? decodeURIComponent(payload.icon.slice(7))
+                : payload.icon
+            );
+          }
+        } catch {
+          // Icon resolution failed — proceed without an icon
+        }
+      }
+      const nid = payload.notificationId || String(Date.now());
+      const notification = new Notification({
+        title: payload.title,
+        body: payload.body,
+        icon: notificationIcon,
+      });
+      activeNotifications.set(nid, notification);
+      let autoCloseTimer: ReturnType<typeof setTimeout> | null = null;
+      const closeAndCleanup = () => {
+        if (autoCloseTimer) clearTimeout(autoCloseTimer);
+        autoCloseTimer = null;
+        notification.close();
+      };
+      notification.on('click', () => {
+        closeAndCleanup();
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.focus();
+          if (payload.notificationId) {
+            mainWindow.webContents.send(
+              'reticulumChat:notificationClicked',
+              payload.notificationId,
+              payload.data
+            );
+          }
+        }
+      });
+      notification.on('close', () => {
+        if (autoCloseTimer) clearTimeout(autoCloseTimer);
+        autoCloseTimer = null;
+        activeNotifications.delete(nid);
+      });
+      autoCloseTimer = setTimeout(() => {
+        autoCloseTimer = null;
+        notification.close();
+      }, NOTIFICATION_DISPLAY_DURATION_MS);
+      notification.show();
+      return { success: true };
+    } catch (error) {
+      console.error('[showNotification]', error);
+      return { success: false, error: String(error) };
+    }
   }
 );
 

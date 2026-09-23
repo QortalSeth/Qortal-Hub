@@ -93,7 +93,11 @@ import {
   getWelcomeUnreadCount,
   DEFAULT_NOTIFICATION_SETTINGS,
   applyNotificationSettingsToAllGroups,
+  getNotificationDeliveryMethod,
+  setNotificationDeliveryMethod,
+  getDefaultNotificationDeliveryMethod,
   type PushLevel,
+  type NotificationDeliveryMethod,
 } from '../../utils/qChatNotificationSettings';
 import { AvatarPreviewModal } from '../Chat/AvatarPreviewModal';
 import { getClickableAvatarSx } from '../Chat/clickableAvatarStyles';
@@ -151,7 +155,21 @@ export const ReticulumChatSettingsDialog = ({
   const [notificationsExpanded, setNotificationsExpanded] = useState(true);
   const [legacyExpanded, setLegacyExpanded] = useState(true);
   const [notifForm, setNotifForm] = useAtom(globalNotificationFormAtom);
+  const [deliveryMethod, setDeliveryMethod] =
+    useState<NotificationDeliveryMethod>('native');
+  const [deliveryMethodLoaded, setDeliveryMethodLoaded] = useState(false);
   const [applying, setApplying] = useState(false);
+  useEffect(() => {
+    if (open && !deliveryMethodLoaded) {
+      getNotificationDeliveryMethod().then((method) => {
+        setDeliveryMethod(method);
+        setDeliveryMethodLoaded(true);
+      });
+    } else if (!open) {
+      setDeliveryMethod(getDefaultNotificationDeliveryMethod());
+      setDeliveryMethodLoaded(false);
+    }
+  }, [open, deliveryMethodLoaded]);
   const notifFormChanged =
     notifForm.pushLevel !== DEFAULT_GLOBAL_NOTIF_FORM.pushLevel ||
     notifForm.suppressEveryoneHere !==
@@ -604,16 +622,24 @@ export const ReticulumChatSettingsDialog = ({
                     <Checkbox
                       size="small"
                       checked={notifForm.suppressEveryoneHere}
-                      onChange={(_, checked) =>
+                      disabled={notifForm.pushLevel === 'all'}
+                      onChange={(_, checked) => {
+                        if (notifForm.pushLevel === 'all') return;
                         setNotifForm((prev) => ({
                           ...prev,
                           suppressEveryoneHere: checked,
                         }))
-                      }
+                      }}
                     />
                   }
                   label={
-                    <Typography sx={{ fontSize: 14, fontWeight: 600 }}>
+                    <Typography
+                      sx={{
+                        fontSize: 14,
+                        fontWeight: 600,
+                        opacity: notifForm.pushLevel === 'all' ? 0.4 : 1,
+                      }}
+                    >
                       {t('group:notification_settings.suppress_everyone_here')}
                     </Typography>
                   }
@@ -632,16 +658,24 @@ export const ReticulumChatSettingsDialog = ({
                     <Checkbox
                       size="small"
                       checked={notifForm.notifyOnReplies}
-                      onChange={(_, checked) =>
+                      disabled={notifForm.pushLevel === 'all'}
+                      onChange={(_, checked) => {
+                        if (notifForm.pushLevel === 'all') return;
                         setNotifForm((prev) => ({
                           ...prev,
                           notifyOnReplies: checked,
                         }))
-                      }
+                      }}
                     />
                   }
                   label={
-                    <Typography sx={{ fontSize: 14, fontWeight: 600 }}>
+                    <Typography
+                      sx={{
+                        fontSize: 14,
+                        fontWeight: 600,
+                        opacity: notifForm.pushLevel === 'all' ? 0.4 : 1,
+                      }}
+                    >
                       {t('group:notification_settings.notify_on_replies')}
                     </Typography>
                   }
@@ -660,16 +694,24 @@ export const ReticulumChatSettingsDialog = ({
                     <Checkbox
                       size="small"
                       checked={notifForm.notifyOnWelcomePosts}
-                      onChange={(_, checked) =>
+                      disabled={notifForm.pushLevel === 'all'}
+                      onChange={(_, checked) => {
+                        if (notifForm.pushLevel === 'all') return;
                         setNotifForm((prev) => ({
                           ...prev,
                           notifyOnWelcomePosts: checked,
                         }))
-                      }
+                      }}
                     />
                   }
                   label={
-                    <Typography sx={{ fontSize: 14, fontWeight: 600 }}>
+                    <Typography
+                      sx={{
+                        fontSize: 14,
+                        fontWeight: 600,
+                        opacity: notifForm.pushLevel === 'all' ? 0.4 : 1,
+                      }}
+                    >
                       {t('group:notification_settings.notify_on_welcome_posts')}
                     </Typography>
                   }
@@ -712,6 +754,72 @@ export const ReticulumChatSettingsDialog = ({
                   }}
                 />
               </Box>
+              <Typography
+                sx={{
+                  color: 'text.primary',
+                  fontSize: 16,
+                  fontWeight: 650,
+                  mt: 3,
+                  mb: 0.5,
+                }}
+              >
+                {t('reticulum:settings.notifications.delivery_title')}
+              </Typography>
+              <Typography
+                sx={{
+                  color: 'text.secondary',
+                  fontSize: 13,
+                  mb: 1,
+                }}
+              >
+                {t('reticulum:settings.notifications.delivery_description')}
+              </Typography>
+              <RadioGroup
+                value={deliveryMethod}
+                onChange={(_, value: string) => {
+                  const method = value as NotificationDeliveryMethod;
+                  setDeliveryMethod(method);
+                  void setNotificationDeliveryMethod(method);
+                }}
+                sx={{ display: 'flex', gap: 0 }}
+              >
+                <FormControlLabel
+                  value="native"
+                  control={<Radio size="small" />}
+                  label={
+                    <Typography sx={{ fontSize: 14, fontWeight: 600 }}>
+                      {t('reticulum:settings.notifications.delivery_native')}
+                    </Typography>
+                  }
+                  sx={{
+                    m: 0,
+                    px: 1.5,
+                    py: 0.75,
+                    borderRadius: '8px',
+                    '&:hover': {
+                      backgroundColor: theme.palette.action.hover,
+                    },
+                  }}
+                />
+                <FormControlLabel
+                  value="ephemeral"
+                  control={<Radio size="small" />}
+                  label={
+                    <Typography sx={{ fontSize: 14, fontWeight: 600 }}>
+                      {t('reticulum:settings.notifications.delivery_ephemeral')}
+                    </Typography>
+                  }
+                  sx={{
+                    m: 0,
+                    px: 1.5,
+                    py: 0.75,
+                    borderRadius: '8px',
+                    '&:hover': {
+                      backgroundColor: theme.palette.action.hover,
+                    },
+                  }}
+                />
+              </RadioGroup>
               <Box
                 sx={{
                   display: 'flex',
@@ -763,6 +871,12 @@ export const ReticulumChatSettingsDialog = ({
                           DEFAULT_GLOBAL_NOTIF_FORM
                         );
                         setNotifForm(DEFAULT_GLOBAL_NOTIF_FORM);
+                        setDeliveryMethod(
+                          getDefaultNotificationDeliveryMethod()
+                        );
+                        void setNotificationDeliveryMethod(
+                          getDefaultNotificationDeliveryMethod()
+                        );
                         onClose();
                       } finally {
                         setApplying(false);

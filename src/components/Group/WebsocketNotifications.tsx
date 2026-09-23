@@ -14,7 +14,10 @@ import {
   unreadWelcomeEventIdsAtom,
   globalNotificationFormAtom,
 } from '../../atoms/global';
-import { fireOsNotificationPayment } from '../../background/background';
+import {
+  fireOsNotificationPayment,
+  handleNotificationClick,
+} from '../../background/background';
 import {
   getNotificationPermissionKey,
   getPermission,
@@ -27,6 +30,7 @@ import {
 import {
   getEffectiveNotificationSettings,
   getGroupNotificationSettings,
+  getNotificationDeliveryMethod,
   isScopeMuted,
   shouldFirePushNotification,
   getWelcomeUnreadCount,
@@ -36,6 +40,8 @@ import {
   shouldNotifyForReticulumDm,
 } from '../../utils/reticulumDmNotifications';
 import { getReticulumNotificationChannelLabel } from '../../utils/reticulumNotificationChannel';
+import { MAX_NOTIFICATION_PREVIEW_CHARS } from '../../constants/notificationConstants';
+import qortPng from '../../assets/qort.png';
 
 const isQChatMentionNotification = (notification: any) =>
   notification?.appName === QCHAT_MENTION_NOTIFICATION_APP_NAME &&
@@ -87,6 +93,13 @@ function getCalendarReminderMessage(title: string): Record<string, string> {
   }
   return message;
 }
+
+const formatChannelLine = (name: string): string => `${name}\n`;
+
+const truncatePreview = (text: string, maxLen: number): string => {
+  if (!text || text.length <= maxLen) return text;
+  return text.slice(0, maxLen) + '...';
+};
 
 /** Picks message in current language, else en, else first available; not reactive. */
 function getNotificationMessage(
@@ -157,6 +170,8 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
         eventType?: string;
         senderAddress?: string;
         recipientAddress?: string;
+        authorPrimaryName?: string;
+        payload?: string;
         timestamp?: number;
         readByOwner?: boolean;
       };
@@ -190,22 +205,41 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
 
       const friend = dmFriendsByAddressRef.current[directEvent.senderAddress!];
       const senderName = friend?.name?.trim() || 'a friend';
-      void fireOsNotificationPayment(
-        {
-          appName: 'Q-Chat',
-          appService: 'INTERNAL',
-          event: 'RETICULUM_DM_MESSAGE',
-        },
-        `New message from ${senderName}`,
-        'Open Q-Chat to view it.',
-        LogoSelected,
-        undefined,
-        {
-          from: directEvent.senderAddress,
-          name: friend?.name,
-          reticulumDirectMessage: true,
+      let dmMessageText = '';
+      try {
+        const payloadObj = JSON.parse(String(directEvent.payload || '{}'));
+        if (payloadObj && typeof payloadObj === 'object') {
+          dmMessageText = String(payloadObj.messageText || '').trim();
         }
+      } catch {
+        dmMessageText = String(directEvent.payload || '').trim();
+      }
+      dmMessageText = dmMessageText.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+      const dmPreviewText = truncatePreview(
+        dmMessageText,
+        MAX_NOTIFICATION_PREVIEW_CHARS
       );
+      getNotificationDeliveryMethod().then((dmDeliveryMethod) => {
+        void fireOsNotificationPayment(
+          {
+            appName: 'Q-Chat',
+            appService: 'INTERNAL',
+            event: 'RETICULUM_DM_MESSAGE',
+          },
+          `${senderName} sent you a DM`,
+          dmPreviewText,
+          qortPng,
+          undefined,
+          {
+            from: directEvent.senderAddress,
+            name: friend?.name,
+            messageText: dmMessageText,
+            senderName,
+            reticulumDirectMessage: true,
+          },
+          dmDeliveryMethod
+        );
+      });
     });
 
     const addMissedCallNotification = (record: any) => {
@@ -331,28 +365,31 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
         ])
       );
       if (!isHubBeingViewed()) {
-        void fireOsNotificationPayment(
-          {
-            appName: 'Q-Chat',
-            appService: 'INTERNAL',
-            event: 'RETICULUM_CALENDAR_REMINDER',
-          },
-          occurrence.title,
-          occurrence.allDay
-            ? i18n.t('core:calendar.allDay')
-            : `${i18n.t('core:calendar.starts')} ${new Date(
-                occurrence.occurrenceStart
-              ).toLocaleString()}`,
-          LogoSelected,
-          undefined,
-          {
-            from: reminder.groupId,
-            eventId: reminder.eventId,
-            occurrenceStart: occurrence.occurrenceStart,
-            timezone: occurrence.timezone,
-            openCalendar: true,
-          }
-        );
+        getNotificationDeliveryMethod().then((calDeliveryMethod) => {
+          void fireOsNotificationPayment(
+            {
+              appName: 'Q-Chat',
+              appService: 'INTERNAL',
+              event: 'RETICULUM_CALENDAR_REMINDER',
+            },
+            occurrence.title,
+            occurrence.allDay
+              ? i18n.t('core:calendar.allDay')
+              : `${i18n.t('core:calendar.starts')} ${new Date(
+                  occurrence.occurrenceStart
+                ).toLocaleString()}`,
+            qortPng,
+            undefined,
+            {
+              from: reminder.groupId,
+              eventId: reminder.eventId,
+              occurrenceStart: occurrence.occurrenceStart,
+              timezone: occurrence.timezone,
+              openCalendar: true,
+            },
+            calDeliveryMethod
+          );
+        });
       }
     });
     return () => off?.();
@@ -391,6 +428,15 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
   }, []);
 
   useEffect(() => {
+    const off = window.reticulumChat?.onNotificationClicked?.(
+      (notificationId) => {
+        handleNotificationClick(notificationId);
+      }
+    );
+    return () => off?.();
+  }, []);
+
+  useEffect(() => {
     const handler = () => {
       forceCloseWebSocket();
       setSocketOpen(false);
@@ -422,6 +468,8 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
         groupName?: string;
         mentionCount?: number;
         syncUnreadCount?: boolean;
+        messageText?: string;
+        senderName?: string;
         timestamp?: number;
       }>
     ) => {
@@ -604,22 +652,32 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
             qChatMentionOsNotifiedEventIdsRef.current.delete(oldestEventId);
           }
         }
+        const mentionSender = detail.senderName || 'Someone';
+        const mentionText = detail.messageText || '';
+        const previewText = truncatePreview(
+          `${formatChannelLine(channelName)}\n${mentionText}`,
+          MAX_NOTIFICATION_PREVIEW_CHARS
+        );
+        const mentionDeliveryMethod = await getNotificationDeliveryMethod();
         void fireOsNotificationPayment(
           {
             appName: QCHAT_MENTION_NOTIFICATION_APP_NAME,
             appService: 'INTERNAL',
             event: QCHAT_MENTION_NOTIFICATION_EVENT,
           },
-          `Mention in ${groupName}`,
-          `You were mentioned in #${channelName}`,
-          LogoSelected,
+          `${mentionSender} mentioned you in ${groupName}`,
+          previewText,
+          qortPng,
           undefined,
           {
             channelId,
             eventId,
             from: groupId,
+            messageText: mentionText,
+            senderName: mentionSender,
             qChatMention: true,
-          }
+          },
+          mentionDeliveryMethod
         );
       }
     };
@@ -630,6 +688,8 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
         eventId?: string;
         groupId?: number;
         groupName?: string;
+        messageText?: string;
+        senderName?: string;
         timestamp?: number;
       }>
     ) => {
@@ -663,22 +723,32 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
         }
       }
 
+      const replySender = detail.senderName || 'Someone';
+      const replyText = detail.messageText || '';
+      const previewText = truncatePreview(
+        `${formatChannelLine(channelName)}\n${replyText}`,
+        MAX_NOTIFICATION_PREVIEW_CHARS
+      );
+      const replyDeliveryMethod = await getNotificationDeliveryMethod();
       void fireOsNotificationPayment(
         {
           appName: QCHAT_MENTION_NOTIFICATION_APP_NAME,
           appService: 'INTERNAL',
           event: 'Q_CHAT_REPLY',
         },
-        `Reply in ${groupName}`,
-        `Someone replied to your message in #${channelName}`,
-        LogoSelected,
+        `${replySender} replied to you in ${groupName}`,
+        previewText,
+        qortPng,
         undefined,
         {
           channelId,
           eventId,
           from: groupId,
+          messageText: replyText,
+          senderName: replySender,
           qChatReply: true,
-        }
+        },
+        replyDeliveryMethod
       );
     };
 
@@ -688,6 +758,8 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
         eventId?: string;
         groupId?: number;
         groupName?: string;
+        messageText?: string;
+        senderName?: string;
         timestamp?: number;
       }>
     ) => {
@@ -745,26 +817,32 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
         // The stable ID remains a useful fallback while metadata is syncing.
       }
 
+      const msgSender = detail.senderName || 'Someone';
+      const msgText = detail.messageText || '';
+      const previewText = truncatePreview(
+        `${formatChannelLine(channelName)}\n${msgText}`,
+        MAX_NOTIFICATION_PREVIEW_CHARS
+      );
+      const messageDeliveryMethod = await getNotificationDeliveryMethod();
       void fireOsNotificationPayment(
         {
           appName: QCHAT_MENTION_NOTIFICATION_APP_NAME,
           appService: 'INTERNAL',
           event: 'Q_CHAT_MESSAGE',
         },
-        i18n.t('group:notification_settings.all_messages_title', {
-          groupName,
-        }),
-        i18n.t('group:notification_settings.all_messages_body', {
-          channelName,
-        }),
-        LogoSelected,
+        `${msgSender} posted in ${groupName}`,
+        previewText,
+        qortPng,
         undefined,
         {
           channelId,
           eventId,
           from: groupId,
+          messageText: msgText,
+          senderName: msgSender,
           qChatMessage: true,
-        }
+        },
+        messageDeliveryMethod
       );
     };
 

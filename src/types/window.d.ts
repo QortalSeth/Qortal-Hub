@@ -1227,6 +1227,16 @@ declare global {
           failureReason?: 'verification_failed';
         }) => void
       ) => () => void;
+      showNotification: (payload: {
+        title: string;
+        body: string;
+        icon?: string;
+        notificationId?: string;
+        data?: Record<string, unknown>;
+      }) => Promise<{ success: boolean }>;
+      onNotificationClicked: (
+        cb: (notificationId: string, data?: Record<string, unknown>) => void
+      ) => () => void;
     };
 
     reticulumResources?: {

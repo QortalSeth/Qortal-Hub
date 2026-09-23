@@ -106,6 +106,7 @@ import { createReticulumImageRequestGate } from './reticulumImageRequestGate';
 import { useAtomValue } from 'jotai';
 import { reticulumHighlightOwnMessagesAtom } from '../../atoms/global';
 
+
 const QCHAT_FILE_TRANSFER_TTL_MS = 2 * 60 * 60 * 1000;
 const RETICULUM_FILE_UNAVAILABLE_TIMEOUT_MS = 12_000;
 const RETICULUM_EXPIRING_SOON_MS = 15 * 60 * 60 * 1000;
@@ -4492,6 +4493,7 @@ export const MessageItemComponent = ({
               Reply Message
             </Typography>
           </MenuItem>
+
           {isOwnReticulumEditable && (
             <MenuItem
               onClick={() => {

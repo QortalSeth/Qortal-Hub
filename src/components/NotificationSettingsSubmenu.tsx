@@ -120,15 +120,17 @@ export function NotificationSettingsSubmenu({
       <Separator />
       <Item
         closeOnClick={false}
-        onClick={() =>
+        onClick={() => {
+          if (settings.pushLevel === 'all') return;
           updateSettings({
             suppressEveryoneHere: !settings.suppressEveryoneHere,
-          })
-        }
+          });
+        }}
       >
         <Checkbox
           size="small"
           checked={settings.suppressEveryoneHere}
+          disabled={settings.pushLevel === 'all'}
           sx={{
             mr: 1.5,
             pointerEvents: 'none',
@@ -136,19 +138,28 @@ export function NotificationSettingsSubmenu({
             '& .MuiSvgIcon-root': { fontSize: 18 },
           }}
         />
-        <Typography component="span" sx={{ fontSize: '14px', fontWeight: 600 }}>
+        <Typography
+          component="span"
+          sx={{
+            fontSize: '14px',
+            fontWeight: 600,
+            opacity: settings.pushLevel === 'all' ? 0.4 : 1,
+          }}
+        >
           {t('group:notification_settings.suppress_everyone_here')}
         </Typography>
       </Item>
       <Item
         closeOnClick={false}
-        onClick={() =>
-          updateSettings({ notifyOnReplies: !settings.notifyOnReplies })
-        }
+        onClick={() => {
+          if (settings.pushLevel === 'all') return;
+          updateSettings({ notifyOnReplies: !settings.notifyOnReplies });
+        }}
       >
         <Checkbox
           size="small"
           checked={settings.notifyOnReplies}
+          disabled={settings.pushLevel === 'all'}
           sx={{
             mr: 1.5,
             pointerEvents: 'none',
@@ -156,22 +167,31 @@ export function NotificationSettingsSubmenu({
             '& .MuiSvgIcon-root': { fontSize: 18 },
           }}
         />
-        <Typography component="span" sx={{ fontSize: '14px', fontWeight: 600 }}>
+        <Typography
+          component="span"
+          sx={{
+            fontSize: '14px',
+            fontWeight: 600,
+            opacity: settings.pushLevel === 'all' ? 0.4 : 1,
+          }}
+        >
           {t('group:notification_settings.notify_on_replies')}
         </Typography>
       </Item>
       {scope.sectionId == null && scope.channelId == null && (
         <Item
           closeOnClick={false}
-          onClick={() =>
+          onClick={() => {
+            if (settings.pushLevel === 'all') return;
             updateSettings({
               notifyOnWelcomePosts: !settings.notifyOnWelcomePosts,
-            })
-          }
+            });
+          }}
         >
           <Checkbox
             size="small"
             checked={settings.notifyOnWelcomePosts}
+            disabled={settings.pushLevel === 'all'}
             sx={{
               mr: 1.5,
               pointerEvents: 'none',
@@ -181,7 +201,11 @@ export function NotificationSettingsSubmenu({
           />
           <Typography
             component="span"
-            sx={{ fontSize: '14px', fontWeight: 600 }}
+            sx={{
+              fontSize: '14px',
+              fontWeight: 600,
+              opacity: settings.pushLevel === 'all' ? 0.4 : 1,
+            }}
           >
             {t('group:notification_settings.notify_on_welcome_posts')}
           </Typography>

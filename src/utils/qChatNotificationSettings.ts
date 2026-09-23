@@ -508,6 +508,36 @@ export const MIGRATION_KEYS = {
   OLD_MUTED_GROUPS: OLD_MUTED_GROUPS_KEY,
 };
 
+const NOTIFICATION_DELIVERY_KEY = 'q-chat-notification-delivery';
+
+export type NotificationDeliveryMethod = 'native' | 'ephemeral';
+
+export async function getNotificationDeliveryMethod(): Promise<NotificationDeliveryMethod> {
+  const value = await window
+    .sendMessage('getUserSettings', { key: NOTIFICATION_DELIVERY_KEY })
+    .catch(() => null);
+  if (value === 'ephemeral') return 'ephemeral';
+  return 'native';
+}
+
+export async function setNotificationDeliveryMethod(
+  method: NotificationDeliveryMethod
+): Promise<void> {
+  const response = await window.sendMessage('addUserSettings', {
+    keyValue: {
+      key: NOTIFICATION_DELIVERY_KEY,
+      value: method,
+    },
+  });
+  if (response?.error) {
+    throw new Error(response.error);
+  }
+}
+
+export function getDefaultNotificationDeliveryMethod(): NotificationDeliveryMethod {
+  return 'native';
+}
+
 // ---------------------------------------------------------------------------
 // Welcome-post unread tracking helpers
 //

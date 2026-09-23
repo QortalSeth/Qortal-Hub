@@ -858,7 +858,7 @@
     "notify_on_replies": "Notify on Replies",
     "notify_on_welcome_posts": "Notify on Welcome Posts",
     "only_mentions": "Only @Mentions",
-    "suppress_everyone_here": "Suppress @Everyone and @Here"
+    "suppress_everyone_here": "Suppress @everyone and @here"
   },
   "onboarding": {
     "action": {

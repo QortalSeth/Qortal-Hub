@@ -156,7 +156,7 @@ import {
 } from './reticulumGroupRail';
 import {
   beginReticulumSummaryRefresh,
-  getReticulumMentionBadgeCount,
+  getReticulumTotalBadgeCount,
   scheduleReticulumSummaryRefresh,
 } from './reticulumSummaryRefresh';
 import {
@@ -261,6 +261,7 @@ type ReticulumNotificationSummary = {
 const RETICULUM_BACKGROUND_PROCESSED_EVENT_TTL_MS = 2 * 60 * 60_000;
 const RETICULUM_BACKGROUND_PROCESSED_EVENT_MAX = 10_000;
 const RETICULUM_DIRECT_NAME_RETRY_DELAY_MS = 5 * 60_000;
+const authorNameCache = new Map<string, string>();
 
 const getGroupIdFromGroupLike = (group: unknown): number | null => {
   if (!group || typeof group !== 'object') return null;
@@ -1009,6 +1010,9 @@ export const Group = ({
   const setUnreadWelcomeEventIds = useSetAtom(unreadWelcomeEventIdsAtom);
   const unreadWelcomeEventIdsRef = useRef(setUnreadWelcomeEventIds);
   unreadWelcomeEventIdsRef.current = setUnreadWelcomeEventIds;
+  const unreadWelcomeValue = useAtomValue(unreadWelcomeEventIdsAtom);
+  const unreadWelcomeValueRef = useRef(unreadWelcomeValue);
+  unreadWelcomeValueRef.current = unreadWelcomeValue;
   const [reticulumChatEnabled, setReticulumChatEnabled] = useAtom(
     reticulumChatEnabledAtom
   );
@@ -1559,13 +1563,15 @@ export const Group = ({
             : latest;
         }, undefined);
         const mentionCount = Math.max(0, Number(summary?.mentionCount) || 0);
+        const syncGroupName =
+          group?.groupName || group?.name || '';
+        if (!syncGroupName) continue;
         executeEvent('q-chat-mention-notification', {
           channelId: String(
             latestMentionedChannel?.channelId || summary?.channelId || 'general'
           ),
           groupId,
-          groupName:
-            group?.groupName || group?.name || `Group ${String(groupId)}`,
+          groupName: syncGroupName,
           mentionCount,
           syncUnreadCount: true,
           timestamp: Number(
@@ -1642,8 +1648,14 @@ export const Group = ({
           return updated;
         });
         syncReticulumMentionNotifications(next);
+        const welcomeMap = unreadWelcomeValueRef.current;
+        const totalBadge = getReticulumTotalBadgeCount(next);
+        const totalWelcomeUnreads = Object.keys(welcomeMap || {}).reduce(
+          (acc, groupId) => acc + (welcomeMap[groupId]?.size ?? 0),
+          0
+        );
         void window.reticulumChat?.updateMentionBadge?.(
-          getReticulumMentionBadgeCount(next)
+          Math.max(0, totalBadge - totalWelcomeUnreads)
         );
         return true;
       } catch (error) {
@@ -2706,8 +2718,11 @@ export const Group = ({
     (
       event: ReticulumBackgroundEvent,
       groupId: number,
+      groupName: string,
       mentionedAddresses: string[],
-      isEveryoneOrHere: boolean
+      isEveryoneOrHere: boolean,
+      messageText: string,
+      senderName: string
     ) => {
       const eventId = String(event?.eventId || '');
       if (
@@ -2721,11 +2736,6 @@ export const Group = ({
         return;
       }
 
-      const group = memberGroupsRef.current?.find(
-        (item: any) => Number(item?.groupId) === groupId
-      );
-      const groupName =
-        group?.groupName || group?.name || `Group ${String(groupId)}`;
       const channelId = String(event.channelId || 'general');
       const timestamp = Number(event.timestamp || Date.now());
 
@@ -2735,6 +2745,8 @@ export const Group = ({
         groupId,
         groupName,
         isEveryoneOrHere,
+        messageText,
+        senderName,
         timestamp,
       });
     },
@@ -2742,7 +2754,13 @@ export const Group = ({
   );
 
   const recordReticulumMessageNotification = useCallback(
-    (event: ReticulumBackgroundEvent, groupId: number) => {
+    (
+      event: ReticulumBackgroundEvent,
+      groupId: number,
+      groupName: string,
+      messageText: string,
+      senderName: string
+    ) => {
       const eventId = String(event?.eventId || '');
       if (
         !eventId ||
@@ -2753,11 +2771,6 @@ export const Group = ({
         return;
       }
 
-      const group = memberGroupsRef.current?.find(
-        (item: any) => Number(item?.groupId) === groupId
-      );
-      const groupName =
-        group?.groupName || group?.name || `Group ${String(groupId)}`;
       const channelId = String(event.channelId || 'general');
       const timestamp = Number(event.timestamp || Date.now());
 
@@ -2766,6 +2779,8 @@ export const Group = ({
         eventId,
         groupId,
         groupName,
+        messageText,
+        senderName,
         timestamp,
       });
     },
@@ -2834,6 +2849,43 @@ export const Group = ({
         (payload as any)?.qchatSystem?.type === 'group-welcome';
 
       const text = reticulumVisibleSearchTextFromPayload(payload);
+      let senderName =
+        event.authorPrimaryName?.trim() || '';
+      if (!senderName && event.authorAddress) {
+        const cached = authorNameCache.get(event.authorAddress);
+        if (cached) {
+          senderName = cached;
+        } else {
+          try {
+            const nameRes = await fetch(
+              `${getBaseApiReact()}/names/primary/${event.authorAddress}`
+            );
+            const nameData = await nameRes.json();
+            const resolved = nameData?.name;
+            if (resolved && typeof resolved === 'string') {
+              senderName = resolved.trim();
+              authorNameCache.set(event.authorAddress, senderName);
+            }
+          } catch {}
+        }
+      }
+
+      let groupName = '';
+      const cachedGroup = memberGroupsRef.current?.find(
+        (item: any) => Number(item?.groupId) === groupId
+      );
+      const cachedName = cachedGroup?.groupName || cachedGroup?.name || '';
+      if (cachedName.trim()) {
+        groupName = cachedName.trim();
+      } else {
+        try {
+          const res = await fetch(
+            `${getBaseApiReact()}/groups/${groupId}`
+          );
+          const data = await res.json();
+          if (data?.groupName) groupName = data.groupName;
+        } catch {}
+      }
       const targetEventId =
         event.eventType === 'edit' && event.targetEventId
           ? event.targetEventId
@@ -2865,35 +2917,6 @@ export const Group = ({
       let authorizedBroadcast = false;
       let directMention = false;
 
-      if (options.recordMentionNotification === true) {
-        if (isWelcomePost) {
-          const groupSettings = await getGroupNotificationSettings(
-            groupId
-          ).catch(() => null);
-          if (
-            (groupSettings?.notifyOnWelcomePosts ??
-              globalNotifFormRef.current.notifyOnWelcomePosts) === false
-          ) {
-            suppressMention = true;
-          }
-        }
-        if (!suppressMention) {
-          const localAddress = myAddressRef.current || '';
-          authorizedBroadcast = authorizedReticulumBroadcastApplies(event);
-          directMention = event.directMentionAuthorized === true;
-          const notificationMentionedAddresses =
-            localAddress && (authorizedBroadcast || directMention)
-              ? [localAddress]
-              : [];
-          recordReticulumMentionNotification(
-            event,
-            groupId,
-            notificationMentionedAddresses,
-            authorizedBroadcast
-          );
-        }
-      }
-
       let replyNotificationEmitted = false;
       if (
         event.eventType === 'message' &&
@@ -2923,17 +2946,14 @@ export const Group = ({
                 channelId,
                 globalNotifFormRef.current
               ).catch(() => null);
-              if (effectiveSettings?.notifyOnReplies) {
-                const group = memberGroupsRef.current?.find(
-                  (item: any) => Number(item?.groupId) === groupId
-                );
-                const groupName =
-                  group?.groupName || group?.name || `Group ${String(groupId)}`;
+              if (effectiveSettings?.notifyOnReplies && groupName) {
                 executeEvent('q-chat-reply-notification', {
                   channelId,
                   eventId: String(event.eventId || ''),
                   groupId,
                   groupName,
+                  messageText: text,
+                  senderName,
                   timestamp: Number(event.timestamp || Date.now()),
                 });
                 replyNotificationEmitted = true;
@@ -2947,15 +2967,56 @@ export const Group = ({
 
       if (
         options.recordMentionNotification === true &&
-        !suppressMention &&
+        !replyNotificationEmitted
+      ) {
+        if (isWelcomePost) {
+          const groupSettings = await getGroupNotificationSettings(
+            groupId
+          ).catch(() => null);
+          if (
+            (groupSettings?.notifyOnWelcomePosts ??
+              globalNotifFormRef.current.notifyOnWelcomePosts) === false
+          ) {
+            suppressMention = true;
+          }
+        }
+        if (!suppressMention) {
+          const localAddress = myAddressRef.current || '';
+          authorizedBroadcast = authorizedReticulumBroadcastApplies(event);
+          directMention = event.directMentionAuthorized === true;
+          const notificationMentionedAddresses =
+            localAddress && (authorizedBroadcast || directMention)
+              ? [localAddress]
+              : [];
+          recordReticulumMentionNotification(
+            event,
+            groupId,
+            groupName,
+            notificationMentionedAddresses,
+            authorizedBroadcast,
+            text,
+            senderName
+          );
+        }
+      }
+
+      if (
         !replyNotificationEmitted &&
+        options.recordMentionNotification === true &&
+        !suppressMention &&
         event.eventType === 'message' &&
         event.authorAddress !== myAddressRef.current &&
         myAddressRef.current &&
         !authorizedBroadcast &&
         !directMention
       ) {
-        recordReticulumMessageNotification(event, groupId);
+        recordReticulumMessageNotification(
+          event,
+          groupId,
+          groupName,
+          text,
+          senderName
+        );
       }
 
       noteProcessedReticulumBackgroundEvent(event.eventId);

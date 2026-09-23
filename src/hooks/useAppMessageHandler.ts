@@ -54,7 +54,11 @@ export function useAppMessageHandler(
             address: payload.from,
             name: payload.name,
           });
-        } else if (payload?.qChatMention) {
+        } else if (
+          payload?.qChatMention ||
+          payload?.qChatMessage ||
+          payload?.qChatReply
+        ) {
           executeEvent('openGroupMessage', {
             channelId: payload.channelId,
             eventId: payload.eventId,
