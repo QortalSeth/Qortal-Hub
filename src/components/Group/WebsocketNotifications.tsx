@@ -43,6 +43,16 @@ import { getReticulumNotificationChannelLabel } from '../../utils/reticulumNotif
 import { MAX_NOTIFICATION_PREVIEW_CHARS } from '../../constants/notificationConstants';
 import qortPng from '../../assets/qort.png';
 
+const shouldSuppressForCurrentView = (
+  viewRef: React.MutableRefObject<{ groupId: number; channelId: string; isAtBottom: boolean }>,
+  groupId: number,
+  channelId: string
+): boolean => {
+  const ctx = viewRef.current;
+  if (ctx.groupId < 0 || !ctx.isAtBottom) return false;
+  return ctx.groupId === groupId && ctx.channelId === channelId;
+};
+
 const isQChatMentionNotification = (notification: any) =>
   notification?.appName === QCHAT_MENTION_NOTIFICATION_APP_NAME &&
   notification?.data?.qChatMention === true;
@@ -157,7 +167,46 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
   const qChatMentionOsNotifiedEventIdsRef = useRef<Set<string>>(new Set());
   const qChatReplyOsNotifiedEventIdsRef = useRef<Set<string>>(new Set());
   const qChatMessageOsNotifiedEventIdsRef = useRef<Set<string>>(new Set());
+  const qChatReactionOsNotifiedEventIdsRef = useRef<Set<string>>(new Set());
   const reticulumDmOsNotifiedEventIdsRef = useRef<Set<string>>(new Set());
+  const currentViewContextRef = useRef<{
+    groupId: number;
+    channelId: string;
+    isAtBottom: boolean;
+  }>({ groupId: -1, channelId: '', isAtBottom: false });
+
+  useEffect(() => {
+    const onScrollState = (e: CustomEvent) => {
+      currentViewContextRef.current = {
+        ...currentViewContextRef.current,
+        isAtBottom: e.detail?.isAtBottom === true,
+      };
+    };
+    const onOpenGroup = (e: CustomEvent) => {
+      const gid = Number(e.detail?.from);
+      if (Number.isFinite(gid)) {
+        currentViewContextRef.current = {
+          groupId: gid,
+          channelId: String(e.detail?.channelId || ''),
+          isAtBottom: currentViewContextRef.current.isAtBottom,
+        };
+      }
+    };
+    const onDeleteNotification = (e: CustomEvent) => {
+      const evId = e.detail?.eventId;
+      if (evId) {
+        window.reticulumChat?.dismissNotification?.(String(evId));
+      }
+    };
+    subscribeToEvent('chat-scroll-state', onScrollState);
+    subscribeToEvent('openGroupMessage', onOpenGroup);
+    subscribeToEvent('q-chat-delete-notification', onDeleteNotification);
+    return () => {
+      unsubscribeFromEvent('chat-scroll-state', onScrollState);
+      unsubscribeFromEvent('openGroupMessage', onOpenGroup);
+      unsubscribeFromEvent('q-chat-delete-notification', onDeleteNotification);
+    };
+  }, []);
 
   useEffect(() => {
     if (!reticulumChatEnabled || !myAddress) return;
@@ -176,8 +225,17 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
         readByOwner?: boolean;
       };
       const eventId = String(directEvent.eventId || '');
+      if (!eventId) return;
+
+      // Handle DM deletion — dismiss OS notification and skip notification processing
+      if (directEvent.eventType === 'delete') {
+        if (directEvent.senderAddress) {
+          window.reticulumChat?.dismissNotifications?.(NaN, directEvent.senderAddress);
+        }
+        return;
+      }
+
       if (
-        !eventId ||
         reticulumDmOsNotifiedEventIdsRef.current.has(eventId) ||
         !shouldNotifyForReticulumDm({
           event: directEvent,
@@ -237,7 +295,10 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
             senderName,
             reticulumDirectMessage: true,
           },
-          dmDeliveryMethod
+          dmDeliveryMethod,
+          directEvent.senderAddress
+            ? { groupId: 0, channelId: directEvent.senderAddress }
+            : undefined
         );
       });
     });
@@ -654,6 +715,7 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
         }
         const mentionSender = detail.senderName || 'Someone';
         const mentionText = detail.messageText || '';
+        if (shouldSuppressForCurrentView(currentViewContextRef, groupId, channelId)) return;
         const previewText = truncatePreview(
           `${formatChannelLine(channelName)}\n${mentionText}`,
           MAX_NOTIFICATION_PREVIEW_CHARS
@@ -677,7 +739,9 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
             senderName: mentionSender,
             qChatMention: true,
           },
-          mentionDeliveryMethod
+          mentionDeliveryMethod,
+          { groupId, channelId },
+          eventId
         );
       }
     };
@@ -723,6 +787,7 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
         }
       }
 
+      if (shouldSuppressForCurrentView(currentViewContextRef, groupId, channelId)) return;
       const replySender = detail.senderName || 'Someone';
       const replyText = detail.messageText || '';
       const previewText = truncatePreview(
@@ -748,7 +813,84 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
           senderName: replySender,
           qChatReply: true,
         },
-        replyDeliveryMethod
+        replyDeliveryMethod,
+        { groupId, channelId },
+        eventId
+      );
+    };
+
+    const handleQChatReactionNotification = async (
+      event: CustomEvent<{
+        channelId?: string;
+        eventId?: string;
+        groupId?: number;
+        groupName?: string;
+        senderName?: string;
+        reactionEmoji?: string;
+        messageText?: string;
+        timestamp?: number;
+      }>
+    ) => {
+      const detail = event.detail;
+      const eventId = String(detail?.eventId || '');
+      const groupId = Number(detail?.groupId);
+      if (!eventId || !Number.isFinite(groupId)) return;
+
+      if (qChatReactionOsNotifiedEventIdsRef.current.has(eventId)) return;
+      qChatReactionOsNotifiedEventIdsRef.current.add(eventId);
+      if (qChatReactionOsNotifiedEventIdsRef.current.size > 500) {
+        const oldestEventId = qChatReactionOsNotifiedEventIdsRef.current
+          .values()
+          .next().value;
+        if (oldestEventId !== undefined) {
+          qChatReactionOsNotifiedEventIdsRef.current.delete(oldestEventId);
+        }
+      }
+
+      const reactionSender = detail.senderName || 'Someone';
+      const reactionEmoji = detail.reactionEmoji || '';
+      const groupName = String(detail?.groupName || '').trim() || `Group ${groupId}`;
+      const channelId = String(detail?.channelId || 'general');
+      let channelName = getReticulumNotificationChannelLabel(channelId, null);
+      try {
+        const channels = await window.reticulumChat?.getChannels?.(
+          groupId,
+          true
+        );
+        channelName = getReticulumNotificationChannelLabel(channelId, channels);
+      } catch {
+        // The stable ID remains a useful fallback while metadata is syncing.
+      }
+      const parentMessageText = detail.messageText || '';
+      const previewText = parentMessageText
+        ? truncatePreview(
+            `${formatChannelLine(channelName)}\n${parentMessageText}`,
+            MAX_NOTIFICATION_PREVIEW_CHARS
+          )
+        : '';
+      if (shouldSuppressForCurrentView(currentViewContextRef, groupId, channelId)) return;
+      const reactionDeliveryMethod = await getNotificationDeliveryMethod();
+      void fireOsNotificationPayment(
+        {
+          appName: QCHAT_MENTION_NOTIFICATION_APP_NAME,
+          appService: 'INTERNAL',
+          event: 'Q_CHAT_REACTION',
+        },
+        `${reactionSender} reacted to your post with ${reactionEmoji} in ${groupName}`,
+        previewText,
+        qortPng,
+        undefined,
+        {
+          channelId,
+          eventId,
+          from: groupId,
+          senderName: reactionSender,
+          messageText: parentMessageText,
+          qChatReaction: true,
+        },
+        reactionDeliveryMethod,
+        { groupId, channelId },
+        eventId
       );
     };
 
@@ -817,6 +959,7 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
         // The stable ID remains a useful fallback while metadata is syncing.
       }
 
+      if (shouldSuppressForCurrentView(currentViewContextRef, groupId, channelId)) return;
       const msgSender = detail.senderName || 'Someone';
       const msgText = detail.messageText || '';
       const previewText = truncatePreview(
@@ -842,7 +985,9 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
           senderName: msgSender,
           qChatMessage: true,
         },
-        messageDeliveryMethod
+        messageDeliveryMethod,
+        { groupId, channelId },
+        eventId
       );
     };
 
@@ -853,6 +998,10 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
     subscribeToEvent(
       'q-chat-reply-notification',
       handleQChatReplyNotification as EventListener
+    );
+    subscribeToEvent(
+      'q-chat-reaction-notification',
+      handleQChatReactionNotification as EventListener
     );
     subscribeToEvent(
       'q-chat-message-notification',
@@ -866,6 +1015,10 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
       unsubscribeFromEvent(
         'q-chat-reply-notification',
         handleQChatReplyNotification as EventListener
+      );
+      unsubscribeFromEvent(
+        'q-chat-reaction-notification',
+        handleQChatReactionNotification as EventListener
       );
       unsubscribeFromEvent(
         'q-chat-message-notification',

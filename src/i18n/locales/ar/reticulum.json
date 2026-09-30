@@ -219,6 +219,8 @@
     },
     "notifications": {
       "apply_button": "Apply to All Groups",
+      "delivery_ephemeral_tooltip": "Ephemeral notifications are gone forever after the preview disappears.",
+      "delivery_native_tooltip": "Push notifications go into your OS Notification Manager after the preview disappears.",
       "description": "إظهار إشارات Reticulum Q-Chat في لوحة إشعارات Hub. الرسائل غير المقروءة العادية لا تنشئ إشعارات في Hub.",
       "mentions": {
         "description": "نبّهني عندما يشير إليّ أحد في قناة.",

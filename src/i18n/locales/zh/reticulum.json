@@ -219,6 +219,8 @@
     },
     "notifications": {
       "apply_button": "Apply to All Groups",
+      "delivery_ephemeral_tooltip": "Ephemeral notifications are gone forever after the preview disappears.",
+      "delivery_native_tooltip": "Push notifications go into your OS Notification Manager after the preview disappears.",
       "description": "在 Hub 通知面板中显示 Reticulum Q-Chat 的提及。普通未读消息不会产生 Hub 通知。",
       "mentions": {
         "description": "当有人在频道中提及我时通知我。",

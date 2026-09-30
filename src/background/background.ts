@@ -3339,6 +3339,23 @@ export const checkNewMessages = async () => {
   }
 };
 
+const notificationQueue: Array<() => Promise<void>> = [];
+let queueProcessing = false;
+const NOTIFICATION_QUEUE_INTERVAL_MS = 5000;
+
+async function processQueue() {
+  if (queueProcessing) return;
+  queueProcessing = true;
+  while (notificationQueue.length > 0) {
+    const fn = notificationQueue.shift();
+    if (fn) await fn();
+    if (notificationQueue.length > 0) {
+      await new Promise((r) => setTimeout(r, NOTIFICATION_QUEUE_INTERVAL_MS));
+    }
+  }
+  queueProcessing = false;
+}
+
 export const fireOsNotificationPayment = async (
   notificationPayload,
   title,
@@ -3346,8 +3363,11 @@ export const fireOsNotificationPayment = async (
   icon,
   qortalLink,
   internalPayload,
-  deliveryMethod: 'native' | 'ephemeral' = 'native'
+  deliveryMethod: 'native' | 'ephemeral' = 'native',
+  groupContext?: { groupId: number; channelId: string },
+  eventId?: string,
 ) => {
+  notificationQueue.push(async () => {
   try {
     const isDisableNotifications =
       (await getUserSettings({ key: 'disable-push-notifications' })) || false;
@@ -3380,6 +3400,8 @@ export const fireOsNotificationPayment = async (
         icon: typeof icon === 'string' ? icon : undefined,
         notificationId,
         data: internalPayload || {},
+        groupContext,
+        eventId,
       });
     } else {
       const notification = new window.Notification(title, {
@@ -3389,7 +3411,6 @@ export const fireOsNotificationPayment = async (
       });
 
       notification.onclick = () => {
-        generalNotificationPayloadById.delete(notificationId);
         handleNotificationClick(notificationId);
         notification.close();
       };
@@ -3402,6 +3423,8 @@ export const fireOsNotificationPayment = async (
   } catch (error) {
     console.error(error);
   }
+});
+void processQueue();
 };
 
 const checkActiveChatsForNotifications = async () => {

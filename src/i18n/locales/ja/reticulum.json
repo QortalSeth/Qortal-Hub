@@ -219,6 +219,8 @@
     },
     "notifications": {
       "apply_button": "Apply to All Groups",
+      "delivery_ephemeral_tooltip": "Ephemeral notifications are gone forever after the preview disappears.",
+      "delivery_native_tooltip": "Push notifications go into your OS Notification Manager after the preview disappears.",
       "description": "Reticulum Q-ChatのメンションをHubの通知パネルに表示します。通常の未読メッセージではHubの通知は作成されません。",
       "mentions": {
         "description": "チャンネルで誰かが自分をメンションしたときに知らせます。",

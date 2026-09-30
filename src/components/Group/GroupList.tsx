@@ -693,6 +693,42 @@ export const ReticulumChatSettingsDialog = ({
                   control={
                     <Checkbox
                       size="small"
+                      checked={notifForm.notifyOnReactions}
+                      disabled={notifForm.pushLevel === 'all'}
+                      onChange={(_, checked) => {
+                        if (notifForm.pushLevel === 'all') return;
+                        setNotifForm((prev) => ({
+                          ...prev,
+                          notifyOnReactions: checked,
+                        }))
+                      }}
+                    />
+                  }
+                  label={
+                    <Typography
+                      sx={{
+                        fontSize: 14,
+                        fontWeight: 600,
+                        opacity: notifForm.pushLevel === 'all' ? 0.4 : 1,
+                      }}
+                    >
+                      {t('group:notification_settings.notify_on_reactions')}
+                    </Typography>
+                  }
+                  sx={{
+                    m: 0,
+                    px: 1.5,
+                    py: 0.75,
+                    borderRadius: '8px',
+                    '&:hover': {
+                      backgroundColor: theme.palette.action.hover,
+                    },
+                  }}
+                />
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      size="small"
                       checked={notifForm.notifyOnWelcomePosts}
                       disabled={notifForm.pushLevel === 'all'}
                       onChange={(_, checked) => {
@@ -787,9 +823,14 @@ export const ReticulumChatSettingsDialog = ({
                   value="native"
                   control={<Radio size="small" />}
                   label={
-                    <Typography sx={{ fontSize: 14, fontWeight: 600 }}>
-                      {t('reticulum:settings.notifications.delivery_native')}
-                    </Typography>
+                    <Tooltip
+                      title={t('reticulum:settings.notifications.delivery_native_tooltip')}
+                      placement="right"
+                    >
+                      <Typography sx={{ fontSize: 14, fontWeight: 600 }}>
+                        {t('reticulum:settings.notifications.delivery_native')}
+                      </Typography>
+                    </Tooltip>
                   }
                   sx={{
                     m: 0,
@@ -805,9 +846,14 @@ export const ReticulumChatSettingsDialog = ({
                   value="ephemeral"
                   control={<Radio size="small" />}
                   label={
-                    <Typography sx={{ fontSize: 14, fontWeight: 600 }}>
-                      {t('reticulum:settings.notifications.delivery_ephemeral')}
-                    </Typography>
+                    <Tooltip
+                      title={t('reticulum:settings.notifications.delivery_ephemeral_tooltip')}
+                      placement="right"
+                    >
+                      <Typography sx={{ fontSize: 14, fontWeight: 600 }}>
+                        {t('reticulum:settings.notifications.delivery_ephemeral')}
+                      </Typography>
+                    </Tooltip>
                   }
                   sx={{
                     m: 0,
@@ -2251,7 +2297,12 @@ const GroupItem = memo(
               >
                 {avatarNode}
 
-                {((hasReticulumUnread && !isGroupMuted) ||
+                {(groupHasUnreadConsideringMute(
+                    groupMuteSettings,
+                    group?.reticulumChatSummary,
+                    welcomeUnreadCount,
+                    globalNotifForm
+                  ) ||
                   (!reticulumChatEnabled &&
                     group?.data &&
                     groupChatTimestamp &&
@@ -2260,7 +2311,8 @@ const GroupItem = memo(
                     ((!timestampEnterData &&
                       Date.now() - group?.timestamp <
                         timeDifferenceForNotificationChats) ||
-                      timestampEnterData < group?.timestamp))) && (
+                      timestampEnterData < group?.timestamp))) &&
+                  (
                   <ReticulumUnreadCountBadge
                     count={reticulumReplyCount > 0 ? reticulumReplyCount : null}
                     outlineColor={theme.palette.background.surface}
@@ -2274,7 +2326,13 @@ const GroupItem = memo(
                   />
                 )}
 
-                {hasReticulumMention && !isGroupMuted && (
+                {hasReticulumMention &&
+                  groupHasUnreadConsideringMute(
+                    groupMuteSettings,
+                    group?.reticulumChatSummary,
+                    welcomeUnreadCount,
+                    globalNotifForm
+                  ) && (
                   <AlternateEmailIcon
                     sx={{
                       backgroundColor: theme.palette.background.surface,
@@ -2516,7 +2574,12 @@ const GroupItem = memo(
                 marginLeft: '4px',
               }}
             >
-              {((hasReticulumUnread && !isGroupMuted) ||
+              {(groupHasUnreadConsideringMute(
+                  groupMuteSettings,
+                  group?.reticulumChatSummary,
+                  welcomeUnreadCount,
+                  globalNotifForm
+                ) ||
                 (!reticulumChatEnabled &&
                   group?.data &&
                   groupChatTimestamp &&
@@ -2525,7 +2588,8 @@ const GroupItem = memo(
                   ((!timestampEnterData &&
                     Date.now() - group?.timestamp <
                       timeDifferenceForNotificationChats) ||
-                    timestampEnterData < group?.timestamp))) && (
+                      timestampEnterData < group?.timestamp))) &&
+                  (
                 <MarkChatUnreadIcon
                   sx={{
                     color: hasReticulumUnread
@@ -2536,7 +2600,13 @@ const GroupItem = memo(
                 />
               )}
 
-              {hasReticulumMention && !isGroupMuted && (
+              {hasReticulumMention &&
+                groupHasUnreadConsideringMute(
+                  groupMuteSettings,
+                  group?.reticulumChatSummary,
+                  welcomeUnreadCount,
+                  globalNotifForm
+                ) && (
                 <AlternateEmailIcon
                   sx={{
                     color: RETICULUM_NOTIFICATION_RED,

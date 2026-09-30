@@ -6039,8 +6039,15 @@ ipcMain.handle(
   }
 );
 
-const activeNotifications = new Map<string, Notification>();
-const NOTIFICATION_DISPLAY_DURATION_MS = 10_000;
+interface NotificationEntry {
+  notification: Notification;
+  groupContext?: { groupId: number; channelId: string };
+  eventId?: string;
+  createdAt: number;
+}
+const activeNotifications = new Map<string, NotificationEntry>();
+const MAX_ACTIVE_NOTIFICATIONS = 50;
+const NOTIFICATION_DISPLAY_DURATION_MS = 60_000;
 
 ipcMain.handle(
   'reticulumChat:showNotification',
@@ -6052,10 +6059,33 @@ ipcMain.handle(
       icon?: string;
       notificationId?: string;
       data?: Record<string, unknown>;
+      groupContext?: { groupId: number; channelId: string };
+      eventId?: string;
     }
   ) => {
     try {
       const mainWindow = myCapacitorApp.getMainWindow();
+      const nid = payload.notificationId || String(Date.now());
+      const now = Date.now();
+
+      // Enforce max concurrent notification cap
+      if (activeNotifications.size >= MAX_ACTIVE_NOTIFICATIONS) {
+        let oldestKey: string | null = null;
+        let oldestTs = Infinity;
+        for (const [k, v] of activeNotifications) {
+          if (v.createdAt < oldestTs) {
+            oldestTs = v.createdAt;
+            oldestKey = k;
+          }
+        }
+        if (oldestKey) {
+          const oldest = activeNotifications.get(oldestKey);
+          if (oldest) {
+            closeNotificationEntry(oldest, oldestKey);
+          }
+        }
+      }
+
       let notificationIcon: Electron.NativeImage | undefined;
       if (typeof payload.icon === 'string' && payload.icon.length > 0) {
         try {
@@ -6072,21 +6102,21 @@ ipcMain.handle(
           // Icon resolution failed — proceed without an icon
         }
       }
-      const nid = payload.notificationId || String(Date.now());
       const notification = new Notification({
         title: payload.title,
         body: payload.body,
         icon: notificationIcon,
+        urgency: 'normal',
       });
-      activeNotifications.set(nid, notification);
-      let autoCloseTimer: ReturnType<typeof setTimeout> | null = null;
-      const closeAndCleanup = () => {
-        if (autoCloseTimer) clearTimeout(autoCloseTimer);
-        autoCloseTimer = null;
-        notification.close();
+      const entry: NotificationEntry = {
+        notification,
+        groupContext: payload.groupContext,
+        eventId: payload.eventId,
+        createdAt: now,
       };
+      activeNotifications.set(nid, entry);
       notification.on('click', () => {
-        closeAndCleanup();
+        notification.close();
         if (mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.focus();
           if (payload.notificationId) {
@@ -6099,20 +6129,59 @@ ipcMain.handle(
         }
       });
       notification.on('close', () => {
-        if (autoCloseTimer) clearTimeout(autoCloseTimer);
-        autoCloseTimer = null;
         activeNotifications.delete(nid);
       });
-      autoCloseTimer = setTimeout(() => {
-        autoCloseTimer = null;
-        notification.close();
-      }, NOTIFICATION_DISPLAY_DURATION_MS);
       notification.show();
       return { success: true };
     } catch (error) {
       console.error('[showNotification]', error);
       return { success: false, error: String(error) };
     }
+  }
+);
+
+function closeNotificationEntry(entry: NotificationEntry, nid: string) {
+  try { entry.notification.close(); } catch {}
+  activeNotifications.delete(nid);
+}
+
+ipcMain.handle(
+  'reticulumChat:dismissNotifications',
+  async (
+    _event,
+    params: { groupId: number; channelId?: string }
+  ) => {
+    for (const [nid, entry] of activeNotifications) {
+      if (!entry.groupContext) continue;
+      // Match by groupId, or by channelId alone (DM case)
+      if (Number.isFinite(params.groupId)) {
+        if (entry.groupContext.groupId !== params.groupId) continue;
+        if (params.channelId !== undefined && entry.groupContext.channelId !== params.channelId) continue;
+      } else if (params.channelId) {
+        // DM dismiss: match by channelId only
+        if (entry.groupContext.channelId !== params.channelId) continue;
+      } else {
+        continue;
+      }
+      closeNotificationEntry(entry, nid);
+    }
+    return { success: true };
+  }
+);
+
+ipcMain.handle(
+  'reticulumChat:dismissNotification',
+  async (
+    _event,
+    params: { eventId: string }
+  ) => {
+    for (const [nid, entry] of activeNotifications) {
+      if (entry.eventId === params.eventId) {
+        closeNotificationEntry(entry, nid);
+        break;
+      }
+    }
+    return { success: true };
   }
 );
 

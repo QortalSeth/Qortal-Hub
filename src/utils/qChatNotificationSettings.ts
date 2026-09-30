@@ -10,6 +10,7 @@ export interface ScopeNotificationSettings {
   pushLevel?: PushLevel;
   suppressEveryoneHere?: boolean;
   notifyOnReplies?: boolean;
+  notifyOnReactions?: boolean;
   mutedUntil?: number | null;
 }
 
@@ -29,6 +30,7 @@ export interface EffectiveNotificationSettings {
   pushLevel: PushLevel;
   suppressEveryoneHere: boolean;
   notifyOnReplies: boolean;
+  notifyOnReactions: boolean;
   notifyOnWelcomePosts: boolean;
 }
 
@@ -36,6 +38,7 @@ export const DEFAULT_NOTIFICATION_SETTINGS: EffectiveNotificationSettings = {
   pushLevel: 'mentions',
   suppressEveryoneHere: false,
   notifyOnReplies: true,
+  notifyOnReactions: true,
   notifyOnWelcomePosts: true,
 };
 
@@ -108,6 +111,9 @@ export function resolveEffectiveSettings(
     ...(groupSettings.notifyOnReplies !== undefined
       ? { notifyOnReplies: groupSettings.notifyOnReplies }
       : {}),
+    ...(groupSettings.notifyOnReactions !== undefined
+      ? { notifyOnReactions: groupSettings.notifyOnReactions }
+      : {}),
     ...(groupSettings.notifyOnWelcomePosts !== undefined
       ? { notifyOnWelcomePosts: groupSettings.notifyOnWelcomePosts }
       : {}),
@@ -120,6 +126,8 @@ export function resolveEffectiveSettings(
       result.suppressEveryoneHere = section.suppressEveryoneHere;
     if (section.notifyOnReplies !== undefined)
       result.notifyOnReplies = section.notifyOnReplies;
+    if (section.notifyOnReactions !== undefined)
+      result.notifyOnReactions = section.notifyOnReactions;
 
     if (channelId && section.channels?.[channelId]) {
       const channel = section.channels[channelId];
@@ -128,6 +136,8 @@ export function resolveEffectiveSettings(
         result.suppressEveryoneHere = channel.suppressEveryoneHere;
       if (channel.notifyOnReplies !== undefined)
         result.notifyOnReplies = channel.notifyOnReplies;
+      if (channel.notifyOnReactions !== undefined)
+        result.notifyOnReactions = channel.notifyOnReactions;
     }
   }
 
@@ -184,6 +194,7 @@ export interface AllGroupsNotificationSettings {
   pushLevel?: PushLevel;
   suppressEveryoneHere?: boolean;
   notifyOnReplies?: boolean;
+  notifyOnReactions?: boolean;
   notifyOnWelcomePosts?: boolean;
   hideMutedChannels?: boolean;
 }
@@ -203,9 +214,12 @@ export function shouldFirePushNotification(
   effective: EffectiveNotificationSettings,
   isMention: boolean,
   isEveryoneOrHere: boolean,
-  isReplyToUser: boolean
+  isReplyToUser: boolean,
+  isReactionToUser: boolean = false
 ): boolean {
   if (effective.pushLevel === 'all') return true;
+
+  if (effective.notifyOnReactions && isReactionToUser) return true;
 
   if (
     effective.pushLevel === 'mentions' &&

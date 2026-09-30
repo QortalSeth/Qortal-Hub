@@ -219,6 +219,8 @@
     },
     "notifications": {
       "apply_button": "Apply to All Groups",
+      "delivery_ephemeral_tooltip": "Ephemeral notifications are gone forever after the preview disappears.",
+      "delivery_native_tooltip": "Push notifications go into your OS Notification Manager after the preview disappears.",
       "description": "Zeige Reticulum-Q-Chat-Erwähnungen im Benachrichtigungsbereich des Hubs an. Normale ungelesene Nachrichten erzeugen keine Hub-Benachrichtigungen.",
       "mentions": {
         "description": "Benachrichtige mich, wenn mich jemand in einem Kanal erwähnt.",

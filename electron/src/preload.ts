@@ -2649,6 +2649,8 @@ try {
         icon?: string;
         notificationId?: string;
         data?: Record<string, unknown>;
+        groupContext?: { groupId: number; channelId: string };
+        eventId?: string;
       }) =>
         ipcRenderer.invoke(
           'reticulumChat:showNotification',
@@ -2670,6 +2672,16 @@ try {
           );
         };
       },
+      dismissNotifications: (groupId: number, channelId?: string) =>
+        ipcRenderer.invoke(
+          'reticulumChat:dismissNotifications',
+          { groupId, channelId }
+        ) as Promise<{ success: boolean }>,
+      dismissNotification: (eventId: string) =>
+        ipcRenderer.invoke(
+          'reticulumChat:dismissNotification',
+          { eventId }
+        ) as Promise<{ success: boolean }>,
     });
   }
 
@@ -3739,6 +3751,8 @@ try {
         icon?: string;
         notificationId?: string;
         data?: Record<string, unknown>;
+        groupContext?: { groupId: number; channelId: string };
+        eventId?: string;
       }) =>
         ipcRenderer.invoke(
           'reticulumChat:showNotification',
@@ -3760,6 +3774,16 @@ try {
           );
         };
       },
+      dismissNotifications: (groupId: number, channelId?: string) =>
+        ipcRenderer.invoke(
+          'reticulumChat:dismissNotifications',
+          { groupId, channelId }
+        ) as Promise<{ success: boolean }>,
+      dismissNotification: (eventId: string) =>
+        ipcRenderer.invoke(
+          'reticulumChat:dismissNotification',
+          { eventId }
+        ) as Promise<{ success: boolean }>,
     });
   }
 

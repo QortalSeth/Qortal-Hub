@@ -119,6 +119,7 @@ import {
   migrateNotificationSettings,
   getEffectiveNotificationSettings,
   getGroupNotificationSettings,
+  groupHasUnreadConsideringMute,
   addWelcomeUnreadEventId,
   removeWelcomeUnreadEventId,
   clearWelcomeUnreadForGroup,
@@ -156,7 +157,6 @@ import {
 } from './reticulumGroupRail';
 import {
   beginReticulumSummaryRefresh,
-  getReticulumTotalBadgeCount,
   scheduleReticulumSummaryRefresh,
 } from './reticulumSummaryRefresh';
 import {
@@ -1649,7 +1649,22 @@ export const Group = ({
         });
         syncReticulumMentionNotifications(next);
         const welcomeMap = unreadWelcomeValueRef.current;
-        const totalBadge = getReticulumTotalBadgeCount(next);
+        let totalBadge = 0;
+        for (const [groupIdStr, summary] of Object.entries(next)) {
+          const groupId = Number(groupIdStr);
+          if (!Number.isInteger(groupId) || groupId <= 0) continue;
+          try {
+            const settings = await getGroupNotificationSettings(groupId, undefined).catch(() => null);
+            if (!groupHasUnreadConsideringMute(settings, summary, 0, globalNotifFormRef.current)) {
+              continue;
+            }
+          } catch {
+            // Cannot load settings — include the group's counts to be safe
+          }
+          totalBadge +=
+            Math.max(0, Number((summary as any)?.mentionCount) || 0) +
+            Math.max(0, Number((summary as any)?.unreadCount) || 0);
+        }
         const totalWelcomeUnreads = Object.keys(welcomeMap || {}).reduce(
           (acc, groupId) => acc + (welcomeMap[groupId]?.size ?? 0),
           0
@@ -2817,7 +2832,133 @@ export const Group = ({
           );
           noteProcessedReticulumBackgroundEvent(event.eventId);
           scheduleReticulumChatSummariesRefresh();
+          executeEvent('q-chat-delete-notification', { eventId: String(event.targetEventId) });
         }
+        return;
+      }
+
+      if (event.eventType === 'reaction_add') {
+        if (
+          !myAddressRef.current ||
+          options.skipReplyNotification
+        ) {
+          noteProcessedReticulumBackgroundEvent(event.eventId);
+          scheduleReticulumChatSummariesRefresh();
+          return;
+        }
+        const channelId = String(event.channelId || 'general');
+        const targetEventId = event.targetEventId;
+        if (targetEventId) {
+          try {
+            const parentEvents =
+              await window.reticulumChat?.getMessageWindowAroundEvent?.(
+                Number(event.groupId),
+                channelId,
+                String(targetEventId),
+                { afterLimit: 1, beforeLimit: 0 }
+              );
+            const parentEvent = Array.isArray(parentEvents)
+              ? (parentEvents[0] as any)
+              : null;
+            if (parentEvent?.authorAddress === myAddressRef.current) {
+              const effectiveSettings =
+                await getEffectiveNotificationSettings(
+                  Number(event.groupId),
+                  undefined,
+                  channelId,
+                  globalNotifFormRef.current
+                ).catch(() => null);
+              let reactionEmoji = '';
+              try {
+                const parsed = JSON.parse(
+                  String(event.encryptedPayload || '')
+                );
+                reactionEmoji = String(
+                  parsed?.message || parsed?.content || parsed?.messageText || ''
+                );
+              } catch {
+                reactionEmoji = String(event.encryptedPayload || '');
+              }
+              let rxnGroupName = '';
+              const cachedGroup = memberGroupsRef.current?.find(
+                (item: any) =>
+                  Number(item?.groupId) === Number(event.groupId)
+              );
+              const cachedRxnName =
+                cachedGroup?.groupName || cachedGroup?.name || '';
+              if (cachedRxnName.trim()) {
+                rxnGroupName = cachedRxnName.trim();
+              } else {
+                try {
+                  const res = await fetch(
+                    `${getBaseApiReact()}/groups/${Number(event.groupId)}`
+                  );
+                  const data = await res.json();
+                  if (data?.groupName) rxnGroupName = data.groupName;
+                } catch {}
+              }
+              if (effectiveSettings?.notifyOnReactions && rxnGroupName) {
+                let senderName =
+                  event.authorPrimaryName?.trim() || '';
+                if (!senderName && event.authorAddress) {
+                  const cached = authorNameCache.get(event.authorAddress);
+                  if (cached) {
+                    senderName = cached;
+                  } else {
+                    try {
+                      const nameRes = await fetch(
+                        `${getBaseApiReact()}/names/primary/${event.authorAddress}`
+                      );
+                      const nameData = await nameRes.json();
+                      const resolved = nameData?.name;
+                      if (resolved && typeof resolved === 'string') {
+                        senderName = resolved.trim();
+                        authorNameCache.set(event.authorAddress, senderName);
+                      }
+                    } catch {}
+                  }
+                }
+                if (!senderName) senderName = 'Someone';
+                let parentMessageText = '';
+                try {
+                  const parentPayload = JSON.parse(
+                    String(parentEvent.encryptedPayload || '')
+                  );
+                  parentMessageText = reticulumVisibleSearchTextFromPayload(
+                    parentPayload
+                  );
+                } catch {
+                  parentMessageText = String(
+                    parentEvent.encryptedPayload || ''
+                  );
+                }
+                executeEvent('q-chat-reaction-notification', {
+                  channelId,
+                  eventId: String(targetEventId),
+                  groupId: Number(event.groupId),
+                  groupName: rxnGroupName,
+                  senderName,
+                  reactionEmoji,
+                  messageText: parentMessageText,
+                  timestamp: Number(event.timestamp || Date.now()),
+                });
+              }
+            }
+          } catch {
+            // Parent message lookup failed — skip reaction notification
+          }
+        }
+        noteProcessedReticulumBackgroundEvent(event.eventId);
+        scheduleReticulumChatSummariesRefresh();
+        return;
+      }
+
+      if (event.eventType === 'reaction_remove') {
+        if (event.targetEventId) {
+          executeEvent('q-chat-delete-notification', { eventId: String(event.targetEventId) });
+        }
+        noteProcessedReticulumBackgroundEvent(event.eventId);
+        scheduleReticulumChatSummariesRefresh();
         return;
       }
 
@@ -3529,6 +3670,10 @@ export const Group = ({
       const findDirect = displayDirects?.find(
         (direct) => direct?.address === directAddress
       );
+      // Dismiss DM notifications for this address
+      if (directAddress) {
+        window.reticulumChat?.dismissNotifications?.(NaN, directAddress);
+      }
       if (findDirect?.address === selectedDirect?.address) {
         openQChatTab();
         isLoadingOpenSectionFromNotification.current = false;
@@ -4103,6 +4248,14 @@ export const Group = ({
       const findGroup = memberGroupsRef.current?.find(
         (group: any) => +group?.groupId === +groupId
       );
+      // Dismiss only notifications for this channel (not entire group)
+      if (channelId) {
+        const dismissGroupId = Number(groupId || findGroup?.groupId);
+        if (Number.isFinite(dismissGroupId)) {
+          window.reticulumChat?.dismissNotifications?.(dismissGroupId, channelId);
+        }
+      }
+
       if (findGroup?.groupId === selectedGroup?.groupId) {
         isLoadingOpenSectionFromNotification.current = false;
         setChatMode('groups');

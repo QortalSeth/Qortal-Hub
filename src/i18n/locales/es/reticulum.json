@@ -219,6 +219,8 @@
     },
     "notifications": {
       "apply_button": "Apply to All Groups",
+      "delivery_ephemeral_tooltip": "Ephemeral notifications are gone forever after the preview disappears.",
+      "delivery_native_tooltip": "Push notifications go into your OS Notification Manager after the preview disappears.",
       "description": "Mostrar las menciones de Reticulum Q-Chat en el panel de notificaciones del Hub. Los mensajes no leídos normales no generan notificaciones del Hub.",
       "mentions": {
         "description": "Avisarme cuando alguien me mencione en un canal.",

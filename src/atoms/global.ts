@@ -254,6 +254,7 @@ export interface GlobalNotificationFormState {
   pushLevel: 'all' | 'mentions' | 'none';
   suppressEveryoneHere: boolean;
   notifyOnReplies: boolean;
+  notifyOnReactions: boolean;
   notifyOnWelcomePosts: boolean;
   hideMutedChannels: boolean;
 }
@@ -262,6 +263,7 @@ export const DEFAULT_GLOBAL_NOTIF_FORM: GlobalNotificationFormState = {
   pushLevel: 'mentions',
   suppressEveryoneHere: false,
   notifyOnReplies: true,
+  notifyOnReactions: true,
   notifyOnWelcomePosts: true,
   hideMutedChannels: false,
 };
@@ -1061,3 +1063,11 @@ export const qortalGroupSelfGcallRoomIdAtom = atom<string | null>(null);
 
 /** UI-only address → primaryName cache for active Qortal group call participants. */
 export const qortalGroupCallPrimaryNamesAtom = atom<Record<string, string>>({});
+
+/** Tracks the currently viewed chat context for notification suppression.
+ *  `{ groupId, channelId, isAtBottom }` — updated by ChatList on scroll/switch. */
+export const chatViewContextAtom = atom<{
+  groupId: number;
+  channelId: string;
+  isAtBottom: boolean;
+}>({ groupId: -1, channelId: '', isAtBottom: false });

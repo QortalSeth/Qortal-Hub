@@ -846,6 +846,7 @@
     "hide_muted_channels": "Hide Muted Channels",
     "none": "none",
     "notify_on_replies": "notify on replies",
+    "notify_on_reactions": "Notify on Reactions",
     "notify_on_welcome_posts": "notify on welcome posts",
     "only_mentions": "only @mentions",
     "suppress_everyone_here": "suppress @everyone and @here"

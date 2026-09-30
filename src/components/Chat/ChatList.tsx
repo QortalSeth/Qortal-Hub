@@ -15,7 +15,11 @@ import { MessageItem } from './MessageItem';
 import { DirectCallHistoryRow } from './DirectCallHistoryRow';
 import { DirectFriendEventRow } from './DirectFriendEventRow';
 import type { ReticulumChannelLinkAccess } from './MessageDisplay';
-import { subscribeToEvent, unsubscribeFromEvent } from '../../utils/events';
+import {
+  executeEvent,
+  subscribeToEvent,
+  unsubscribeFromEvent,
+} from '../../utils/events';
 import { Box, Button, Typography, useTheme } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import KeyboardArrowDownRoundedIcon from '@mui/icons-material/KeyboardArrowDownRounded';
@@ -766,6 +770,7 @@ export const ChatList = ({
 
       reticulumPinnedToBottomRef.current =
         isPinned && !reticulumReadingPositionLockedRef.current;
+      executeEvent('chat-scroll-state', { isAtBottom: distanceFromBottom <= 50 });
       if (
         isPinned &&
         !hasNewerMessages &&

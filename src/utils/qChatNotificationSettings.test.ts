@@ -61,6 +61,7 @@ describe('resolveEffectiveSettings', () => {
       pushLevel: 'all',
       suppressEveryoneHere: true,
       notifyOnReplies: true,
+      notifyOnReactions: true,
       notifyOnWelcomePosts: true,
     });
   });
@@ -233,6 +234,53 @@ describe('shouldFirePushNotification', () => {
   });
 
   it('does not fire for non-mentioned message when pushLevel is none', () => {
+    expect(
+      shouldFirePushNotification(
+        { ...base, pushLevel: 'none' },
+        false,
+        false,
+        false
+      )
+    ).toBe(false);
+  });
+
+  it('fires for reaction when notifyOnReactions is true', () => {
+    expect(
+      shouldFirePushNotification(
+        { ...base, pushLevel: 'none', notifyOnReactions: true },
+        false,
+        false,
+        false,
+        true
+      )
+    ).toBe(true);
+  });
+
+  it('does not fire for reaction when notifyOnReactions is false', () => {
+    expect(
+      shouldFirePushNotification(
+        { ...base, pushLevel: 'none', notifyOnReactions: false },
+        false,
+        false,
+        false,
+        true
+      )
+    ).toBe(false);
+  });
+
+  it('fires for all messages when pushLevel is all regardless of reaction', () => {
+    expect(
+      shouldFirePushNotification(
+        { ...base, pushLevel: 'all', notifyOnReactions: false },
+        false,
+        false,
+        false,
+        true
+      )
+    ).toBe(true);
+  });
+
+  it('default isReactionToUser is false (no reaction notifications by default)', () => {
     expect(
       shouldFirePushNotification(
         { ...base, pushLevel: 'none' },
@@ -1094,6 +1142,60 @@ describe('groupHasUnreadConsideringMute', () => {
   });
 });
 
+describe('resolveEffectiveSettings — notifyOnReactions', () => {
+  it('defaults to true when not stored', () => {
+    const result = resolveEffectiveSettings({});
+    expect(result.notifyOnReactions).toBe(true);
+  });
+
+  it('returns false when stored as false at group level', () => {
+    const settings: GroupNotificationSettingsData = {
+      notifyOnReactions: false,
+    };
+    const result = resolveEffectiveSettings(settings);
+    expect(result.notifyOnReactions).toBe(false);
+  });
+
+  it('returns true when stored as true at group level', () => {
+    const settings: GroupNotificationSettingsData = {
+      notifyOnReactions: true,
+    };
+    const result = resolveEffectiveSettings(settings);
+    expect(result.notifyOnReactions).toBe(true);
+  });
+
+  it('section override wins over group', () => {
+    const settings: GroupNotificationSettingsData = {
+      notifyOnReactions: false,
+      sections: {
+        'sec-1': {
+          notifyOnReactions: true,
+        },
+      },
+    };
+    const result = resolveEffectiveSettings(settings, 'sec-1');
+    expect(result.notifyOnReactions).toBe(true);
+  });
+
+  it('channel override wins over section and group', () => {
+    const settings: GroupNotificationSettingsData = {
+      notifyOnReactions: false,
+      sections: {
+        'sec-1': {
+          notifyOnReactions: false,
+          channels: {
+            'ch-1': {
+              notifyOnReactions: true,
+            },
+          },
+        },
+      },
+    };
+    const result = resolveEffectiveSettings(settings, 'sec-1', 'ch-1');
+    expect(result.notifyOnReactions).toBe(true);
+  });
+});
+
 describe('resolveEffectiveSettings — notifyOnWelcomePosts', () => {
   it('defaults to true when not stored', () => {
     const result = resolveEffectiveSettings({});
@@ -1363,10 +1465,11 @@ describe('resolveEffectiveSettings — fallback parameter', () => {
     pushLevel: 'none',
     suppressEveryoneHere: true,
     notifyOnReplies: false,
+    notifyOnReactions: false,
     notifyOnWelcomePosts: false,
   };
 
-  it('all four fields fall back to supplied fallback when no settings stored', () => {
+  it('all five fields fall back to supplied fallback when no settings stored', () => {
     const result = resolveEffectiveSettings({}, undefined, undefined, customFallback);
     expect(result).toEqual(customFallback);
   });
@@ -1384,6 +1487,7 @@ describe('resolveEffectiveSettings — fallback parameter', () => {
     expect(result.pushLevel).toBe('all');
     expect(result.suppressEveryoneHere).toBe(true);
     expect(result.notifyOnReplies).toBe(false);
+    expect(result.notifyOnReactions).toBe(false);
     expect(result.notifyOnWelcomePosts).toBe(false);
   });
 
@@ -1406,6 +1510,7 @@ describe('resolveEffectiveSettings — fallback parameter', () => {
     expect(result.pushLevel).toBe('mentions');
     expect(result.suppressEveryoneHere).toBe(false);
     expect(result.notifyOnReplies).toBe(false);
+    expect(result.notifyOnReactions).toBe(false);
     expect(result.notifyOnWelcomePosts).toBe(false);
   });
 
@@ -1443,6 +1548,7 @@ describe('getEffectiveNotificationSettings — fallback parameter', () => {
     pushLevel: 'none',
     suppressEveryoneHere: true,
     notifyOnReplies: false,
+    notifyOnReactions: false,
     notifyOnWelcomePosts: false,
   };
 
@@ -1470,6 +1576,7 @@ describe('getEffectiveNotificationSettings — fallback parameter', () => {
     expect(result.pushLevel).toBe('all');
     expect(result.suppressEveryoneHere).toBe(true);
     expect(result.notifyOnReplies).toBe(false);
+    expect(result.notifyOnReactions).toBe(false);
     expect(result.notifyOnWelcomePosts).toBe(false);
   });
 
@@ -1485,6 +1592,7 @@ describe('groupHasUnreadConsideringMute — fallback parameter', () => {
     pushLevel: 'mentions',
     suppressEveryoneHere: false,
     notifyOnReplies: true,
+    notifyOnReactions: true,
     notifyOnWelcomePosts: false,
   };
 
@@ -1492,6 +1600,7 @@ describe('groupHasUnreadConsideringMute — fallback parameter', () => {
     pushLevel: 'mentions',
     suppressEveryoneHere: false,
     notifyOnReplies: true,
+    notifyOnReactions: true,
     notifyOnWelcomePosts: true,
   };
 

@@ -8,4 +8,4 @@ export const MAX_NOTIFICATION_PREVIEW_CHARS = 200;
  * 30 seconds give the user enough time to read and act while keeping the
  * notification tray from getting cluttered.
  */
-export const NOTIFICATION_DISPLAY_DURATION_MS = 10_000;
+export const NOTIFICATION_DISPLAY_DURATION_MS = 5_000;

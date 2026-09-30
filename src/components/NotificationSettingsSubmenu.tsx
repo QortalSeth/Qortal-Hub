@@ -178,6 +178,35 @@ export function NotificationSettingsSubmenu({
           {t('group:notification_settings.notify_on_replies')}
         </Typography>
       </Item>
+      <Item
+        closeOnClick={false}
+        onClick={() => {
+          if (settings.pushLevel === 'all') return;
+          updateSettings({ notifyOnReactions: !settings.notifyOnReactions });
+        }}
+      >
+        <Checkbox
+          size="small"
+          checked={settings.notifyOnReactions}
+          disabled={settings.pushLevel === 'all'}
+          sx={{
+            mr: 1.5,
+            pointerEvents: 'none',
+            padding: 0,
+            '& .MuiSvgIcon-root': { fontSize: 18 },
+          }}
+        />
+        <Typography
+          component="span"
+          sx={{
+            fontSize: '14px',
+            fontWeight: 600,
+            opacity: settings.pushLevel === 'all' ? 0.4 : 1,
+          }}
+        >
+          {t('group:notification_settings.notify_on_reactions')}
+        </Typography>
+      </Item>
       {scope.sectionId == null && scope.channelId == null && (
         <Item
           closeOnClick={false}

@@ -218,8 +218,10 @@
       "apply_button": "Apply to All Groups",
       "delivery_description": "Choose how Q-Chat push notifications are delivered to your system.",
       "delivery_ephemeral": "Use Ephemeral Notifications",
+      "delivery_ephemeral_tooltip": "Ephemeral notifications are gone forever after the preview disappears.",
       "delivery_title": "Notification Delivery",
       "delivery_native": "Use Push Notifications",
+      "delivery_native_tooltip": "Push notifications go into your OS Notification Manager after the preview disappears.",
       "description": "Configure notification preferences that apply to all of your groups at once. Per-section and per-channel overrides are preserved.",
       "revert_button": "Revert to Defaults",
       "title": "Notifications"

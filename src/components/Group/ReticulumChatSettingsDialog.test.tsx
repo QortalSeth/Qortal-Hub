@@ -96,12 +96,13 @@ describe('ReticulumChatSettingsDialog — Notifications section', () => {
     expect(noneRadio?.checked).toBe(false);
 
     const checkboxes = screen.getAllByRole('checkbox');
-    expect(checkboxes).toHaveLength(4);
+    expect(checkboxes).toHaveLength(5);
 
     expect(checkboxes[0].checked).toBe(false);
     expect(checkboxes[1].checked).toBe(true);
     expect(checkboxes[2].checked).toBe(true);
-    expect(checkboxes[3].checked).toBe(false);
+    expect(checkboxes[3].checked).toBe(true);
+    expect(checkboxes[4].checked).toBe(false);
   });
 
   it('renders the Apply to All Groups button', () => {
