@@ -122,13 +122,13 @@ export const ContextMenu = ({
   groupId,
   getUserSettings,
   myAddress = '',
-  onMenuOpenChange,
+  onMenuOpenChange = undefined,
   openOnClick = false,
   reticulumGroup = null,
-  onCreateCategory,
-  onCreateChannel,
-  onOpenHiddenUsers,
-  onOpenUpdateGroup,
+  onCreateCategory = undefined,
+  onCreateChannel = undefined,
+  onOpenHiddenUsers = undefined,
+  onOpenUpdateGroup = undefined,
   showGroupInfo = true,
   showStandardActions = true,
 }) => {
@@ -269,10 +269,10 @@ export const ContextMenu = ({
       const response = await window.sendMessage('leaveGroup', {
         groupId: displayedGroupInfo.groupId,
       });
-      if (response?.error) throw new Error(response.error);
+      if (response && typeof response === 'object' && 'error' in response) throw new Error((response as { error: string }).error);
       setTxList((previous) => [
         {
-          ...response,
+          ...(typeof response === 'object' && response ? response : {}),
           type: 'leave-group',
           label: t('group:message.success.group_leave_name', {
             group_name: displayedGroupInfo.groupName,

@@ -360,7 +360,8 @@ export const ChatList = ({
         []
       );
       if (unreadIndexes.length > 0) {
-        return unreadIndexes[Math.max(0, unreadIndexes.length - unreadCount)];
+        if (unreadIndexes.length <= unreadCount) return messages.length - 1;
+        return unreadIndexes[unreadIndexes.length - unreadCount];
       }
     }
     return messages.length - 1;
@@ -422,10 +423,10 @@ export const ChatList = ({
     count: messages.length,
     getItemKey: (index) => getMessageKey(messages[index], index),
     getScrollElement: () => parentRef?.current,
-    estimateSize: useCallback(() => 80, []), // Provide an estimated height of items, adjust this as needed
+    estimateSize: useCallback(() => 120, []),
     initialOffset:
       reticulumChatEnabled && initialReticulumLandingIndex >= 0
-        ? initialReticulumLandingIndex * 80
+        ? initialReticulumLandingIndex * 120
         : 0,
     rangeExtractor: extractVirtualRows,
     overscan: reticulumChatEnabled ? 5 : 10,
@@ -1104,12 +1105,12 @@ export const ChatList = ({
         initialReticulumUnreadCount > 0 &&
         initialReticulumUnreadIndexes.length > 0;
       const firstReticulumUnreadIndex = shouldAcknowledgeInitialReticulumUnread
-        ? initialReticulumUnreadIndexes[
-            Math.max(
-              0,
-              initialReticulumUnreadIndexes.length - initialReticulumUnreadCount
-            )
-          ]
+        ? initialReticulumUnreadIndexes.length <= initialReticulumUnreadCount
+          ? null
+          : initialReticulumUnreadIndexes[
+              initialReticulumUnreadIndexes.length -
+                initialReticulumUnreadCount
+            ]
         : null;
 
       if (
@@ -1177,8 +1178,17 @@ export const ChatList = ({
           // becoming visible as a sequence of scroll jumps.
           const unreadIndex = pendingInitialReticulumUnreadIndexRef.current;
           pendingInitialReticulumUnreadIndexRef.current = null;
-          const shouldLandAtBottom =
+          let shouldLandAtBottom =
             reticulumScrollTargetIndex < 0 && typeof unreadIndex !== 'number';
+          if (reticulumScrollTargetIndex < 0 && typeof unreadIndex === 'number') {
+            const scrollElement = parentRef.current as HTMLDivElement | null;
+            if (scrollElement) {
+              const viewportItems = Math.max(1, Math.round(scrollElement.clientHeight / 120));
+              if (totalMessages.length - unreadIndex <= viewportItems) {
+                shouldLandAtBottom = true;
+              }
+            }
+          }
           pendingInitialReticulumBottomRef.current = shouldLandAtBottom;
           reticulumPinnedToBottomRef.current = shouldLandAtBottom;
           reticulumFollowBottomRef.current = shouldLandAtBottom;
@@ -1187,8 +1197,8 @@ export const ChatList = ({
               reticulumScrollTargetIndex,
               scrollTargetRequestKey
             );
-          } else if (typeof unreadIndex === 'number') {
-            scrollToIndexAfterMeasurements(unreadIndex, 'start', []);
+          } else if (typeof unreadIndex === 'number' && !shouldLandAtBottom) {
+            scrollToIndexAfterMeasurements(unreadIndex, 'start');
           }
           clearInitialReticulumReveal();
           if (shouldLandAtBottom) {
