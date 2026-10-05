@@ -32,7 +32,9 @@ import {
   getGroupNotificationSettings,
   getNotificationDeliveryMethod,
   isScopeMuted,
+  buildChannelSectionMap,
   shouldFirePushNotification,
+  shouldSuppressForMutedChannel,
   getWelcomeUnreadCount,
 } from '../../utils/qChatNotificationSettings';
 import {
@@ -544,19 +546,20 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
 
       const channelId = String(detail?.channelId || 'general');
       const isEveryoneOrHere = detail?.isEveryoneOrHere === true;
-      const effectiveSettings = await getEffectiveNotificationSettings(
-        groupId,
-        undefined,
-        channelId,
-        globalNotifFormRef.current
-      ).catch(() => null);
-
       const groupSettings = await getGroupNotificationSettings(groupId).catch(
         () => null
       );
+      const sectionMap = groupSettings ? buildChannelSectionMap(groupSettings) : new Map();
+      const sectionId = sectionMap.get(channelId);
       const channelMuted = groupSettings
-        ? isScopeMuted(groupSettings, undefined, channelId)
+        ? isScopeMuted(groupSettings, sectionId, channelId)
         : false;
+      const effectiveSettings = await getEffectiveNotificationSettings(
+        groupId,
+        sectionId,
+        channelId,
+        globalNotifFormRef.current
+      ).catch(() => null);
 
       const shouldPush =
         effectiveSettings != null &&
@@ -566,7 +569,7 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
           isEveryoneOrHere,
           false
         ) &&
-        !(channelMuted && effectiveSettings.pushLevel === 'all');
+        !shouldSuppressForMutedChannel(channelMuted, effectiveSettings.pushLevel, true);
 
       const timestamp = Number(detail?.timestamp || Date.now());
       const groupName =
@@ -765,6 +768,13 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
       const groupName =
         String(detail?.groupName || '').trim() || `Group ${groupId}`;
       const channelId = String(detail?.channelId || 'general');
+
+      const replyGroupSettings = await getGroupNotificationSettings(groupId).catch(() => null);
+      const replySectionMap = replyGroupSettings ? buildChannelSectionMap(replyGroupSettings) : new Map();
+      const replySectionId = replySectionMap.get(channelId);
+      const replyMuted = replyGroupSettings ? isScopeMuted(replyGroupSettings, replySectionId, channelId) : false;
+      if (replyMuted) return;
+
       let channelName = getReticulumNotificationChannelLabel(channelId, null);
       try {
         const channels = await window.reticulumChat?.getChannels?.(
@@ -851,6 +861,13 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
       const reactionEmoji = detail.reactionEmoji || '';
       const groupName = String(detail?.groupName || '').trim() || `Group ${groupId}`;
       const channelId = String(detail?.channelId || 'general');
+
+      const rxnGroupSettings = await getGroupNotificationSettings(groupId).catch(() => null);
+      const rxnSectionMap = rxnGroupSettings ? buildChannelSectionMap(rxnGroupSettings) : new Map();
+      const rxnSectionId = rxnSectionMap.get(channelId);
+      const rxnMuted = rxnGroupSettings ? isScopeMuted(rxnGroupSettings, rxnSectionId, channelId) : false;
+      if (rxnMuted) return;
+
       let channelName = getReticulumNotificationChannelLabel(channelId, null);
       try {
         const channels = await window.reticulumChat?.getChannels?.(
@@ -911,24 +928,25 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
       if (!eventId || !Number.isFinite(groupId)) return;
 
       const channelId = String(detail?.channelId || 'general');
+      const groupSettings = await getGroupNotificationSettings(groupId).catch(
+        () => null
+      );
+      const sectionMap = groupSettings ? buildChannelSectionMap(groupSettings) : new Map();
+      const sectionId = sectionMap.get(channelId);
+      const channelMuted = groupSettings
+        ? isScopeMuted(groupSettings, sectionId, channelId)
+        : false;
       const effectiveSettings = await getEffectiveNotificationSettings(
         groupId,
-        undefined,
+        sectionId,
         channelId,
         globalNotifFormRef.current
       ).catch(() => null);
 
-      const groupSettings = await getGroupNotificationSettings(groupId).catch(
-        () => null
-      );
-      const channelMuted = groupSettings
-        ? isScopeMuted(groupSettings, undefined, channelId)
-        : false;
-
       const shouldPush =
         effectiveSettings != null &&
         shouldFirePushNotification(effectiveSettings, false, false, false) &&
-        !(channelMuted && effectiveSettings.pushLevel === 'all');
+        !shouldSuppressForMutedChannel(channelMuted, effectiveSettings.pushLevel, false);
 
       if (!shouldPush) return;
 

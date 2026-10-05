@@ -57,9 +57,15 @@ describe('MuteSubmenu', () => {
     ).toBeInTheDocument();
   });
 
-  it('renders unmute item when group is muted', () => {
+  it('renders unmute item when all group channels are muted', () => {
     renderWithMuteState(
-      { '123': { mutedUntil: null } },
+      {
+        '123': {
+          sections: {
+            '': { channels: { 'general': { mutedUntil: null } } },
+          },
+        },
+      },
       { groupId: 123 },
       'Group'
     );
@@ -68,14 +74,13 @@ describe('MuteSubmenu', () => {
     expect(screen.getByText('group:context_menu.unmute')).toBeInTheDocument();
   });
 
-  it('renders unmute item when channel is muted via cascade', () => {
+  it('renders unmute item when channel is muted', () => {
     renderWithMuteState(
       {
         '123': {
-          mutedUntil: Date.now() + 3600_000,
           sections: {
             'sec-1': {
-              channels: { 'ch-1': {} },
+              channels: { 'ch-1': { mutedUntil: null } },
             },
           },
         },

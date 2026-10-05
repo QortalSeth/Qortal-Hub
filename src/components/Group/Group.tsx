@@ -120,6 +120,8 @@ import {
   getEffectiveNotificationSettings,
   getGroupNotificationSettings,
   groupHasUnreadConsideringMute,
+  isScopeMuted,
+  buildChannelSectionMap,
   addWelcomeUnreadEventId,
   removeWelcomeUnreadEventId,
   clearWelcomeUnreadForGroup,
@@ -2898,50 +2900,56 @@ export const Group = ({
                 } catch {}
               }
               if (effectiveSettings?.notifyOnReactions && rxnGroupName) {
-                let senderName =
-                  event.authorPrimaryName?.trim() || '';
-                if (!senderName && event.authorAddress) {
-                  const cached = authorNameCache.get(event.authorAddress);
-                  if (cached) {
-                    senderName = cached;
-                  } else {
-                    try {
-                      const nameRes = await fetch(
-                        `${getBaseApiReact()}/names/primary/${event.authorAddress}`
-                      );
-                      const nameData = await nameRes.json();
-                      const resolved = nameData?.name;
-                      if (resolved && typeof resolved === 'string') {
-                        senderName = resolved.trim();
-                        authorNameCache.set(event.authorAddress, senderName);
-                      }
-                    } catch {}
+                const rxnGroupSettings = await getGroupNotificationSettings(Number(event.groupId)).catch(() => null);
+                const rxnSectionMap = rxnGroupSettings ? buildChannelSectionMap(rxnGroupSettings) : new Map();
+                const rxnSectionId = rxnSectionMap.get(channelId);
+                const rxnMuted = rxnGroupSettings ? isScopeMuted(rxnGroupSettings, rxnSectionId, channelId) : false;
+                if (!rxnMuted) {
+                  let senderName =
+                    event.authorPrimaryName?.trim() || '';
+                  if (!senderName && event.authorAddress) {
+                    const cached = authorNameCache.get(event.authorAddress);
+                    if (cached) {
+                      senderName = cached;
+                    } else {
+                      try {
+                        const nameRes = await fetch(
+                          `${getBaseApiReact()}/names/primary/${event.authorAddress}`
+                        );
+                        const nameData = await nameRes.json();
+                        const resolved = nameData?.name;
+                        if (resolved && typeof resolved === 'string') {
+                          senderName = resolved.trim();
+                          authorNameCache.set(event.authorAddress, senderName);
+                        }
+                      } catch {}
+                    }
                   }
+                  if (!senderName) senderName = 'Someone';
+                  let parentMessageText = '';
+                  try {
+                    const parentPayload = JSON.parse(
+                      String(parentEvent.encryptedPayload || '')
+                    );
+                    parentMessageText = reticulumVisibleSearchTextFromPayload(
+                      parentPayload
+                    );
+                  } catch {
+                    parentMessageText = String(
+                      parentEvent.encryptedPayload || ''
+                    );
+                  }
+                  executeEvent('q-chat-reaction-notification', {
+                    channelId,
+                    eventId: String(targetEventId),
+                    groupId: Number(event.groupId),
+                    groupName: rxnGroupName,
+                    senderName,
+                    reactionEmoji,
+                    messageText: parentMessageText,
+                    timestamp: Number(event.timestamp || Date.now()),
+                  });
                 }
-                if (!senderName) senderName = 'Someone';
-                let parentMessageText = '';
-                try {
-                  const parentPayload = JSON.parse(
-                    String(parentEvent.encryptedPayload || '')
-                  );
-                  parentMessageText = reticulumVisibleSearchTextFromPayload(
-                    parentPayload
-                  );
-                } catch {
-                  parentMessageText = String(
-                    parentEvent.encryptedPayload || ''
-                  );
-                }
-                executeEvent('q-chat-reaction-notification', {
-                  channelId,
-                  eventId: String(targetEventId),
-                  groupId: Number(event.groupId),
-                  groupName: rxnGroupName,
-                  senderName,
-                  reactionEmoji,
-                  messageText: parentMessageText,
-                  timestamp: Number(event.timestamp || Date.now()),
-                });
               }
             }
           } catch {
@@ -3088,15 +3096,21 @@ export const Group = ({
                 globalNotifFormRef.current
               ).catch(() => null);
               if (effectiveSettings?.notifyOnReplies && groupName) {
-                executeEvent('q-chat-reply-notification', {
-                  channelId,
-                  eventId: String(event.eventId || ''),
-                  groupId,
-                  groupName,
-                  messageText: text,
-                  senderName,
-                  timestamp: Number(event.timestamp || Date.now()),
-                });
+                const replyGroupSettings = await getGroupNotificationSettings(groupId).catch(() => null);
+                const replySectionMap = replyGroupSettings ? buildChannelSectionMap(replyGroupSettings) : new Map();
+                const replySectionId = replySectionMap.get(channelId);
+                const replyMuted = replyGroupSettings ? isScopeMuted(replyGroupSettings, replySectionId, channelId) : false;
+                if (!replyMuted) {
+                  executeEvent('q-chat-reply-notification', {
+                    channelId,
+                    eventId: String(event.eventId || ''),
+                    groupId,
+                    groupName,
+                    messageText: text,
+                    senderName,
+                    timestamp: Number(event.timestamp || Date.now()),
+                  });
+                }
                 replyNotificationEmitted = true;
               }
             }

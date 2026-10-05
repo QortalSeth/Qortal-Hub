@@ -2379,10 +2379,17 @@ export const ChatGroup = ({
     reticulumChannelsByCategory.get('') ?? [];
   const reticulumVisibleDefaultCategoryChannels =
     reticulumHideMutedChannels && reticulumGroupSettings
-      ? reticulumDefaultCategoryChannels.filter(
-          (ch) =>
-            !isScopeMuted(reticulumGroupSettings, ch.categoryId, ch.channelId)
-        )
+      ? reticulumDefaultCategoryChannels.filter((ch) => {
+          const chMuted = isScopeMuted(reticulumGroupSettings, ch.categoryId, ch.channelId);
+          if (!chMuted) return true;
+          if (ch.channelId === selectedReticulumChannelId) return true;
+          const chSummary = reticulumChannelSummariesById.get(ch.channelId);
+          const chHasUnreadMention =
+            chSummary?.hasUnreadMention === true ||
+            (chSummary?.mentionCount ?? 0) > 0;
+          if (chHasUnreadMention) return true;
+          return false;
+        })
       : reticulumDefaultCategoryChannels;
   const reticulumDefaultCategoryHasProtectedChannels =
     reticulumDefaultCategoryChannels.some((channel) =>
@@ -8564,6 +8571,10 @@ export const ChatGroup = ({
     const channelMuted = groupSettings
       ? isScopeMuted(groupSettings, channel.categoryId, channel.channelId)
       : false;
+    const shouldShowMutedChannel =
+      channelMuted &&
+      groupSettings?.hideMutedChannels === true &&
+      (hasUnreadMention || channel.channelId === selectedReticulumChannelId);
     return (
       <ReticulumSortableChannelButton
         key={channel.channelId}
@@ -8576,7 +8587,7 @@ export const ChatGroup = ({
             : undefined
         }
         hasUnreadMention={hasUnreadMention}
-        hideMuted={channelMuted && groupSettings?.hideMutedChannels === true}
+        hideMuted={channelMuted && groupSettings?.hideMutedChannels === true && !shouldShowMutedChannel}
         isAdmin={isReticulumChannelAdmin}
         isMuted={channelMuted}
         mentionCount={mentionCount}
@@ -9178,14 +9189,21 @@ export const ChatGroup = ({
                           ) ?? [];
                         const channels =
                           reticulumHideMutedChannels && reticulumGroupSettings
-                            ? allChannels.filter(
-                                (ch) =>
-                                  !isScopeMuted(
-                                    reticulumGroupSettings,
-                                    category.categoryId,
-                                    ch.channelId
-                                  )
-                              )
+                            ? allChannels.filter((ch) => {
+                                const chMuted = isScopeMuted(
+                                  reticulumGroupSettings,
+                                  category.categoryId,
+                                  ch.channelId
+                                );
+                                if (!chMuted) return true;
+                                if (ch.channelId === selectedReticulumChannelId) return true;
+                                const chSummary = reticulumChannelSummariesById.get(ch.channelId);
+                                const chHasUnreadMention =
+                                  chSummary?.hasUnreadMention === true ||
+                                  (chSummary?.mentionCount ?? 0) > 0;
+                                if (chHasUnreadMention) return true;
+                                return false;
+                              })
                             : allChannels;
                         return (
                           <ReticulumSortableCategory

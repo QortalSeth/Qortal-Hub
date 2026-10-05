@@ -29,20 +29,65 @@ const DURATIONS = [
   { key: 'mute.until_i_turn_it_back_on', ms: null as number | null },
 ];
 
+function activeMutedUntil(v: number | null | undefined): boolean {
+  return v === null || (v !== undefined && v > Date.now());
+}
+
+/** Collect all channel mutedUntil values within a scope. */
+function collectScopeMuteState(
+  groupSettings: GroupNotificationSettingsData | undefined,
+  sectionId?: string,
+  channelId?: string
+): { allMuted: boolean; sharedUntil: number | null | undefined } {
+  if (!groupSettings) return { allMuted: false, sharedUntil: undefined };
+
+  if (channelId != null) {
+    const effectiveSectionId = sectionId ?? '';
+    const ch = groupSettings.sections?.[effectiveSectionId]?.channels?.[channelId];
+    const v = ch?.mutedUntil;
+    return { allMuted: activeMutedUntil(v), sharedUntil: v !== undefined ? v : undefined };
+  }
+
+  if (sectionId != null) {
+    const section = groupSettings.sections?.[sectionId];
+    if (!section?.channels) return { allMuted: false, sharedUntil: undefined };
+    const vals = Object.values(section.channels).map((ch) => ch?.mutedUntil);
+    const allMuted = vals.length > 0 && vals.every((v) => activeMutedUntil(v));
+    const first = vals[0];
+    const sharedUntil = vals.every((v) => v === first) ? first : undefined;
+    return { allMuted, sharedUntil };
+  }
+
+  if (!groupSettings.sections) return { allMuted: false, sharedUntil: undefined };
+  const vals: Array<number | null | undefined> = [];
+  for (const section of Object.values(groupSettings.sections)) {
+    if (!section?.channels) continue;
+    for (const ch of Object.values(section.channels)) {
+      vals.push(ch?.mutedUntil);
+    }
+  }
+  if (vals.length === 0) return { allMuted: false, sharedUntil: undefined };
+  const allMuted = vals.every((v) => activeMutedUntil(v));
+  const first = vals[0];
+  const sharedUntil = vals.every((v) => v === first) ? first : undefined;
+  return { allMuted, sharedUntil };
+}
+
 export function MuteSubmenu({ scope, scopeType }: MuteSubmenuProps) {
   const { t } = useTranslation(['group']);
   const cache = useAtomValue(notificationSettingsCacheAtom);
 
   const groupSettings = cache[String(scope.groupId)];
-  const muted = groupSettings
-    ? isScopeMuted(groupSettings, scope.sectionId, scope.channelId)
-    : false;
-  const mutedUntil = groupSettings
-    ? getScopeMutedUntil(groupSettings, scope.sectionId, scope.channelId)
-    : undefined;
+
+  const { allMuted, sharedUntil } = collectScopeMuteState(
+    groupSettings,
+    scope.sectionId,
+    scope.channelId
+  );
+
   const mutedHoursLeft =
-    mutedUntil != null && mutedUntil > 0
-      ? Math.max(0, (mutedUntil - Date.now()) / (1000 * 60 * 60))
+    sharedUntil != null && sharedUntil > 0
+      ? Math.max(0, (sharedUntil - Date.now()) / (1000 * 60 * 60))
       : null;
 
   function formatHours(h: number): string {
@@ -60,8 +105,9 @@ export function MuteSubmenu({ scope, scopeType }: MuteSubmenuProps) {
       : null;
 
   const labelKey = `group:context_menu.mute_${scopeType.toLowerCase()}`;
+  const showTimer = mutedForLabel != null && scopeType === 'Channel';
 
-  if (muted) {
+  if (allMuted) {
     return (
       <Item
         onClick={() => {
@@ -78,7 +124,7 @@ export function MuteSubmenu({ scope, scopeType }: MuteSubmenuProps) {
             >
               {t('group:context_menu.unmute')}
             </Typography>
-            {mutedForLabel != null && (
+            {showTimer && (
               <Typography
                 component="span"
                 sx={{ color: 'text.secondary', fontSize: '12px' }}

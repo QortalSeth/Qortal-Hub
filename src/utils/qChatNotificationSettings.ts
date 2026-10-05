@@ -210,6 +210,23 @@ export async function applyNotificationSettingsToAllGroups(
   );
 }
 
+/**
+ * Determines whether a message in a muted channel should be suppressed.
+ * Discord semantics:
+ * - pushLevel 'all' or 'mentions': @mentions still push through, non-mentions suppressed
+ * - pushLevel 'none': everything suppressed
+ */
+export function shouldSuppressForMutedChannel(
+  muted: boolean,
+  pushLevel: PushLevel,
+  isMention: boolean
+): boolean {
+  if (!muted) return false;
+  if (pushLevel === 'none') return true;
+  if (pushLevel === 'mentions' || pushLevel === 'all') return !isMention;
+  return true;
+}
+
 export function shouldFirePushNotification(
   effective: EffectiveNotificationSettings,
   isMention: boolean,
@@ -289,55 +306,99 @@ export async function migrateNotificationSettings(
   });
 }
 
+/** Ensure all known reticulum channels are present in the settings. */
+async function ensureChannelsInSettings(
+  groupSettings: GroupNotificationSettingsData,
+  groupId: string | number,
+  sectionFilter?: string
+): Promise<void> {
+  let channels: Array<{ channelId?: string; categoryId?: string }> | undefined;
+  try {
+    channels = await (
+      window as any
+    ).reticulumChat?.getChannels?.(Number(groupId), true);
+  } catch {
+    // reticulum API unavailable — operate on existing settings only.
+  }
+  if (!channels?.length) return;
+
+  if (!groupSettings.sections) groupSettings.sections = {};
+  for (const ch of channels) {
+    const chId = String(ch?.channelId || '').trim();
+    if (!chId) continue;
+    const catId = String(ch?.categoryId ?? '').trim();
+    if (sectionFilter != null && catId !== sectionFilter) continue;
+    if (!groupSettings.sections[catId])
+      groupSettings.sections[catId] = {};
+    if (!groupSettings.sections[catId].channels)
+      groupSettings.sections[catId].channels = {};
+    if (!groupSettings.sections[catId].channels[chId])
+      groupSettings.sections[catId].channels[chId] = {};
+  }
+}
+
+async function applyMuteToScope(
+  scope: ScopeDescriptor,
+  mutedUntil: number | null | 0
+): Promise<void> {
+  const groupSettings = await getGroupNotificationSettings(scope.groupId);
+  await ensureChannelsInSettings(groupSettings, scope.groupId, scope.sectionId);
+
+  if (!groupSettings.sections) return;
+  const sectionIds =
+    scope.sectionId != null
+      ? [scope.sectionId]
+      : Object.keys(groupSettings.sections);
+  for (const sid of sectionIds) {
+    const section = groupSettings.sections[sid];
+    if (!section?.channels) continue;
+    for (const ch of Object.values(section.channels)) {
+      ch.mutedUntil = mutedUntil;
+    }
+  }
+  await setGroupNotificationSettings(scope.groupId, groupSettings);
+}
+
 export async function setScopeMuted(
   scope: ScopeDescriptor,
   mutedUntil: number | null
 ): Promise<void> {
-  await setScopeNotificationSettings(scope, { mutedUntil });
+  if (scope.channelId != null) {
+    await setScopeNotificationSettings(scope, { mutedUntil });
+  } else {
+    await applyMuteToScope(scope, mutedUntil);
+  }
 }
 
 export async function unmuteScope(scope: ScopeDescriptor): Promise<void> {
-  await setScopeNotificationSettings(scope, { mutedUntil: 0 });
+  if (scope.channelId != null) {
+    await setScopeNotificationSettings(scope, { mutedUntil: 0 });
+  } else {
+    await applyMuteToScope(scope, 0);
+  }
 }
 
 /**
- * Sentinel value meaning "explicitly unmuted" — overrides parent mute.
- * `isMutedUntilActive(0)` returns false, but isScopeMuted treats 0 as
- * a stop signal so it won't walk up to the parent scope.
+ * Sentinel value for "not individually muted."
  */
 export const EXPLICITLY_UNMUTED = 0;
 
+/**
+ * Checks whether a channel is muted. Mute state is stored per-channel only;
+ * group/section mute is a bulk channel operation.
+ */
 export function isScopeMuted(
   groupSettings: GroupNotificationSettingsData,
   sectionId?: string,
   channelId?: string
 ): boolean {
-  // Check most-specific scope first (channel → section → group).
-  // A `mutedUntil` of 0 means "explicitly unmuted" and overrides parent mute.
-
-  // Channel level
-  if (channelId != null) {
-    const effectiveSectionId = sectionId ?? '';
-    const channel =
-      groupSettings.sections?.[effectiveSectionId]?.channels?.[channelId];
-    if (channel?.mutedUntil !== undefined) {
-      return isMutedUntilActive(channel.mutedUntil);
-    }
+  if (channelId == null) return false;
+  const effectiveSectionId = sectionId ?? '';
+  const channel =
+    groupSettings.sections?.[effectiveSectionId]?.channels?.[channelId];
+  if (channel?.mutedUntil !== undefined) {
+    return isMutedUntilActive(channel.mutedUntil);
   }
-
-  // Section level
-  if (sectionId != null) {
-    const section = groupSettings.sections?.[sectionId];
-    if (section?.mutedUntil !== undefined) {
-      return isMutedUntilActive(section.mutedUntil);
-    }
-  }
-
-  // Group level
-  if (groupSettings.mutedUntil !== undefined) {
-    return isMutedUntilActive(groupSettings.mutedUntil);
-  }
-
   return false;
 }
 
@@ -346,21 +407,14 @@ export function getScopeMutedUntil(
   sectionId?: string,
   channelId?: string
 ): number | null | undefined {
-  if (channelId != null) {
-    const effectiveSectionId = sectionId ?? '';
-    const channel =
-      groupSettings.sections?.[effectiveSectionId]?.channels?.[channelId];
-    if (channel?.mutedUntil !== undefined) {
-      return channel.mutedUntil;
-    }
+  if (channelId == null) return undefined;
+  const effectiveSectionId = sectionId ?? '';
+  const channel =
+    groupSettings.sections?.[effectiveSectionId]?.channels?.[channelId];
+  if (channel?.mutedUntil !== undefined) {
+    return channel.mutedUntil;
   }
-  if (sectionId != null) {
-    const section = groupSettings.sections?.[sectionId];
-    if (section?.mutedUntil !== undefined) {
-      return section.mutedUntil;
-    }
-  }
-  return groupSettings.mutedUntil;
+  return undefined;
 }
 
 function isMutedUntilActive(mutedUntil: number | null | undefined): boolean {
@@ -375,7 +429,7 @@ function isMutedUntilActive(mutedUntil: number | null | undefined): boolean {
  * call `isScopeMuted` with the correct sectionId for each channel,
  * even though per-channel summary entries don't carry section/category info.
  */
-function buildChannelSectionMap(
+export function buildChannelSectionMap(
   groupSettings: GroupNotificationSettingsData | undefined
 ): Map<string, string> {
   const map = new Map<string, string>();
@@ -391,13 +445,9 @@ function buildChannelSectionMap(
 
 /**
  * Determines whether a group should show its red unread dot, considering
- * channel-level mute state.
- *
- * If the group is NOT muted at the group level, iterates per-channel
- * summaries and excludes muted channels' unread from the total.
- * Falls back to the group-level aggregate when per-channel data is absent.
- * If the group IS muted, checks whether any explicitly unmuted channel
- * (mutedUntil === 0) has unread messages in the per-channel summaries.
+ * per-channel mute state. Iterates per-channel summaries and excludes
+ * muted channels. Falls back to group-level aggregate counts only when
+ * no per-channel mutes exist (otherwise we cannot safely filter).
  */
 export function groupHasUnreadConsideringMute(
   groupSettings: GroupNotificationSettingsData | undefined,
@@ -405,22 +455,27 @@ export function groupHasUnreadConsideringMute(
   welcomeUnreadCount?: number,
   fallback: EffectiveNotificationSettings = DEFAULT_NOTIFICATION_SETTINGS
 ): boolean {
-  if (!summary) {
-    return false;
-  }
+  if (!summary) return false;
 
   const notifyOnWelcomePosts =
     groupSettings?.notifyOnWelcomePosts ?? fallback.notifyOnWelcomePosts ?? true;
   const welcomeCount =
     !notifyOnWelcomePosts && welcomeUnreadCount ? welcomeUnreadCount : 0;
 
-  const groupMuted = groupSettings ? isScopeMuted(groupSettings) : false;
+  const channels = Array.isArray(summary?.channels) ? summary.channels : [];
 
-  if (!groupMuted) {
-    const channels = Array.isArray(summary?.channels) ? summary.channels : [];
-
-    // No per-channel data — fall back to group-level aggregate counts.
-    if (channels.length === 0) {
+  // No per-channel data — fall back to group-level aggregate counts.
+  if (channels.length === 0) {
+    const hasChannelMutes = groupSettings?.sections
+      ? Object.values(groupSettings.sections).some((sec) =>
+          sec?.channels
+            ? Object.values(sec.channels).some(
+                (ch) => ch?.mutedUntil !== undefined
+              )
+            : false
+        )
+      : false;
+    if (!hasChannelMutes) {
       if (welcomeCount > 0) {
         const mentionCount = Number(summary?.mentionCount ?? 0);
         const unreadCount = Number(summary?.unreadCount ?? 0);
@@ -438,66 +493,36 @@ export function groupHasUnreadConsideringMute(
         (summary?.unreadCount ?? 0) > 0
       );
     }
-
-    // Iterate per-channel summaries, excluding muted channels.
-    const channelSectionMap = buildChannelSectionMap(groupSettings);
-    let totalUnread = 0;
-    let totalMention = 0;
-    let anyUnreadMention = false;
-    for (const ch of channels) {
-      const chId = String(ch?.channelId || '');
-      if (
-        chId &&
-        groupSettings &&
-        isScopeMuted(groupSettings, channelSectionMap.get(chId), chId)
-      ) {
-        continue;
-      }
-      totalUnread += Number(ch?.unreadCount ?? 0);
-      totalMention += Number(ch?.mentionCount ?? 0);
-      if (ch?.hasUnreadMention === true) anyUnreadMention = true;
-    }
-
-    if (welcomeCount > 0) {
-      return (
-        anyUnreadMention ||
-        totalMention - welcomeCount > 0 ||
-        totalUnread - welcomeCount > 0
-      );
-    }
-    return anyUnreadMention || totalMention > 0 || totalUnread > 0;
+    return false;
   }
 
-  // Group is muted — check if any explicitly unmuted channel has unread.
-  if (!groupSettings?.sections) return false;
-
-  const channels = Array.isArray(summary?.channels) ? summary.channels : [];
-  const channelSummariesById = new Map<string, any>();
+  // Iterate per-channel summaries, excluding muted channels.
+  const channelSectionMap = buildChannelSectionMap(groupSettings);
+  let totalUnread = 0;
+  let totalMention = 0;
+  let anyUnreadMention = false;
   for (const ch of channels) {
     const chId = String(ch?.channelId || '');
-    if (chId) channelSummariesById.set(chId, ch);
-  }
-
-  for (const section of Object.values(groupSettings.sections)) {
-    if (!section?.channels) continue;
-    for (const [channelId, channelSettings] of Object.entries(
-      section.channels
-    )) {
-      if (channelSettings?.mutedUntil === EXPLICITLY_UNMUTED) {
-        const chSummary = channelSummariesById.get(channelId);
-        if (
-          chSummary &&
-          (chSummary?.hasUnreadMention === true ||
-            (chSummary?.mentionCount ?? 0) > 0 ||
-            (chSummary?.unreadCount ?? 0) > 0)
-        ) {
-          return true;
-        }
-      }
+    if (
+      chId &&
+      groupSettings &&
+      isScopeMuted(groupSettings, channelSectionMap.get(chId), chId)
+    ) {
+      continue;
     }
+    totalUnread += Number(ch?.unreadCount ?? 0);
+    totalMention += Number(ch?.mentionCount ?? 0);
+    if (ch?.hasUnreadMention === true) anyUnreadMention = true;
   }
 
-  return false;
+  if (welcomeCount > 0) {
+    return (
+      anyUnreadMention ||
+      totalMention - welcomeCount > 0 ||
+      totalUnread - welcomeCount > 0
+    );
+  }
+  return anyUnreadMention || totalMention > 0 || totalUnread > 0;
 }
 
 export async function getHideMutedChannels(

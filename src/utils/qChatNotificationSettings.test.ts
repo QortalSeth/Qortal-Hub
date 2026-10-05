@@ -578,34 +578,33 @@ describe('isScopeMuted', () => {
     expect(isScopeMuted(settings, 'sec-1', 'ch-1')).toBe(false);
   });
 
-  it('returns true when group is muted with future timestamp', () => {
+  it('returns true when channel mute is active with future timestamp', () => {
     const settings: GroupNotificationSettingsData = {
-      mutedUntil: Date.now() + 60_000,
+      sections: { '': { channels: { 'ch-1': { mutedUntil: Date.now() + 60_000 } } } },
     };
-    expect(isScopeMuted(settings)).toBe(true);
+    expect(isScopeMuted(settings, undefined, 'ch-1')).toBe(true);
   });
 
-  it('returns true when group is muted indefinitely (null)', () => {
+  it('returns true when channel is muted indefinitely (null)', () => {
     const settings: GroupNotificationSettingsData = {
-      mutedUntil: null,
+      sections: { '': { channels: { 'ch-1': { mutedUntil: null } } } },
     };
-    expect(isScopeMuted(settings)).toBe(true);
+    expect(isScopeMuted(settings, undefined, 'ch-1')).toBe(true);
   });
 
-  it('returns false when group mute has expired', () => {
+  it('returns false when channel mute has expired', () => {
     const settings: GroupNotificationSettingsData = {
-      mutedUntil: Date.now() - 60_000,
+      sections: { '': { channels: { 'ch-1': { mutedUntil: Date.now() - 60_000 } } } },
     };
-    expect(isScopeMuted(settings)).toBe(false);
+    expect(isScopeMuted(settings, undefined, 'ch-1')).toBe(false);
   });
 
-  it('cascades from group to channel', () => {
+  it('channel is muted via its own mutedUntil', () => {
     const settings: GroupNotificationSettingsData = {
-      mutedUntil: Date.now() + 60_000,
       sections: {
         'sec-1': {
           channels: {
-            'ch-1': {},
+            'ch-1': { mutedUntil: Date.now() + 60_000 },
           },
         },
       },
@@ -613,18 +612,19 @@ describe('isScopeMuted', () => {
     expect(isScopeMuted(settings, 'sec-1', 'ch-1')).toBe(true);
   });
 
-  it('cascades from section to channel', () => {
+  it('sibling channel is unaffected', () => {
     const settings: GroupNotificationSettingsData = {
       sections: {
         'sec-1': {
-          mutedUntil: Date.now() + 60_000,
           channels: {
-            'ch-1': {},
+            'ch-1': { mutedUntil: Date.now() + 60_000 },
+            'ch-2': {},
           },
         },
       },
     };
     expect(isScopeMuted(settings, 'sec-1', 'ch-1')).toBe(true);
+    expect(isScopeMuted(settings, 'sec-1', 'ch-2')).toBe(false);
   });
 
   it('channel mute does not affect siblings', () => {
@@ -750,14 +750,13 @@ describe('isScopeMuted', () => {
     expect(isScopeMuted(settings, undefined, 'ch-1')).toBe(false);
   });
 
-  it('sibling channel still muted when one channel is unmuted', () => {
+  it('unmuted (0) channel is not muted, sibling with null is muted', () => {
     const settings: GroupNotificationSettingsData = {
-      mutedUntil: null,
       sections: {
         'sec-1': {
           channels: {
             'ch-1': { mutedUntil: 0 },
-            'ch-2': { mutedUntil: undefined },
+            'ch-2': { mutedUntil: null },
           },
         },
       },
@@ -791,23 +790,47 @@ describe('setScopeMuted / unmuteScope', () => {
     return store;
   }
 
-  it('writes mutedUntil at group root', async () => {
+  it('writes mutedUntil on all channels for group scope', async () => {
     const store = createStoreMock();
+    vi.stubGlobal('window', {
+      ...(window as any),
+      sendMessage: (window as any).sendMessage,
+      reticulumChat: {
+        getChannels: async () => [
+          { channelId: 'general', categoryId: '' },
+          { channelId: 'random', categoryId: 'sec-1' },
+        ],
+      },
+    });
     const ts = Date.now() + 3600_000;
     await setScopeMuted({ groupId: 123 }, ts);
     const stored = store[
       'q-chat-notification-settings-123'
     ] as GroupNotificationSettingsData;
-    expect(stored.mutedUntil).toBe(ts);
+    expect(stored.sections?.['']?.channels?.['general']?.mutedUntil).toBe(ts);
+    expect(stored.sections?.['sec-1']?.channels?.['random']?.mutedUntil).toBe(ts);
   });
 
-  it('writes mutedUntil at section level', async () => {
+  it('writes mutedUntil on all channels in section for section scope', async () => {
     const store = createStoreMock();
+    vi.stubGlobal('window', {
+      ...(window as any),
+      sendMessage: (window as any).sendMessage,
+      reticulumChat: {
+        getChannels: async () => [
+          { channelId: 'general', categoryId: '' },
+          { channelId: 'support', categoryId: 'sec-1' },
+          { channelId: 'offtopic', categoryId: 'sec-1' },
+        ],
+      },
+    });
     await setScopeMuted({ groupId: 123, sectionId: 'sec-1' }, null);
     const stored = store[
       'q-chat-notification-settings-123'
     ] as GroupNotificationSettingsData;
-    expect(stored.sections?.['sec-1']?.mutedUntil).toBeNull();
+    expect(stored.sections?.['sec-1']?.channels?.['support']?.mutedUntil).toBeNull();
+    expect(stored.sections?.['sec-1']?.channels?.['offtopic']?.mutedUntil).toBeNull();
+    expect(stored.sections?.['']?.channels?.['general']?.mutedUntil).toBeUndefined();
   });
 
   it('writes mutedUntil at channel level', async () => {
@@ -935,19 +958,26 @@ describe('groupHasUnreadConsideringMute', () => {
     expect(groupHasUnreadConsideringMute(settings, summary)).toBe(false);
   });
 
-  it('returns false when group is muted and no unmuted channels', () => {
-    const settings: GroupNotificationSettingsData = { mutedUntil: null };
-    const summary = { unreadCount: 5, mentionCount: 0 };
+  it('returns false when all channels are muted (no unmuted channels)', () => {
+    const settings: GroupNotificationSettingsData = {
+      sections: {
+        '': { channels: { 'general': { mutedUntil: null } } },
+      },
+    };
+    const summary = {
+      unreadCount: 5,
+      mentionCount: 0,
+      channels: [{ channelId: 'general', unreadCount: 5, mentionCount: 0 }],
+    };
     expect(groupHasUnreadConsideringMute(settings, summary)).toBe(false);
   });
 
-  it('returns true when group is muted but an unmuted channel has unread', () => {
+  it('returns true when some channels are unmuted and have unread', () => {
     const settings: GroupNotificationSettingsData = {
-      mutedUntil: null,
       sections: {
         'sec-1': {
           channels: {
-            'ch-1': { mutedUntil: 0 },
+            'ch-1': {},
           },
         },
       },
@@ -963,13 +993,13 @@ describe('groupHasUnreadConsideringMute', () => {
     expect(groupHasUnreadConsideringMute(settings, summary)).toBe(true);
   });
 
-  it('returns false when group is muted and unmuted channel has no unread', () => {
+  it('returns false when only muted channels have unread', () => {
     const settings: GroupNotificationSettingsData = {
-      mutedUntil: null,
       sections: {
         'sec-1': {
           channels: {
-            'ch-1': { mutedUntil: 0 },
+            'ch-1': { mutedUntil: null },
+            'ch-2': { mutedUntil: null },
           },
         },
       },
@@ -978,20 +1008,19 @@ describe('groupHasUnreadConsideringMute', () => {
       unreadCount: 5,
       mentionCount: 0,
       channels: [
-        { channelId: 'ch-1', unreadCount: 0, mentionCount: 0 },
-        { channelId: 'ch-2', unreadCount: 5, mentionCount: 0 },
+        { channelId: 'ch-1', unreadCount: 3, mentionCount: 0 },
+        { channelId: 'ch-2', unreadCount: 2, mentionCount: 0 },
       ],
     };
     expect(groupHasUnreadConsideringMute(settings, summary)).toBe(false);
   });
 
-  it('returns true when group is muted and unmuted channel has mention', () => {
+  it('returns true when unmuted channel has mention', () => {
     const settings: GroupNotificationSettingsData = {
-      mutedUntil: null,
       sections: {
         'sec-1': {
           channels: {
-            'ch-1': { mutedUntil: 0 },
+            'ch-1': {},
           },
         },
       },
@@ -1085,13 +1114,12 @@ describe('groupHasUnreadConsideringMute', () => {
     expect(groupHasUnreadConsideringMute(settings, summary)).toBe(true);
   });
 
-  it('returns false when muted group has channel with inherited mute (mutedUntil undefined)', () => {
+  it('returns false when all channels are muted with unread', () => {
     const settings: GroupNotificationSettingsData = {
-      mutedUntil: null,
       sections: {
         'sec-1': {
           channels: {
-            'ch-1': { mutedUntil: undefined },
+            'ch-1': { mutedUntil: null },
           },
         },
       },
@@ -1630,11 +1658,17 @@ describe('groupHasUnreadConsideringMute — fallback parameter', () => {
     ).toBe(true);
   });
 
-  it('mute state comes only from per-group storage, not fallback', () => {
+  it('mute state comes from per-channel storage, not fallback', () => {
     const settings: GroupNotificationSettingsData = {
-      mutedUntil: null,
+      sections: {
+        '': { channels: { 'general': { mutedUntil: null } } },
+      },
     };
-    const summary = { unreadCount: 5, mentionCount: 0 };
+    const summary = {
+      unreadCount: 5,
+      mentionCount: 0,
+      channels: [{ channelId: 'general', unreadCount: 5, mentionCount: 0 }],
+    };
     expect(
       groupHasUnreadConsideringMute(settings, summary, 0, fallbackNotifyOn)
     ).toBe(false);
