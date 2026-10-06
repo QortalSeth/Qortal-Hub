@@ -6091,7 +6091,10 @@ ipcMain.handle(
         try {
           if (payload.icon.startsWith('data:')) {
             notificationIcon = nativeImage.createFromDataURL(payload.icon);
-          } else if (payload.icon.startsWith('file://') || payload.icon.startsWith('/')) {
+          } else if (
+            payload.icon.startsWith('file://') ||
+            payload.icon.startsWith('/')
+          ) {
             notificationIcon = nativeImage.createFromPath(
               payload.icon.startsWith('file://')
                 ? decodeURIComponent(payload.icon.slice(7))
@@ -6141,22 +6144,25 @@ ipcMain.handle(
 );
 
 function closeNotificationEntry(entry: NotificationEntry, nid: string) {
-  try { entry.notification.close(); } catch {}
+  try {
+    entry.notification.close();
+  } catch {}
   activeNotifications.delete(nid);
 }
 
 ipcMain.handle(
   'reticulumChat:dismissNotifications',
-  async (
-    _event,
-    params: { groupId: number; channelId?: string }
-  ) => {
+  async (_event, params: { groupId: number; channelId?: string }) => {
     for (const [nid, entry] of activeNotifications) {
       if (!entry.groupContext) continue;
       // Match by groupId, or by channelId alone (DM case)
       if (Number.isFinite(params.groupId)) {
         if (entry.groupContext.groupId !== params.groupId) continue;
-        if (params.channelId !== undefined && entry.groupContext.channelId !== params.channelId) continue;
+        if (
+          params.channelId !== undefined &&
+          entry.groupContext.channelId !== params.channelId
+        )
+          continue;
       } else if (params.channelId) {
         // DM dismiss: match by channelId only
         if (entry.groupContext.channelId !== params.channelId) continue;
@@ -6171,10 +6177,7 @@ ipcMain.handle(
 
 ipcMain.handle(
   'reticulumChat:dismissNotification',
-  async (
-    _event,
-    params: { eventId: string }
-  ) => {
+  async (_event, params: { eventId: string }) => {
     for (const [nid, entry] of activeNotifications) {
       if (entry.eventId === params.eventId) {
         closeNotificationEntry(entry, nid);

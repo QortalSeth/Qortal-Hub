@@ -468,7 +468,10 @@ try {
         if (webFrame && typeof webFrame.getWordSuggestions === 'function') {
           try {
             const suggestions = webFrame.getWordSuggestions(word);
-            console.log('[Preload] webFrame.getWordSuggestions returned:', suggestions);
+            console.log(
+              '[Preload] webFrame.getWordSuggestions returned:',
+              suggestions
+            );
             return Promise.resolve(suggestions ?? []);
           } catch (e) {
             console.warn('[Preload] webFrame.getWordSuggestions error:', e);
@@ -2673,15 +2676,14 @@ try {
         };
       },
       dismissNotifications: (groupId: number, channelId?: string) =>
-        ipcRenderer.invoke(
-          'reticulumChat:dismissNotifications',
-          { groupId, channelId }
-        ) as Promise<{ success: boolean }>,
+        ipcRenderer.invoke('reticulumChat:dismissNotifications', {
+          groupId,
+          channelId,
+        }) as Promise<{ success: boolean }>,
       dismissNotification: (eventId: string) =>
-        ipcRenderer.invoke(
-          'reticulumChat:dismissNotification',
-          { eventId }
-        ) as Promise<{ success: boolean }>,
+        ipcRenderer.invoke('reticulumChat:dismissNotification', {
+          eventId,
+        }) as Promise<{ success: boolean }>,
     });
   }
 
@@ -3775,15 +3777,14 @@ try {
         };
       },
       dismissNotifications: (groupId: number, channelId?: string) =>
-        ipcRenderer.invoke(
-          'reticulumChat:dismissNotifications',
-          { groupId, channelId }
-        ) as Promise<{ success: boolean }>,
+        ipcRenderer.invoke('reticulumChat:dismissNotifications', {
+          groupId,
+          channelId,
+        }) as Promise<{ success: boolean }>,
       dismissNotification: (eventId: string) =>
-        ipcRenderer.invoke(
-          'reticulumChat:dismissNotification',
-          { eventId }
-        ) as Promise<{ success: boolean }>,
+        ipcRenderer.invoke('reticulumChat:dismissNotification', {
+          eventId,
+        }) as Promise<{ success: boolean }>,
     });
   }
 

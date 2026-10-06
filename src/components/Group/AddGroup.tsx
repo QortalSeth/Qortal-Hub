@@ -1,4 +1,11 @@
-import { Fragment, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import {
+  Fragment,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 import Button from '@mui/material/Button';
 import Dialog from '@mui/material/Dialog';
 import IconButton from '@mui/material/IconButton';
@@ -100,16 +107,16 @@ const GROUP_MODAL_CONTROL_SX = {
   },
 } as const;
 
-export const AddGroup = ({ 
-  address, 
-  open, 
-  setOpen, 
+export const AddGroup = ({
+  address,
+  open,
+  setOpen,
   initialTab = 0,
   mode = 'create',
   groupId,
   myName,
   balance,
-}: { 
+}: {
   address: string;
   open: boolean;
   setOpen: (open: boolean) => void;
@@ -123,22 +130,22 @@ export const AddGroup = ({
   const setTxList = useSetAtom(txListAtom);
   const theme = useTheme();
 
-const [openAdvance, setOpenAdvance] = useState(false);
-const [name, setName] = useState('');
-const [description, setDescription] = useState('');
-const [groupType, setGroupType] = useState('1');
-const [approvalThreshold, setApprovalThreshold] = useState('40');
-const [minBlock, setMinBlock] = useState('5');
-const [maxBlock, setMaxBlock] = useState('21600');
-const [isLoadingGroup, setIsLoadingGroup] = useState(false);
-const [groupOwner, setGroupOwner] = useState('');
-const [avatarFile, setAvatarFile] = useState<File | null>(null);
-const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null);
-const [tempAvatar, setTempAvatar] = useState<string | null>(null);
-const [hasAvatar, setHasAvatar] = useState(false);
-const [isLoadingAvatar, setIsLoadingAvatar] = useState(false);
-const [isPreviewOpen, setIsPreviewOpen] = useState(false);
-const [previewSrc, setPreviewSrc] = useState<string | null>(null);
+  const [openAdvance, setOpenAdvance] = useState(false);
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [groupType, setGroupType] = useState('1');
+  const [approvalThreshold, setApprovalThreshold] = useState('40');
+  const [minBlock, setMinBlock] = useState('5');
+  const [maxBlock, setMaxBlock] = useState('21600');
+  const [isLoadingGroup, setIsLoadingGroup] = useState(false);
+  const [groupOwner, setGroupOwner] = useState('');
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null);
+  const [tempAvatar, setTempAvatar] = useState<string | null>(null);
+  const [hasAvatar, setHasAvatar] = useState(false);
+  const [isLoadingAvatar, setIsLoadingAvatar] = useState(false);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [previewSrc, setPreviewSrc] = useState<string | null>(null);
   const [value, setValue] = useState(initialTab);
   const [openSnack, setOpenSnack] = useState(false);
   const [infoSnack, setInfoSnack] = useState(null);
@@ -264,105 +271,105 @@ const [previewSrc, setPreviewSrc] = useState<string | null>(null);
     } finally {
       setIsCreating(false);
     }
-};
+  };
 
-const handleUpdateGroup = async () => {
-if (isCreating || !groupId) return;
-try {
-  if (!description)
-    throw new Error(
-      t('group:message.error.description_required', {
-        postProcess: 'capitalizeFirstChar',
-      })
-    );
-  if (description.length > GROUP_DESCRIPTION_MAX_LENGTH) {
-    throw new Error(
-      t('group:add_group.description_too_long', {
-        max: GROUP_DESCRIPTION_MAX_LENGTH,
-        postProcess: 'capitalizeFirstChar',
-      })
-    );
-  }
+  const handleUpdateGroup = async () => {
+    if (isCreating || !groupId) return;
+    try {
+      if (!description)
+        throw new Error(
+          t('group:message.error.description_required', {
+            postProcess: 'capitalizeFirstChar',
+          })
+        );
+      if (description.length > GROUP_DESCRIPTION_MAX_LENGTH) {
+        throw new Error(
+          t('group:add_group.description_too_long', {
+            max: GROUP_DESCRIPTION_MAX_LENGTH,
+            postProcess: 'capitalizeFirstChar',
+          })
+        );
+      }
 
-  setIsCreating(true);
+      setIsCreating(true);
 
-  const fee = await getFee('UPDATE_GROUP');
+      const fee = await getFee('UPDATE_GROUP');
 
-  try {
-    await show({
-      message: t('core:message.question.perform_transaction', {
-        action: 'UPDATE_GROUP',
-        postProcess: 'capitalizeFirstChar',
-      }),
-      publishFee: fee.fee + ' QORT',
-    });
-  } catch (error) {
-    return;
-  }
-
-  await new Promise((res, rej) => {
-    window
-      .sendMessage('updateGroup', {
-        groupId: groupId,
-        newOwner: groupOwner || address,
-        newIsOpen: +groupType,
-        newDescription: description,
-        newApprovalThreshold: +approvalThreshold,
-        newMinimumBlockDelay: +minBlock,
-        newMaximumBlockDelay: +maxBlock,
-      })
-      .then((response) => {
-        if (!response?.error) {
-          setInfoSnack({
-            type: 'success',
-            message: t('group:message.success.group_updated', {
-              postProcess: 'capitalizeFirstChar',
-            }),
-          });
-          setOpenSnack(true);
-          setTxList((prev) => [
-            {
-              ...response,
-              type: 'updated-group',
-              label: t('group:message.success.group_update_name', {
-                group_name: name,
-                postProcess: 'capitalizeFirstChar',
-              }),
-              labelDone: t('group:message.success.group_update_label', {
-                group_name: name,
-                postProcess: 'capitalizeFirstChar',
-              }),
-              done: false,
-            },
-            ...prev,
-          ]);
-          res(response);
-          return;
-        }
-        rej({ message: response.error });
-      })
-      .catch((error) => {
-        rej({
-          message:
-            error.message ||
-            t('core:message.error.generic', {
-              postProcess: 'capitalizeFirstChar',
-            }),
+      try {
+        await show({
+          message: t('core:message.question.perform_transaction', {
+            action: 'UPDATE_GROUP',
+            postProcess: 'capitalizeFirstChar',
+          }),
+          publishFee: fee.fee + ' QORT',
         });
-      });
-  });
-} catch (error) {
-  setInfoSnack({
-    type: 'error',
-    message: error?.message,
-  });
-  setOpenSnack(true);
-} finally {
-  setIsCreating(false);
-}
-};
+      } catch (error) {
+        return;
+      }
 
-const openGroupInvitesRequestFunc = () => {
+      await new Promise((res, rej) => {
+        window
+          .sendMessage('updateGroup', {
+            groupId: groupId,
+            newOwner: groupOwner || address,
+            newIsOpen: +groupType,
+            newDescription: description,
+            newApprovalThreshold: +approvalThreshold,
+            newMinimumBlockDelay: +minBlock,
+            newMaximumBlockDelay: +maxBlock,
+          })
+          .then((response) => {
+            if (!response?.error) {
+              setInfoSnack({
+                type: 'success',
+                message: t('group:message.success.group_updated', {
+                  postProcess: 'capitalizeFirstChar',
+                }),
+              });
+              setOpenSnack(true);
+              setTxList((prev) => [
+                {
+                  ...response,
+                  type: 'updated-group',
+                  label: t('group:message.success.group_update_name', {
+                    group_name: name,
+                    postProcess: 'capitalizeFirstChar',
+                  }),
+                  labelDone: t('group:message.success.group_update_label', {
+                    group_name: name,
+                    postProcess: 'capitalizeFirstChar',
+                  }),
+                  done: false,
+                },
+                ...prev,
+              ]);
+              res(response);
+              return;
+            }
+            rej({ message: response.error });
+          })
+          .catch((error) => {
+            rej({
+              message:
+                error.message ||
+                t('core:message.error.generic', {
+                  postProcess: 'capitalizeFirstChar',
+                }),
+            });
+          });
+      });
+    } catch (error) {
+      setInfoSnack({
+        type: 'error',
+        message: error?.message,
+      });
+      setOpenSnack(true);
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  const openGroupInvitesRequestFunc = () => {
     setValue(2);
   };
 
@@ -389,206 +396,206 @@ const openGroupInvitesRequestFunc = () => {
     }
   }, [initialTab, open]);
 
-useEffect(() => {
-subscribeToEvent('openGroupInvitesRequest', openGroupInvitesRequestFunc);
+  useEffect(() => {
+    subscribeToEvent('openGroupInvitesRequest', openGroupInvitesRequestFunc);
 
-return () => {
-  unsubscribeFromEvent(
-    'openGroupInvitesRequest',
-    openGroupInvitesRequestFunc
-  );
-};
-}, []);
-
-useEffect(() => {
-if (mode === 'update' && groupId && open) {
-  setIsLoadingGroup(true);
-  const controller = new AbortController();
-  
-  fetch(`${getBaseApiReact()}/groups/${groupId}`, {
-    signal: controller.signal,
-  })
-    .then((response) => {
-      if (!response.ok) throw new Error('Unable to load group information');
-      return response.json();
-    })
-    .then((data) => {
-      const APPROVAL_THRESHOLD_MAP: Record<string, string> = {
-        ZERO: '0',
-        ONE: '1',
-        P20: '20',
-        P40: '40',
-        P60: '60',
-        P80: '80',
-        P100: '100',
-      };
-      const rawThreshold = data.approvalThreshold;
-      let mappedThreshold: string;
-      if (typeof rawThreshold === 'number') {
-        mappedThreshold = String(rawThreshold);
-      } else {
-        const str = String(rawThreshold ?? '0');
-        mappedThreshold = APPROVAL_THRESHOLD_MAP[str] ?? str;
-        if (!/^\d+$/.test(mappedThreshold)) {
-          const numMatch = str.match(/\d+/);
-          mappedThreshold = numMatch ? numMatch[0] : '0';
-        }
-      }
-      setName(data.groupName || '');
-      setDescription(data.description || '');
-      setGroupOwner(data.owner || '');
-      setGroupType(data.isOpen ? '1' : '0');
-      setApprovalThreshold(mappedThreshold);
-      setMinBlock(String(data.minimumBlockDelay ?? '5'));
-      setMaxBlock(String(data.maximumBlockDelay ?? '21600'));
-      setIsLoadingGroup(false);
-    })
-    .catch((error) => {
-      if (error?.name !== 'AbortError') {
-        console.error('Failed to load group data:', error);
-        setInfoSnack({
-          type: 'error',
-          message: t('group:message.error.group_info'),
-        });
-        setOpenSnack(true);
-        setIsLoadingGroup(false);
-      }
-    });
-  
-  return () => controller.abort();
-}
-}, [mode, groupId, open, t]);
-
-useEffect(() => {
-  if (avatarFile) {
-    const url = URL.createObjectURL(avatarFile);
-    setAvatarPreviewUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }
-  setAvatarPreviewUrl(null);
-}, [avatarFile]);
-
-const checkIfAvatarExists = useCallback(async (name: string, gid: number) => {
-  try {
-    const identifier = `qortal_group_avatar_${gid}`;
-    const url = `${getBaseApiReact()}${getArbitraryEndpointReact()}?mode=ALL&service=THUMBNAIL&identifier=${identifier}&limit=1&name=${name}&includemetadata=false&prefix=true`;
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: { 'Content-Type': 'application/json' },
-    });
-    const responseData = await response.json();
-    if (responseData?.length > 0) {
-      setHasAvatar(true);
-    }
-  } catch (error) {
-    console.log(error);
-  }
-}, []);
-
-useEffect(() => {
-  if (mode === 'update' && myName && groupId) {
-    checkIfAvatarExists(myName, groupId);
-  }
-}, [mode, myName, groupId, checkIfAvatarExists]);
-
-const groupAvatarUrl = useMemo(() => {
-  if (!myName || !groupId) return null;
-  return `${getBaseApiReact()}/arbitrary/THUMBNAIL/${myName}/qortal_group_avatar_${groupId}?async=true`;
-}, [myName, groupId]);
-
-const handleAvatarPreview = useCallback((src: string | null) => {
-  if (!src) return;
-  setPreviewSrc(src);
-  setIsPreviewOpen(true);
-}, []);
-
-const closePreview = useCallback(() => {
-  setIsPreviewOpen(false);
-  setPreviewSrc(null);
-}, []);
-
-const publishAvatar = async () => {
-  try {
-    if (!groupId) return;
-    const fee = await getFee('ARBITRARY');
-
-    if (balance != null && +balance < +fee.fee)
-      throw new Error(
-        t('core:message.generic.avatar_publish_fee', {
-          fee: fee.fee,
-          postProcess: 'capitalizeFirstChar',
-        })
+    return () => {
+      unsubscribeFromEvent(
+        'openGroupInvitesRequest',
+        openGroupInvitesRequestFunc
       );
+    };
+  }, []);
 
-    await show({
-      message: t('core:message.question.publish_avatar', {
-        postProcess: 'capitalizeFirstChar',
-      }),
-      publishFee: fee.fee + ' QORT',
-    });
-    setIsLoadingAvatar(true);
-    const avatarBase64 = await fileToBase64(avatarFile);
+  useEffect(() => {
+    if (mode === 'update' && groupId && open) {
+      setIsLoadingGroup(true);
+      const controller = new AbortController();
 
-    await new Promise((res, rej) => {
-      window
-        .sendMessage('publishOnQDN', {
-          data: avatarBase64,
-          identifier: `qortal_group_avatar_${groupId}`,
-          service: 'THUMBNAIL',
-          uploadType: 'base64',
-        })
+      fetch(`${getBaseApiReact()}/groups/${groupId}`, {
+        signal: controller.signal,
+      })
         .then((response) => {
-          if (!response?.error) {
-            res(response);
-            return;
+          if (!response.ok) throw new Error('Unable to load group information');
+          return response.json();
+        })
+        .then((data) => {
+          const APPROVAL_THRESHOLD_MAP: Record<string, string> = {
+            ZERO: '0',
+            ONE: '1',
+            P20: '20',
+            P40: '40',
+            P60: '60',
+            P80: '80',
+            P100: '100',
+          };
+          const rawThreshold = data.approvalThreshold;
+          let mappedThreshold: string;
+          if (typeof rawThreshold === 'number') {
+            mappedThreshold = String(rawThreshold);
+          } else {
+            const str = String(rawThreshold ?? '0');
+            mappedThreshold = APPROVAL_THRESHOLD_MAP[str] ?? str;
+            if (!/^\d+$/.test(mappedThreshold)) {
+              const numMatch = str.match(/\d+/);
+              mappedThreshold = numMatch ? numMatch[0] : '0';
+            }
           }
-          rej(response.error);
+          setName(data.groupName || '');
+          setDescription(data.description || '');
+          setGroupOwner(data.owner || '');
+          setGroupType(data.isOpen ? '1' : '0');
+          setApprovalThreshold(mappedThreshold);
+          setMinBlock(String(data.minimumBlockDelay ?? '5'));
+          setMaxBlock(String(data.maximumBlockDelay ?? '21600'));
+          setIsLoadingGroup(false);
         })
         .catch((error) => {
-          rej(
-            error.message ||
-              t('core:message.error.generic', {
-                postProcess: 'capitalizeFirstChar',
-              })
-          );
+          if (error?.name !== 'AbortError') {
+            console.error('Failed to load group data:', error);
+            setInfoSnack({
+              type: 'error',
+              message: t('group:message.error.group_info'),
+            });
+            setOpenSnack(true);
+            setIsLoadingGroup(false);
+          }
         });
-    });
-    setAvatarFile(null);
-    setTempAvatar(`data:image/webp;base64,${avatarBase64}`);
-    setHasAvatar(true);
-  } catch (error) {
-    if (error?.message) {
-      setOpenSnack(true);
-      setInfoSnack({
-        type: 'error',
-        message: error?.message,
-      });
-    }
-  } finally {
-    setIsLoadingAvatar(false);
-  }
-};
 
-const modeTitle =
-value === 0
-  ? mode === 'create'
-    ? t('group:action.create_group', {
-        postProcess: 'capitalizeEachFirstChar',
-      })
-    : t('group:action.update_group', {
-        postProcess: 'capitalizeEachFirstChar',
-      })
-  : t('group:group.invites', { postProcess: 'capitalizeFirstChar' });
-const modeDescription =
-value === 0
-  ? mode === 'create'
-    ? t('group:add_group.description_create')
-    : t('group:add_group.description_update')
-  : t('group:add_group.description_invites');
-const canCreateGroup =
-mode === 'update'
-  ? Boolean(description.trim()) && !isCreating
-  : Boolean(name.trim() && description.trim()) && !isCreating;
+      return () => controller.abort();
+    }
+  }, [mode, groupId, open, t]);
+
+  useEffect(() => {
+    if (avatarFile) {
+      const url = URL.createObjectURL(avatarFile);
+      setAvatarPreviewUrl(url);
+      return () => URL.revokeObjectURL(url);
+    }
+    setAvatarPreviewUrl(null);
+  }, [avatarFile]);
+
+  const checkIfAvatarExists = useCallback(async (name: string, gid: number) => {
+    try {
+      const identifier = `qortal_group_avatar_${gid}`;
+      const url = `${getBaseApiReact()}${getArbitraryEndpointReact()}?mode=ALL&service=THUMBNAIL&identifier=${identifier}&limit=1&name=${name}&includemetadata=false&prefix=true`;
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const responseData = await response.json();
+      if (responseData?.length > 0) {
+        setHasAvatar(true);
+      }
+    } catch (error) {
+      console.log(error);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (mode === 'update' && myName && groupId) {
+      checkIfAvatarExists(myName, groupId);
+    }
+  }, [mode, myName, groupId, checkIfAvatarExists]);
+
+  const groupAvatarUrl = useMemo(() => {
+    if (!myName || !groupId) return null;
+    return `${getBaseApiReact()}/arbitrary/THUMBNAIL/${myName}/qortal_group_avatar_${groupId}?async=true`;
+  }, [myName, groupId]);
+
+  const handleAvatarPreview = useCallback((src: string | null) => {
+    if (!src) return;
+    setPreviewSrc(src);
+    setIsPreviewOpen(true);
+  }, []);
+
+  const closePreview = useCallback(() => {
+    setIsPreviewOpen(false);
+    setPreviewSrc(null);
+  }, []);
+
+  const publishAvatar = async () => {
+    try {
+      if (!groupId) return;
+      const fee = await getFee('ARBITRARY');
+
+      if (balance != null && +balance < +fee.fee)
+        throw new Error(
+          t('core:message.generic.avatar_publish_fee', {
+            fee: fee.fee,
+            postProcess: 'capitalizeFirstChar',
+          })
+        );
+
+      await show({
+        message: t('core:message.question.publish_avatar', {
+          postProcess: 'capitalizeFirstChar',
+        }),
+        publishFee: fee.fee + ' QORT',
+      });
+      setIsLoadingAvatar(true);
+      const avatarBase64 = await fileToBase64(avatarFile);
+
+      await new Promise((res, rej) => {
+        window
+          .sendMessage('publishOnQDN', {
+            data: avatarBase64,
+            identifier: `qortal_group_avatar_${groupId}`,
+            service: 'THUMBNAIL',
+            uploadType: 'base64',
+          })
+          .then((response) => {
+            if (!response?.error) {
+              res(response);
+              return;
+            }
+            rej(response.error);
+          })
+          .catch((error) => {
+            rej(
+              error.message ||
+                t('core:message.error.generic', {
+                  postProcess: 'capitalizeFirstChar',
+                })
+            );
+          });
+      });
+      setAvatarFile(null);
+      setTempAvatar(`data:image/webp;base64,${avatarBase64}`);
+      setHasAvatar(true);
+    } catch (error) {
+      if (error?.message) {
+        setOpenSnack(true);
+        setInfoSnack({
+          type: 'error',
+          message: error?.message,
+        });
+      }
+    } finally {
+      setIsLoadingAvatar(false);
+    }
+  };
+
+  const modeTitle =
+    value === 0
+      ? mode === 'create'
+        ? t('group:action.create_group', {
+            postProcess: 'capitalizeEachFirstChar',
+          })
+        : t('group:action.update_group', {
+            postProcess: 'capitalizeEachFirstChar',
+          })
+      : t('group:group.invites', { postProcess: 'capitalizeFirstChar' });
+  const modeDescription =
+    value === 0
+      ? mode === 'create'
+        ? t('group:add_group.description_create')
+        : t('group:add_group.description_update')
+      : t('group:add_group.description_invites');
+  const canCreateGroup =
+    mode === 'update'
+      ? Boolean(description.trim()) && !isCreating
+      : Boolean(name.trim() && description.trim()) && !isCreating;
 
   const handleDialogClose = (_event, reason) => {
     if (isCreating) return;
@@ -737,14 +744,24 @@ mode === 'update'
                     sx={{
                       height: '100px',
                       width: '100px',
-                      ...getClickableAvatarSx(theme, Boolean(avatarPreviewUrl || tempAvatar || hasAvatar)),
+                      ...getClickableAvatarSx(
+                        theme,
+                        Boolean(avatarPreviewUrl || tempAvatar || hasAvatar)
+                      ),
                     }}
-                    src={avatarPreviewUrl || tempAvatar || groupAvatarUrl || undefined}
+                    src={
+                      avatarPreviewUrl ||
+                      tempAvatar ||
+                      groupAvatarUrl ||
+                      undefined
+                    }
                     alt={name}
                     onClick={(event) => {
                       event.preventDefault();
                       event.stopPropagation();
-                      handleAvatarPreview(avatarPreviewUrl || tempAvatar || groupAvatarUrl);
+                      handleAvatarPreview(
+                        avatarPreviewUrl || tempAvatar || groupAvatarUrl
+                      );
                     }}
                   >
                     {name?.charAt(0)}
@@ -769,11 +786,15 @@ mode === 'update'
                     </ButtonBase>
                   </ImageUploader>
                   {avatarFile?.name && (
-                    <Typography sx={{ fontSize: '12px', color: 'text.secondary' }}>
+                    <Typography
+                      sx={{ fontSize: '12px', color: 'text.secondary' }}
+                    >
                       {avatarFile.name}
                     </Typography>
                   )}
-                  <Typography sx={{ fontSize: '11px', color: 'text.secondary' }}>
+                  <Typography
+                    sx={{ fontSize: '11px', color: 'text.secondary' }}
+                  >
                     {t('core:message.generic.avatar_size', {
                       size: MAX_SIZE_AVATAR,
                       postProcess: 'capitalizeFirstChar',
@@ -1245,7 +1266,11 @@ mode === 'update'
           {value === 0 && (
             <Button
               disabled={!canCreateGroup}
-              onClick={() => void (mode === 'update' ? handleUpdateGroup() : handleCreateGroup())}
+              onClick={() =>
+                void (mode === 'update'
+                  ? handleUpdateGroup()
+                  : handleCreateGroup())
+              }
               variant="contained"
               sx={{
                 backgroundColor: RETICULUM_ACTIVE_BLUE,

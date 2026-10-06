@@ -37,7 +37,9 @@ const PROFILE_COOLDOWN_MS = readNumberEnv(
   60_000
 );
 const PROFILER_ENABLED = ['1', 'true', 'yes', 'on'].includes(
-  String(process.env.QORTAL_MAIN_PRESSURE_PROFILER ?? '0').trim().toLowerCase()
+  String(process.env.QORTAL_MAIN_PRESSURE_PROFILER ?? '0')
+    .trim()
+    .toLowerCase()
 );
 const RECENT_SLOW_LIMIT = 12;
 

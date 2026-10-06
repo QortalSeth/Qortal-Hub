@@ -1,9 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useAtomValue, useSetAtom } from 'jotai';
-import {
-  memberGroupsAtom,
-  groupJoinBumpTimestampsAtom,
-} from '../atoms/global';
+import { memberGroupsAtom, groupJoinBumpTimestampsAtom } from '../atoms/global';
 import {
   readReticulumGroupOrder,
   persistReticulumGroupOrder,

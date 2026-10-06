@@ -174,6 +174,4 @@ describe('ReticulumMessageExpiryButton', () => {
 
     expect(onChange).toHaveBeenCalledWith(undefined);
   });
-
-
 });

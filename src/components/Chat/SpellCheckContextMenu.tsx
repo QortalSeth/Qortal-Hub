@@ -1,11 +1,6 @@
 import { useState, useCallback, useRef, useEffect, forwardRef } from 'react';
 import type { Editor } from '@tiptap/react';
-import {
-  Box,
-  Divider,
-  MenuItem,
-  Typography,
-} from '@mui/material';
+import { Box, Divider, MenuItem, Typography } from '@mui/material';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import ContentCutIcon from '@mui/icons-material/ContentCut';
 import ContentPasteIcon from '@mui/icons-material/ContentPaste';
@@ -29,22 +24,37 @@ interface MenuPosition {
 
 const isMac = /Mac|iPod|iPhone|iPad/.test(navigator.platform);
 
-export const SpellCheckContextMenu = forwardRef<HTMLInputElement | HTMLTextAreaElement, SpellCheckContextMenuProps>(
-  ({
-    children,
-    inputRef: externalInputRef,
-    editorRef,
-    onTextChange,
-    disabled = false,
-    readOnly = false,
-  }, forwardedRef) => {
+export const SpellCheckContextMenu = forwardRef<
+  HTMLInputElement | HTMLTextAreaElement,
+  SpellCheckContextMenuProps
+>(
+  (
+    {
+      children,
+      inputRef: externalInputRef,
+      editorRef,
+      onTextChange,
+      disabled = false,
+      readOnly = false,
+    },
+    forwardedRef
+  ) => {
     const [menuPosition, setMenuPosition] = useState<MenuPosition | null>(null);
     const [suggestions, setSuggestions] = useState<string[]>([]);
     const [misspelledWord, setMisspelledWord] = useState<string | null>(null);
-    const [wordRange, setWordRange] = useState<{ start: number; end: number } | null>(null);
-    const [anchorElement, setAnchorElement] = useState<HTMLElement | null>(null);
-    const internalInputRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
-    const menuInstanceIdRef = useRef(crypto.randomUUID?.() || `spell-menu-${Math.random()}`);
+    const [wordRange, setWordRange] = useState<{
+      start: number;
+      end: number;
+    } | null>(null);
+    const [anchorElement, setAnchorElement] = useState<HTMLElement | null>(
+      null
+    );
+    const internalInputRef = useRef<
+      HTMLInputElement | HTMLTextAreaElement | null
+    >(null);
+    const menuInstanceIdRef = useRef(
+      crypto.randomUUID?.() || `spell-menu-${Math.random()}`
+    );
     const { t } = useTranslation(['reticulum', 'core']);
 
     const inputRef = externalInputRef || internalInputRef;
@@ -76,11 +86,14 @@ export const SpellCheckContextMenu = forwardRef<HTMLInputElement | HTMLTextAreaE
 
         if (editor && !editor.isDestroyed) {
           const textValue = editor.getText();
-          
+
           // Get position from right-click coordinates, not from selection
-          const posAtCoords = editor.view.posAtCoords({ left: event.clientX, top: event.clientY });
+          const posAtCoords = editor.view.posAtCoords({
+            left: event.clientX,
+            top: event.clientY,
+          });
           let clickPosition: number;
-          
+
           if (posAtCoords) {
             clickPosition = posAtCoords.pos;
           } else {
@@ -99,30 +112,48 @@ export const SpellCheckContextMenu = forwardRef<HTMLInputElement | HTMLTextAreaE
             while (wordStart > 0 && /\w/.test(textValue[wordStart - 1])) {
               wordStart--;
             }
-            while (wordEnd < textValue.length && /\w/.test(textValue[wordEnd])) {
+            while (
+              wordEnd < textValue.length &&
+              /\w/.test(textValue[wordEnd])
+            ) {
               wordEnd++;
             }
 
             if (wordStart < wordEnd) {
               word = textValue.slice(wordStart, wordEnd);
-              console.log(`[SpellCheckContextMenu] Detected word: "${word}" at position ${wordStart}-${wordEnd}`);
+              console.log(
+                `[SpellCheckContextMenu] Detected word: "${word}" at position ${wordStart}-${wordEnd}`
+              );
 
               try {
                 const electronAPI = (window as any).electronAPI;
                 if (electronAPI?.spellCheck?.getSuggestions) {
-                  console.log('[SpellCheckContextMenu] Calling electronAPI.spellCheck.getSuggestions...');
-                  wordSuggestions = await electronAPI.spellCheck.getSuggestions(word);
-                  console.log(`[SpellCheckContextMenu] Got ${wordSuggestions?.length ?? 0} suggestions:`, wordSuggestions);
+                  console.log(
+                    '[SpellCheckContextMenu] Calling electronAPI.spellCheck.getSuggestions...'
+                  );
+                  wordSuggestions =
+                    await electronAPI.spellCheck.getSuggestions(word);
+                  console.log(
+                    `[SpellCheckContextMenu] Got ${wordSuggestions?.length ?? 0} suggestions:`,
+                    wordSuggestions
+                  );
                 } else if ('webFrame' in (window as any)) {
-                  const webFrame = (window as any).require?.('electron')?.webFrame;
+                  const webFrame = (window as any).require?.(
+                    'electron'
+                  )?.webFrame;
                   if (webFrame?.getWordSuggestions) {
                     wordSuggestions = webFrame.getWordSuggestions(word) || [];
                   }
                 } else {
-                  console.log('[SpellCheckContextMenu] electronAPI.spellCheck.getSuggestions not available');
+                  console.log(
+                    '[SpellCheckContextMenu] electronAPI.spellCheck.getSuggestions not available'
+                  );
                 }
               } catch (error) {
-                console.warn('[SpellCheckContextMenu] Spell check API error:', error);
+                console.warn(
+                  '[SpellCheckContextMenu] Spell check API error:',
+                  error
+                );
               }
             }
           }
@@ -142,7 +173,10 @@ export const SpellCheckContextMenu = forwardRef<HTMLInputElement | HTMLTextAreaE
             while (wordStart > 0 && /\w/.test(textValue[wordStart - 1])) {
               wordStart--;
             }
-            while (wordEnd < textValue.length && /\w/.test(textValue[wordEnd])) {
+            while (
+              wordEnd < textValue.length &&
+              /\w/.test(textValue[wordEnd])
+            ) {
               wordEnd++;
             }
 
@@ -152,9 +186,12 @@ export const SpellCheckContextMenu = forwardRef<HTMLInputElement | HTMLTextAreaE
               try {
                 const electronAPI = (window as any).electronAPI;
                 if (electronAPI?.spellCheck?.getSuggestions) {
-                  wordSuggestions = await electronAPI.spellCheck.getSuggestions(word);
+                  wordSuggestions =
+                    await electronAPI.spellCheck.getSuggestions(word);
                 } else if ('webFrame' in (window as any)) {
-                  const webFrame = (window as any).require?.('electron')?.webFrame;
+                  const webFrame = (window as any).require?.(
+                    'electron'
+                  )?.webFrame;
                   if (webFrame?.getWordSuggestions) {
                     wordSuggestions = webFrame.getWordSuggestions(word) || [];
                   }
@@ -286,12 +323,16 @@ export const SpellCheckContextMenu = forwardRef<HTMLInputElement | HTMLTextAreaE
           return;
         }
 
-        const selectedText = inputElement.value.slice(selectionStart, selectionEnd);
+        const selectedText = inputElement.value.slice(
+          selectionStart,
+          selectionEnd
+        );
 
         try {
           await navigator.clipboard.writeText(selectedText);
           const textValue = inputElement.value;
-          const newText = textValue.slice(0, selectionStart) + textValue.slice(selectionEnd);
+          const newText =
+            textValue.slice(0, selectionStart) + textValue.slice(selectionEnd);
 
           if (onTextChange) {
             onTextChange(newText);
@@ -345,7 +386,10 @@ export const SpellCheckContextMenu = forwardRef<HTMLInputElement | HTMLTextAreaE
           return;
         }
 
-        const selectedText = inputElement.value.slice(selectionStart, selectionEnd);
+        const selectedText = inputElement.value.slice(
+          selectionStart,
+          selectionEnd
+        );
 
         try {
           await navigator.clipboard.writeText(selectedText);
@@ -428,10 +472,7 @@ export const SpellCheckContextMenu = forwardRef<HTMLInputElement | HTMLTextAreaE
 
     return (
       <>
-        <div
-          onContextMenu={handleContextMenu}
-          style={{ display: 'contents' }}
-        >
+        <div onContextMenu={handleContextMenu} style={{ display: 'contents' }}>
           {children}
         </div>
 
@@ -469,32 +510,49 @@ export const SpellCheckContextMenu = forwardRef<HTMLInputElement | HTMLTextAreaE
             </MenuItem>
           )}
 
-          {(suggestions.length > 0 || misspelledWord) && <Divider sx={{ my: 0.5 }} />}
+          {(suggestions.length > 0 || misspelledWord) && (
+            <Divider sx={{ my: 0.5 }} />
+          )}
 
-          <MenuItem onClick={handleCut} sx={{ display: 'flex', justifyContent: 'space-between' }}>
+          <MenuItem
+            onClick={handleCut}
+            sx={{ display: 'flex', justifyContent: 'space-between' }}
+          >
             <Box sx={{ display: 'flex', alignItems: 'center' }}>
               <ContentCutIcon sx={{ mr: 1.5, fontSize: '18px' }} />
-              <Typography variant="inherit">{t('reticulum:context_menu.cut')}</Typography>
+              <Typography variant="inherit">
+                {t('reticulum:context_menu.cut')}
+              </Typography>
             </Box>
             <Typography variant="caption" color="text.secondary">
               {shortcutKey}+X
             </Typography>
           </MenuItem>
 
-          <MenuItem onClick={handleCopy} sx={{ display: 'flex', justifyContent: 'space-between' }}>
+          <MenuItem
+            onClick={handleCopy}
+            sx={{ display: 'flex', justifyContent: 'space-between' }}
+          >
             <Box sx={{ display: 'flex', alignItems: 'center' }}>
               <ContentCopyIcon sx={{ mr: 1.5, fontSize: '18px' }} />
-              <Typography variant="inherit">{t('reticulum:context_menu.copy')}</Typography>
+              <Typography variant="inherit">
+                {t('reticulum:context_menu.copy')}
+              </Typography>
             </Box>
             <Typography variant="caption" color="text.secondary">
               {shortcutKey}+C
             </Typography>
           </MenuItem>
 
-          <MenuItem onClick={handlePaste} sx={{ display: 'flex', justifyContent: 'space-between' }}>
+          <MenuItem
+            onClick={handlePaste}
+            sx={{ display: 'flex', justifyContent: 'space-between' }}
+          >
             <Box sx={{ display: 'flex', alignItems: 'center' }}>
               <ContentPasteIcon sx={{ mr: 1.5, fontSize: '18px' }} />
-              <Typography variant="inherit">{t('reticulum:context_menu.paste')}</Typography>
+              <Typography variant="inherit">
+                {t('reticulum:context_menu.paste')}
+              </Typography>
             </Box>
             <Typography variant="caption" color="text.secondary">
               {shortcutKey}+V

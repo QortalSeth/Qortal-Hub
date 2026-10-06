@@ -314,9 +314,10 @@ async function ensureChannelsInSettings(
 ): Promise<void> {
   let channels: Array<{ channelId?: string; categoryId?: string }> | undefined;
   try {
-    channels = await (
-      window as any
-    ).reticulumChat?.getChannels?.(Number(groupId), true);
+    channels = await (window as any).reticulumChat?.getChannels?.(
+      Number(groupId),
+      true
+    );
   } catch {
     // reticulum API unavailable — operate on existing settings only.
   }
@@ -328,8 +329,7 @@ async function ensureChannelsInSettings(
     if (!chId) continue;
     const catId = String(ch?.categoryId ?? '').trim();
     if (sectionFilter != null && catId !== sectionFilter) continue;
-    if (!groupSettings.sections[catId])
-      groupSettings.sections[catId] = {};
+    if (!groupSettings.sections[catId]) groupSettings.sections[catId] = {};
     if (!groupSettings.sections[catId].channels)
       groupSettings.sections[catId].channels = {};
     if (!groupSettings.sections[catId].channels[chId])
@@ -458,7 +458,9 @@ export function groupHasUnreadConsideringMute(
   if (!summary) return false;
 
   const notifyOnWelcomePosts =
-    groupSettings?.notifyOnWelcomePosts ?? fallback.notifyOnWelcomePosts ?? true;
+    groupSettings?.notifyOnWelcomePosts ??
+    fallback.notifyOnWelcomePosts ??
+    true;
   const welcomeCount =
     !notifyOnWelcomePosts && welcomeUnreadCount ? welcomeUnreadCount : 0;
 

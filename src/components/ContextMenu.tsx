@@ -269,7 +269,8 @@ export const ContextMenu = ({
       const response = await window.sendMessage('leaveGroup', {
         groupId: displayedGroupInfo.groupId,
       });
-      if (response && typeof response === 'object' && 'error' in response) throw new Error((response as { error: string }).error);
+      if (response && typeof response === 'object' && 'error' in response)
+        throw new Error((response as { error: string }).error);
       setTxList((previous) => [
         {
           ...(typeof response === 'object' && response ? response : {}),

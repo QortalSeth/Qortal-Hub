@@ -173,9 +173,7 @@ export class GcallV2Session {
    * Execute a drain tick for all active streams. Called by the audio worklet
    * scheduler. Returns a map of sourceAddr → TickOutput for the playout layer.
    */
-  async tick(
-    nowMs: number
-  ): Promise<
+  async tick(nowMs: number): Promise<
     Map<
       string,
       {

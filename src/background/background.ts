@@ -3365,66 +3365,69 @@ export const fireOsNotificationPayment = async (
   internalPayload,
   deliveryMethod: 'native' | 'ephemeral' = 'native',
   groupContext?: { groupId: number; channelId: string },
-  eventId?: string,
+  eventId?: string
 ) => {
   notificationQueue.push(async () => {
-  try {
-    const isDisableNotifications =
-      (await getUserSettings({ key: 'disable-push-notifications' })) || false;
-    if (isDisableNotifications) return;
+    try {
+      const isDisableNotifications =
+        (await getUserSettings({ key: 'disable-push-notifications' })) || false;
+      if (isDisableNotifications) return;
 
-    if (
-      notificationPayload?.event === 'RESOURCE_PUBLISHED' &&
-      notificationPayload?.appName
-    ) {
-      const osPushDisabled = await getNotificationOsPushDisabled(
-        notificationPayload.appName
+      if (
+        notificationPayload?.event === 'RESOURCE_PUBLISHED' &&
+        notificationPayload?.appName
+      ) {
+        const osPushDisabled = await getNotificationOsPushDisabled(
+          notificationPayload.appName
+        );
+        if (osPushDisabled) return;
+      }
+
+      const notificationId = encodeURIComponent(
+        'general_notification_' + Date.now() + '_type=general-notification'
       );
-      if (osPushDisabled) return;
-    }
 
-    const notificationId = encodeURIComponent(
-      'general_notification_' + Date.now() + '_type=general-notification'
-    );
-
-    generalNotificationPayloadById.set(
-      notificationId,
-      internalPayload ||
-        (qortalLink ? { link: qortalLink } : { openWallets: true })
-    );
-
-    if (deliveryMethod === 'native' && window.reticulumChat?.showNotification) {
-      await window.reticulumChat.showNotification({
-        title,
-        body: messageBody,
-        icon: typeof icon === 'string' ? icon : undefined,
+      generalNotificationPayloadById.set(
         notificationId,
-        data: internalPayload || {},
-        groupContext,
-        eventId,
-      });
-    } else {
-      const notification = new window.Notification(title, {
-        body: messageBody,
-        icon,
-        data: { id: notificationId },
-      });
+        internalPayload ||
+          (qortalLink ? { link: qortalLink } : { openWallets: true })
+      );
 
-      notification.onclick = () => {
-        handleNotificationClick(notificationId);
-        notification.close();
-      };
+      if (
+        deliveryMethod === 'native' &&
+        window.reticulumChat?.showNotification
+      ) {
+        await window.reticulumChat.showNotification({
+          title,
+          body: messageBody,
+          icon: typeof icon === 'string' ? icon : undefined,
+          notificationId,
+          data: internalPayload || {},
+          groupContext,
+          eventId,
+        });
+      } else {
+        const notification = new window.Notification(title, {
+          body: messageBody,
+          icon,
+          data: { id: notificationId },
+        });
 
-      setTimeout(() => {
-        generalNotificationPayloadById.delete(notificationId);
-        notification.close();
-      }, NOTIFICATION_DISPLAY_DURATION_MS);
+        notification.onclick = () => {
+          handleNotificationClick(notificationId);
+          notification.close();
+        };
+
+        setTimeout(() => {
+          generalNotificationPayloadById.delete(notificationId);
+          notification.close();
+        }, NOTIFICATION_DISPLAY_DURATION_MS);
+      }
+    } catch (error) {
+      console.error(error);
     }
-  } catch (error) {
-    console.error(error);
-  }
-});
-void processQueue();
+  });
+  void processQueue();
 };
 
 const checkActiveChatsForNotifications = async () => {

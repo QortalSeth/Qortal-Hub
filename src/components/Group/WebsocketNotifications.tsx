@@ -46,7 +46,11 @@ import { MAX_NOTIFICATION_PREVIEW_CHARS } from '../../constants/notificationCons
 import qortPng from '../../assets/qort.png';
 
 const shouldSuppressForCurrentView = (
-  viewRef: React.MutableRefObject<{ groupId: number; channelId: string; isAtBottom: boolean }>,
+  viewRef: React.MutableRefObject<{
+    groupId: number;
+    channelId: string;
+    isAtBottom: boolean;
+  }>,
   groupId: number,
   channelId: string
 ): boolean => {
@@ -232,7 +236,10 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
       // Handle DM deletion — dismiss OS notification and skip notification processing
       if (directEvent.eventType === 'delete') {
         if (directEvent.senderAddress) {
-          window.reticulumChat?.dismissNotifications?.(NaN, directEvent.senderAddress);
+          window.reticulumChat?.dismissNotifications?.(
+            NaN,
+            directEvent.senderAddress
+          );
         }
         return;
       }
@@ -274,7 +281,10 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
       } catch {
         dmMessageText = String(directEvent.payload || '').trim();
       }
-      dmMessageText = dmMessageText.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+      dmMessageText = dmMessageText
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
       const dmPreviewText = truncatePreview(
         dmMessageText,
         MAX_NOTIFICATION_PREVIEW_CHARS
@@ -549,7 +559,9 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
       const groupSettings = await getGroupNotificationSettings(groupId).catch(
         () => null
       );
-      const sectionMap = groupSettings ? buildChannelSectionMap(groupSettings) : new Map();
+      const sectionMap = groupSettings
+        ? buildChannelSectionMap(groupSettings)
+        : new Map();
       const sectionId = sectionMap.get(channelId);
       const channelMuted = groupSettings
         ? isScopeMuted(groupSettings, sectionId, channelId)
@@ -569,7 +581,11 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
           isEveryoneOrHere,
           false
         ) &&
-        !shouldSuppressForMutedChannel(channelMuted, effectiveSettings.pushLevel, true);
+        !shouldSuppressForMutedChannel(
+          channelMuted,
+          effectiveSettings.pushLevel,
+          true
+        );
 
       const timestamp = Number(detail?.timestamp || Date.now());
       const groupName =
@@ -718,7 +734,14 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
         }
         const mentionSender = detail.senderName || 'Someone';
         const mentionText = detail.messageText || '';
-        if (shouldSuppressForCurrentView(currentViewContextRef, groupId, channelId)) return;
+        if (
+          shouldSuppressForCurrentView(
+            currentViewContextRef,
+            groupId,
+            channelId
+          )
+        )
+          return;
         const previewText = truncatePreview(
           `${formatChannelLine(channelName)}\n${mentionText}`,
           MAX_NOTIFICATION_PREVIEW_CHARS
@@ -769,10 +792,16 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
         String(detail?.groupName || '').trim() || `Group ${groupId}`;
       const channelId = String(detail?.channelId || 'general');
 
-      const replyGroupSettings = await getGroupNotificationSettings(groupId).catch(() => null);
-      const replySectionMap = replyGroupSettings ? buildChannelSectionMap(replyGroupSettings) : new Map();
+      const replyGroupSettings = await getGroupNotificationSettings(
+        groupId
+      ).catch(() => null);
+      const replySectionMap = replyGroupSettings
+        ? buildChannelSectionMap(replyGroupSettings)
+        : new Map();
       const replySectionId = replySectionMap.get(channelId);
-      const replyMuted = replyGroupSettings ? isScopeMuted(replyGroupSettings, replySectionId, channelId) : false;
+      const replyMuted = replyGroupSettings
+        ? isScopeMuted(replyGroupSettings, replySectionId, channelId)
+        : false;
       if (replyMuted) return;
 
       let channelName = getReticulumNotificationChannelLabel(channelId, null);
@@ -797,7 +826,10 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
         }
       }
 
-      if (shouldSuppressForCurrentView(currentViewContextRef, groupId, channelId)) return;
+      if (
+        shouldSuppressForCurrentView(currentViewContextRef, groupId, channelId)
+      )
+        return;
       const replySender = detail.senderName || 'Someone';
       const replyText = detail.messageText || '';
       const previewText = truncatePreview(
@@ -859,13 +891,20 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
 
       const reactionSender = detail.senderName || 'Someone';
       const reactionEmoji = detail.reactionEmoji || '';
-      const groupName = String(detail?.groupName || '').trim() || `Group ${groupId}`;
+      const groupName =
+        String(detail?.groupName || '').trim() || `Group ${groupId}`;
       const channelId = String(detail?.channelId || 'general');
 
-      const rxnGroupSettings = await getGroupNotificationSettings(groupId).catch(() => null);
-      const rxnSectionMap = rxnGroupSettings ? buildChannelSectionMap(rxnGroupSettings) : new Map();
+      const rxnGroupSettings = await getGroupNotificationSettings(
+        groupId
+      ).catch(() => null);
+      const rxnSectionMap = rxnGroupSettings
+        ? buildChannelSectionMap(rxnGroupSettings)
+        : new Map();
       const rxnSectionId = rxnSectionMap.get(channelId);
-      const rxnMuted = rxnGroupSettings ? isScopeMuted(rxnGroupSettings, rxnSectionId, channelId) : false;
+      const rxnMuted = rxnGroupSettings
+        ? isScopeMuted(rxnGroupSettings, rxnSectionId, channelId)
+        : false;
       if (rxnMuted) return;
 
       let channelName = getReticulumNotificationChannelLabel(channelId, null);
@@ -885,7 +924,10 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
             MAX_NOTIFICATION_PREVIEW_CHARS
           )
         : '';
-      if (shouldSuppressForCurrentView(currentViewContextRef, groupId, channelId)) return;
+      if (
+        shouldSuppressForCurrentView(currentViewContextRef, groupId, channelId)
+      )
+        return;
       const reactionDeliveryMethod = await getNotificationDeliveryMethod();
       void fireOsNotificationPayment(
         {
@@ -931,7 +973,9 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
       const groupSettings = await getGroupNotificationSettings(groupId).catch(
         () => null
       );
-      const sectionMap = groupSettings ? buildChannelSectionMap(groupSettings) : new Map();
+      const sectionMap = groupSettings
+        ? buildChannelSectionMap(groupSettings)
+        : new Map();
       const sectionId = sectionMap.get(channelId);
       const channelMuted = groupSettings
         ? isScopeMuted(groupSettings, sectionId, channelId)
@@ -946,7 +990,11 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
       const shouldPush =
         effectiveSettings != null &&
         shouldFirePushNotification(effectiveSettings, false, false, false) &&
-        !shouldSuppressForMutedChannel(channelMuted, effectiveSettings.pushLevel, false);
+        !shouldSuppressForMutedChannel(
+          channelMuted,
+          effectiveSettings.pushLevel,
+          false
+        );
 
       if (!shouldPush) return;
 
@@ -977,7 +1025,10 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
         // The stable ID remains a useful fallback while metadata is syncing.
       }
 
-      if (shouldSuppressForCurrentView(currentViewContextRef, groupId, channelId)) return;
+      if (
+        shouldSuppressForCurrentView(currentViewContextRef, groupId, channelId)
+      )
+        return;
       const msgSender = detail.senderName || 'Someone';
       const msgText = detail.messageText || '';
       const previewText = truncatePreview(

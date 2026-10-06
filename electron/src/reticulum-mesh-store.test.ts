@@ -94,7 +94,7 @@ describe('meshConfigSliceFromState', () => {
     expect(s.autoconnectDiscoveredMax).toBe(5);
   });
 
-it('enables opted-in transport when mesh listen is on', () => {
+  it('enables opted-in transport when mesh listen is on', () => {
     const existsSpy = vi
       .spyOn(fs, 'existsSync')
       .mockImplementation((p: fs.PathLike) => {

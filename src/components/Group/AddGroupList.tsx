@@ -647,13 +647,13 @@ export const AddGroupList = ({
                 }}
               >
                 <Typography
-                variant='h1'
+                  variant="h1"
                   sx={{
                     fontSize: 16,
                     fontWeight: 700,
                     color: theme.palette.text.primary,
                     letterSpacing: '-0.015em',
-                lineHeight: '16px',
+                    lineHeight: '16px',
                     minWidth: 0,
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
@@ -675,7 +675,8 @@ export const AddGroupList = ({
                       sx={{
                         color: '#3f8cff',
                         flexShrink: 0,
-                        fontSize: 15,                      }}
+                        fontSize: 15,
+                      }}
                     />
                   ) : (
                     <LockIcon

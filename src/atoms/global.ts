@@ -52,8 +52,9 @@ export const groupChatTimestampsAtom = atomWithReset({});
  * (which have `timestamp: 0`) sort to the top of the sidebar, as if a
  * new post was made there. Cleared on reload (not persisted).
  */
-export const groupJoinBumpTimestampsAtom =
-  atomWithReset<Record<string, number>>({});
+export const groupJoinBumpTimestampsAtom = atomWithReset<
+  Record<string, number>
+>({});
 export type ReticulumChatSummaryAtomEntry = {
   groupId: number;
   channelId?: string;

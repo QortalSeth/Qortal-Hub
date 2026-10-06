@@ -628,7 +628,7 @@ export const ReticulumChatSettingsDialog = ({
                         setNotifForm((prev) => ({
                           ...prev,
                           suppressEveryoneHere: checked,
-                        }))
+                        }));
                       }}
                     />
                   }
@@ -664,7 +664,7 @@ export const ReticulumChatSettingsDialog = ({
                         setNotifForm((prev) => ({
                           ...prev,
                           notifyOnReplies: checked,
-                        }))
+                        }));
                       }}
                     />
                   }
@@ -700,7 +700,7 @@ export const ReticulumChatSettingsDialog = ({
                         setNotifForm((prev) => ({
                           ...prev,
                           notifyOnReactions: checked,
-                        }))
+                        }));
                       }}
                     />
                   }
@@ -736,7 +736,7 @@ export const ReticulumChatSettingsDialog = ({
                         setNotifForm((prev) => ({
                           ...prev,
                           notifyOnWelcomePosts: checked,
-                        }))
+                        }));
                       }}
                     />
                   }
@@ -824,7 +824,9 @@ export const ReticulumChatSettingsDialog = ({
                   control={<Radio size="small" />}
                   label={
                     <Tooltip
-                      title={t('reticulum:settings.notifications.delivery_native_tooltip')}
+                      title={t(
+                        'reticulum:settings.notifications.delivery_native_tooltip'
+                      )}
                       placement="right"
                     >
                       <Typography sx={{ fontSize: 14, fontWeight: 600 }}>
@@ -847,11 +849,15 @@ export const ReticulumChatSettingsDialog = ({
                   control={<Radio size="small" />}
                   label={
                     <Tooltip
-                      title={t('reticulum:settings.notifications.delivery_ephemeral_tooltip')}
+                      title={t(
+                        'reticulum:settings.notifications.delivery_ephemeral_tooltip'
+                      )}
                       placement="right"
                     >
                       <Typography sx={{ fontSize: 14, fontWeight: 600 }}>
-                        {t('reticulum:settings.notifications.delivery_ephemeral')}
+                        {t(
+                          'reticulum:settings.notifications.delivery_ephemeral'
+                        )}
                       </Typography>
                     </Tooltip>
                   }
@@ -1250,9 +1256,7 @@ const GroupListInner = ({
     if (!railMode) {
       if (sortMode === 'alphabetical') {
         return [...groups].sort((a: any, b: any) =>
-          String(a?.groupName || '').localeCompare(
-            String(b?.groupName || '')
-          )
+          String(a?.groupName || '').localeCompare(String(b?.groupName || ''))
         );
       }
       return groups;
@@ -1262,9 +1266,7 @@ const GroupListInner = ({
     }
     if (sortMode === 'alphabetical') {
       return [...groups].sort((a: any, b: any) =>
-        String(a?.groupName || '').localeCompare(
-          String(b?.groupName || '')
-        )
+        String(a?.groupName || '').localeCompare(String(b?.groupName || ''))
       );
     }
     return groups;
@@ -2233,16 +2235,15 @@ const GroupItem = memo(
             onPointerDownCapture={() => setIsGroupTooltipOpen(false)}
             sx={{
               alignItems: 'center',
-              backgroundColor:
-                isSelected
-                  ? desktopSideView === 'groups'
-                    ? theme.palette.mode === 'dark'
-                      ? RETICULUM_ACTIVE_BLUE_DARK
-                      : RETICULUM_ACTIVE_BLUE_LIGHT
-                    : theme.palette.mode === 'dark'
-                      ? `${RETICULUM_ACTIVE_BLUE_DARK}66`
-                      : `${RETICULUM_ACTIVE_BLUE_LIGHT}66`
-                  : 'transparent',
+              backgroundColor: isSelected
+                ? desktopSideView === 'groups'
+                  ? theme.palette.mode === 'dark'
+                    ? RETICULUM_ACTIVE_BLUE_DARK
+                    : RETICULUM_ACTIVE_BLUE_LIGHT
+                  : theme.palette.mode === 'dark'
+                    ? `${RETICULUM_ACTIVE_BLUE_DARK}66`
+                    : `${RETICULUM_ACTIVE_BLUE_LIGHT}66`
+                : 'transparent',
               borderRadius: '8px',
               boxSizing: 'border-box',
               cursor: 'pointer',
@@ -2260,16 +2261,15 @@ const GroupItem = memo(
               width: 52,
               zIndex: isDragging ? 4 : 'auto',
               '&:hover': {
-                backgroundColor:
-                  isSelected
-                    ? desktopSideView === 'groups'
-                      ? theme.palette.mode === 'dark'
-                        ? RETICULUM_ACTIVE_BLUE_DARK
-                        : RETICULUM_ACTIVE_BLUE_LIGHT
-                      : theme.palette.mode === 'dark'
-                        ? `${RETICULUM_ACTIVE_BLUE_DARK}66`
-                        : `${RETICULUM_ACTIVE_BLUE_LIGHT}66`
-                    : theme.palette.action.hover,
+                backgroundColor: isSelected
+                  ? desktopSideView === 'groups'
+                    ? theme.palette.mode === 'dark'
+                      ? RETICULUM_ACTIVE_BLUE_DARK
+                      : RETICULUM_ACTIVE_BLUE_LIGHT
+                    : theme.palette.mode === 'dark'
+                      ? `${RETICULUM_ACTIVE_BLUE_DARK}66`
+                      : `${RETICULUM_ACTIVE_BLUE_LIGHT}66`
+                  : theme.palette.action.hover,
               },
             }}
           >
@@ -2298,11 +2298,11 @@ const GroupItem = memo(
                 {avatarNode}
 
                 {(groupHasUnreadConsideringMute(
-                    groupMuteSettings,
-                    group?.reticulumChatSummary,
-                    welcomeUnreadCount,
-                    globalNotifForm
-                  ) ||
+                  groupMuteSettings,
+                  group?.reticulumChatSummary,
+                  welcomeUnreadCount,
+                  globalNotifForm
+                ) ||
                   (!reticulumChatEnabled &&
                     group?.data &&
                     groupChatTimestamp &&
@@ -2311,8 +2311,7 @@ const GroupItem = memo(
                     ((!timestampEnterData &&
                       Date.now() - group?.timestamp <
                         timeDifferenceForNotificationChats) ||
-                      timestampEnterData < group?.timestamp))) &&
-                  (
+                      timestampEnterData < group?.timestamp))) && (
                   <ReticulumUnreadCountBadge
                     count={reticulumReplyCount > 0 ? reticulumReplyCount : null}
                     outlineColor={theme.palette.background.surface}
@@ -2333,19 +2332,19 @@ const GroupItem = memo(
                     welcomeUnreadCount,
                     globalNotifForm
                   ) && (
-                  <AlternateEmailIcon
-                    sx={{
-                      backgroundColor: theme.palette.background.surface,
-                      borderRadius: '50%',
-                      color: RETICULUM_NOTIFICATION_RED,
-                      fontSize: 16,
-                      position: 'absolute',
-                      right: 0,
-                      top: 0,
-                      zIndex: 2,
-                    }}
-                  />
-                )}
+                    <AlternateEmailIcon
+                      sx={{
+                        backgroundColor: theme.palette.background.surface,
+                        borderRadius: '50%',
+                        color: RETICULUM_NOTIFICATION_RED,
+                        fontSize: 16,
+                        position: 'absolute',
+                        right: 0,
+                        top: 0,
+                        zIndex: 2,
+                      }}
+                    />
+                  )}
 
                 {!reticulumChatEnabled &&
                   announcement &&
@@ -2575,11 +2574,11 @@ const GroupItem = memo(
               }}
             >
               {(groupHasUnreadConsideringMute(
-                  groupMuteSettings,
-                  group?.reticulumChatSummary,
-                  welcomeUnreadCount,
-                  globalNotifForm
-                ) ||
+                groupMuteSettings,
+                group?.reticulumChatSummary,
+                welcomeUnreadCount,
+                globalNotifForm
+              ) ||
                 (!reticulumChatEnabled &&
                   group?.data &&
                   groupChatTimestamp &&
@@ -2588,8 +2587,7 @@ const GroupItem = memo(
                   ((!timestampEnterData &&
                     Date.now() - group?.timestamp <
                       timeDifferenceForNotificationChats) ||
-                      timestampEnterData < group?.timestamp))) &&
-                  (
+                    timestampEnterData < group?.timestamp))) && (
                 <MarkChatUnreadIcon
                   sx={{
                     color: hasReticulumUnread
@@ -2607,13 +2605,13 @@ const GroupItem = memo(
                   welcomeUnreadCount,
                   globalNotifForm
                 ) && (
-                <AlternateEmailIcon
-                  sx={{
-                    color: RETICULUM_NOTIFICATION_RED,
-                    fontSize: '18px',
-                  }}
-                />
-              )}
+                  <AlternateEmailIcon
+                    sx={{
+                      color: RETICULUM_NOTIFICATION_RED,
+                      fontSize: '18px',
+                    }}
+                  />
+                )}
 
               {groupProperty?.isOpen === false && (
                 <LockIcon

@@ -145,7 +145,12 @@ describe('Reticulum message expiry', () => {
       42,
       'general'
     );
-    saveReticulumMessageExpiryPreference('QAccountAddress', 42, null, 'general');
+    saveReticulumMessageExpiryPreference(
+      'QAccountAddress',
+      42,
+      null,
+      'general'
+    );
     expect(window.localStorage.getItem(key!)).toBe('__null__');
     expect(
       loadReticulumMessageExpiryPreference('QAccountAddress', 42, 'general')

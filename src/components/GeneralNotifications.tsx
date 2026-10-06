@@ -49,9 +49,7 @@ import {
   unsubscribeFromEvent,
 } from '../utils/events';
 import { formatDate } from '../utils/time';
-import {
-  QCHAT_MENTION_NOTIFICATION_APP_NAME,
-} from '../utils/qChatMentionNotifications';
+import { QCHAT_MENTION_NOTIFICATION_APP_NAME } from '../utils/qChatMentionNotifications';
 import { ReticulumUnreadCountBadge } from './common/ReticulumUnreadCountBadge';
 
 const RESOURCE_EVENT = 'RESOURCE_PUBLISHED';
@@ -743,8 +741,7 @@ export const GeneralNotifications = ({
                 sx={{ color: alpha(theme.palette.text.secondary, 0.82) }}
               >
                 {t('message.generic.no_notification_apps', {
-                  defaultValue:
-                    'No Q-Apps have notification permission yet.',
+                  defaultValue: 'No Q-Apps have notification permission yet.',
                 })}
               </Typography>
             ) : (

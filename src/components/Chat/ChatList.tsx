@@ -771,7 +771,9 @@ export const ChatList = ({
 
       reticulumPinnedToBottomRef.current =
         isPinned && !reticulumReadingPositionLockedRef.current;
-      executeEvent('chat-scroll-state', { isAtBottom: distanceFromBottom <= 50 });
+      executeEvent('chat-scroll-state', {
+        isAtBottom: distanceFromBottom <= 50,
+      });
       if (
         isPinned &&
         !hasNewerMessages &&
@@ -1108,8 +1110,7 @@ export const ChatList = ({
         ? initialReticulumUnreadIndexes.length <= initialReticulumUnreadCount
           ? null
           : initialReticulumUnreadIndexes[
-              initialReticulumUnreadIndexes.length -
-                initialReticulumUnreadCount
+              initialReticulumUnreadIndexes.length - initialReticulumUnreadCount
             ]
         : null;
 
@@ -1180,10 +1181,16 @@ export const ChatList = ({
           pendingInitialReticulumUnreadIndexRef.current = null;
           let shouldLandAtBottom =
             reticulumScrollTargetIndex < 0 && typeof unreadIndex !== 'number';
-          if (reticulumScrollTargetIndex < 0 && typeof unreadIndex === 'number') {
+          if (
+            reticulumScrollTargetIndex < 0 &&
+            typeof unreadIndex === 'number'
+          ) {
             const scrollElement = parentRef.current as HTMLDivElement | null;
             if (scrollElement) {
-              const viewportItems = Math.max(1, Math.round(scrollElement.clientHeight / 120));
+              const viewportItems = Math.max(
+                1,
+                Math.round(scrollElement.clientHeight / 120)
+              );
               if (totalMessages.length - unreadIndex <= viewportItems) {
                 shouldLandAtBottom = true;
               }

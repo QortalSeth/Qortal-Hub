@@ -61,7 +61,9 @@ describe('SpellCheckContextMenu', () => {
       });
 
       await waitFor(() => {
-        expect(screen.getByText('reticulum:context_menu.cut')).toBeInTheDocument();
+        expect(
+          screen.getByText('reticulum:context_menu.cut')
+        ).toBeInTheDocument();
       });
     });
 
@@ -88,7 +90,9 @@ describe('SpellCheckContextMenu', () => {
       });
 
       await waitFor(() => {
-        expect(screen.queryByText('reticulum:context_menu.cut')).not.toBeInTheDocument();
+        expect(
+          screen.queryByText('reticulum:context_menu.cut')
+        ).not.toBeInTheDocument();
       });
     });
 
@@ -115,7 +119,9 @@ describe('SpellCheckContextMenu', () => {
       });
 
       await waitFor(() => {
-        expect(screen.queryByText('reticulum:context_menu.cut')).not.toBeInTheDocument();
+        expect(
+          screen.queryByText('reticulum:context_menu.cut')
+        ).not.toBeInTheDocument();
       });
     });
 
@@ -136,7 +142,9 @@ describe('SpellCheckContextMenu', () => {
         </div>
       );
 
-      const wrapper = container.querySelector('[style*="display: contents"]') ?? container.querySelector('div');
+      const wrapper =
+        container.querySelector('[style*="display: contents"]') ??
+        container.querySelector('div');
       if (!wrapper) throw new Error('Wrapper not found');
 
       fireEvent.contextMenu(wrapper, {
@@ -145,13 +153,17 @@ describe('SpellCheckContextMenu', () => {
       });
 
       await waitFor(() => {
-        expect(screen.getByText('reticulum:context_menu.cut')).toBeInTheDocument();
+        expect(
+          screen.getByText('reticulum:context_menu.cut')
+        ).toBeInTheDocument();
       });
 
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
 
       await waitFor(() => {
-        expect(screen.queryByText('reticulum:context_menu.cut')).not.toBeInTheDocument();
+        expect(
+          screen.queryByText('reticulum:context_menu.cut')
+        ).not.toBeInTheDocument();
       });
     });
 
@@ -178,9 +190,15 @@ describe('SpellCheckContextMenu', () => {
       });
 
       await waitFor(() => {
-        expect(screen.getByText('reticulum:context_menu.cut')).toBeInTheDocument();
-        expect(screen.getByText('reticulum:context_menu.copy')).toBeInTheDocument();
-        expect(screen.getByText('reticulum:context_menu.paste')).toBeInTheDocument();
+        expect(
+          screen.getByText('reticulum:context_menu.cut')
+        ).toBeInTheDocument();
+        expect(
+          screen.getByText('reticulum:context_menu.copy')
+        ).toBeInTheDocument();
+        expect(
+          screen.getByText('reticulum:context_menu.paste')
+        ).toBeInTheDocument();
       });
     });
   });
@@ -239,7 +257,9 @@ describe('SpellCheckContextMenu', () => {
       });
 
       await waitFor(() => {
-        expect(screen.getByText('reticulum:context_menu.cut')).toBeInTheDocument();
+        expect(
+          screen.getByText('reticulum:context_menu.cut')
+        ).toBeInTheDocument();
       });
     });
   });
@@ -273,7 +293,9 @@ describe('SpellCheckContextMenu', () => {
       });
 
       await waitFor(() => {
-        expect(screen.getByText('reticulum:context_menu.copy')).toBeInTheDocument();
+        expect(
+          screen.getByText('reticulum:context_menu.copy')
+        ).toBeInTheDocument();
       });
 
       fireEvent.click(screen.getByText('reticulum:context_menu.copy'));
@@ -284,7 +306,9 @@ describe('SpellCheckContextMenu', () => {
     });
 
     it('shows toast when clipboard permission is denied', async () => {
-      mockClipboard.writeText.mockRejectedValueOnce(new Error('Permission denied'));
+      mockClipboard.writeText.mockRejectedValueOnce(
+        new Error('Permission denied')
+      );
 
       const inputRef = { current: null };
       const { container } = render(
@@ -313,7 +337,9 @@ describe('SpellCheckContextMenu', () => {
       });
 
       await waitFor(() => {
-        expect(screen.getByText('reticulum:context_menu.copy')).toBeInTheDocument();
+        expect(
+          screen.getByText('reticulum:context_menu.copy')
+        ).toBeInTheDocument();
       });
 
       fireEvent.click(screen.getByText('reticulum:context_menu.copy'));

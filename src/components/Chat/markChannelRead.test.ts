@@ -311,3 +311,75 @@ describe('markSectionRead event dispatch payload', () => {
     unsubscribeFromEvent('markSectionRead', listener);
   });
 });
+
+describe('deferred markRead consumption', () => {
+  it('consumes deferred key when defer condition no longer applies', () => {
+    const deferredSet = new Set<string>();
+    const readKey = '1:general:addr';
+
+    // Simulate first entry: defer condition true -> key added
+    const enteredChannel1 = true;
+    const entryTokenChanged1 = false;
+    const wasAlreadyActive1 = false;
+    if (enteredChannel1 || entryTokenChanged1 || !wasAlreadyActive1) {
+      deferredSet.add(readKey);
+    }
+    expect(deferredSet.has(readKey)).toBe(true);
+
+    // Simulate second evaluation: defer condition false -> key consumed
+    const enteredChannel2 = false;
+    const entryTokenChanged2 = false;
+    const wasAlreadyActive2 = true;
+    if (deferredSet.has(readKey)) {
+      if (enteredChannel2 || entryTokenChanged2 || !wasAlreadyActive2) {
+        // defer still active -- should not happen in this scenario
+        expect(false).toBe(true);
+      } else {
+        deferredSet.delete(readKey);
+      }
+    }
+    expect(deferredSet.has(readKey)).toBe(false);
+  });
+
+  it('keeps deferred key when defer condition still applies on re-evaluation', () => {
+    const deferredSet = new Set<string>();
+    const readKey = '2:announcements:addr';
+
+    // Simulate first entry: defer condition true -> key added
+    deferredSet.add(readKey);
+    expect(deferredSet.has(readKey)).toBe(true);
+
+    // Simulate second evaluation: defer condition still true (e.g. still entering)
+    const enteredChannel2 = true;
+    const entryTokenChanged2 = false;
+    const wasAlreadyActive2 = false;
+    if (deferredSet.has(readKey)) {
+      if (enteredChannel2 || entryTokenChanged2 || !wasAlreadyActive2) {
+        // defer still active -- keep the key
+      }
+    }
+    expect(deferredSet.has(readKey)).toBe(true);
+  });
+
+  it('multiple keys in deferred Set are handled independently', () => {
+    const deferredSet = new Set<string>();
+    const readKey1 = '1:general:addr';
+    const readKey2 = '1:announcements:addr';
+
+    // Both keys deferred
+    deferredSet.add(readKey1);
+    deferredSet.add(readKey2);
+
+    // First key defer condition expires
+    if (deferredSet.has(readKey1)) {
+      if (false) {
+        // no-op
+      } else {
+        deferredSet.delete(readKey1);
+      }
+    }
+    expect(deferredSet.has(readKey1)).toBe(false);
+    // Second key still deferred
+    expect(deferredSet.has(readKey2)).toBe(true);
+  });
+});

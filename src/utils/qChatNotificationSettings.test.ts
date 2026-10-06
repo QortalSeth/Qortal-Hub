@@ -580,7 +580,9 @@ describe('isScopeMuted', () => {
 
   it('returns true when channel mute is active with future timestamp', () => {
     const settings: GroupNotificationSettingsData = {
-      sections: { '': { channels: { 'ch-1': { mutedUntil: Date.now() + 60_000 } } } },
+      sections: {
+        '': { channels: { 'ch-1': { mutedUntil: Date.now() + 60_000 } } },
+      },
     };
     expect(isScopeMuted(settings, undefined, 'ch-1')).toBe(true);
   });
@@ -594,7 +596,9 @@ describe('isScopeMuted', () => {
 
   it('returns false when channel mute has expired', () => {
     const settings: GroupNotificationSettingsData = {
-      sections: { '': { channels: { 'ch-1': { mutedUntil: Date.now() - 60_000 } } } },
+      sections: {
+        '': { channels: { 'ch-1': { mutedUntil: Date.now() - 60_000 } } },
+      },
     };
     expect(isScopeMuted(settings, undefined, 'ch-1')).toBe(false);
   });
@@ -808,7 +812,9 @@ describe('setScopeMuted / unmuteScope', () => {
       'q-chat-notification-settings-123'
     ] as GroupNotificationSettingsData;
     expect(stored.sections?.['']?.channels?.['general']?.mutedUntil).toBe(ts);
-    expect(stored.sections?.['sec-1']?.channels?.['random']?.mutedUntil).toBe(ts);
+    expect(stored.sections?.['sec-1']?.channels?.['random']?.mutedUntil).toBe(
+      ts
+    );
   });
 
   it('writes mutedUntil on all channels in section for section scope', async () => {
@@ -828,9 +834,15 @@ describe('setScopeMuted / unmuteScope', () => {
     const stored = store[
       'q-chat-notification-settings-123'
     ] as GroupNotificationSettingsData;
-    expect(stored.sections?.['sec-1']?.channels?.['support']?.mutedUntil).toBeNull();
-    expect(stored.sections?.['sec-1']?.channels?.['offtopic']?.mutedUntil).toBeNull();
-    expect(stored.sections?.['']?.channels?.['general']?.mutedUntil).toBeUndefined();
+    expect(
+      stored.sections?.['sec-1']?.channels?.['support']?.mutedUntil
+    ).toBeNull();
+    expect(
+      stored.sections?.['sec-1']?.channels?.['offtopic']?.mutedUntil
+    ).toBeNull();
+    expect(
+      stored.sections?.['']?.channels?.['general']?.mutedUntil
+    ).toBeUndefined();
   });
 
   it('writes mutedUntil at channel level', async () => {
@@ -961,7 +973,7 @@ describe('groupHasUnreadConsideringMute', () => {
   it('returns false when all channels are muted (no unmuted channels)', () => {
     const settings: GroupNotificationSettingsData = {
       sections: {
-        '': { channels: { 'general': { mutedUntil: null } } },
+        '': { channels: { general: { mutedUntil: null } } },
       },
     };
     const summary = {
@@ -1498,7 +1510,12 @@ describe('resolveEffectiveSettings — fallback parameter', () => {
   };
 
   it('all five fields fall back to supplied fallback when no settings stored', () => {
-    const result = resolveEffectiveSettings({}, undefined, undefined, customFallback);
+    const result = resolveEffectiveSettings(
+      {},
+      undefined,
+      undefined,
+      customFallback
+    );
     expect(result).toEqual(customFallback);
   });
 
@@ -1661,7 +1678,7 @@ describe('groupHasUnreadConsideringMute — fallback parameter', () => {
   it('mute state comes from per-channel storage, not fallback', () => {
     const settings: GroupNotificationSettingsData = {
       sections: {
-        '': { channels: { 'general': { mutedUntil: null } } },
+        '': { channels: { general: { mutedUntil: null } } },
       },
     };
     const summary = {

@@ -59,7 +59,10 @@ export function SortGroupsSubmenu() {
       label={
         <Box sx={{ alignItems: 'center', display: 'flex', gap: 1.5 }}>
           <SortRoundedIcon sx={{ fontSize: 18 }} />
-          <Typography component="span" sx={{ fontSize: '14px', fontWeight: 600 }}>
+          <Typography
+            component="span"
+            sx={{ fontSize: '14px', fontWeight: 600 }}
+          >
             {t('group:context_menu.sort_groups')}
           </Typography>
         </Box>
@@ -82,7 +85,10 @@ export function SortGroupsSubmenu() {
               '& .MuiSvgIcon-root': { fontSize: 18 },
             }}
           />
-          <Typography component="span" sx={{ fontSize: '14px', fontWeight: 600 }}>
+          <Typography
+            component="span"
+            sx={{ fontSize: '14px', fontWeight: 600 }}
+          >
             {t(labelKey(mode))}
           </Typography>
         </Item>

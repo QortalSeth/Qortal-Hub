@@ -2380,7 +2380,11 @@ export const ChatGroup = ({
   const reticulumVisibleDefaultCategoryChannels =
     reticulumHideMutedChannels && reticulumGroupSettings
       ? reticulumDefaultCategoryChannels.filter((ch) => {
-          const chMuted = isScopeMuted(reticulumGroupSettings, ch.categoryId, ch.channelId);
+          const chMuted = isScopeMuted(
+            reticulumGroupSettings,
+            ch.categoryId,
+            ch.channelId
+          );
           if (!chMuted) return true;
           if (ch.channelId === selectedReticulumChannelId) return true;
           const chSummary = reticulumChannelSummariesById.get(ch.channelId);
@@ -5977,13 +5981,13 @@ export const ChatGroup = ({
       deferredReticulumUnreadReadKeysRef.current.add(readKey);
       return;
     }
-    if (deferredReticulumUnreadReadKeysRef.current.has(readKey)) return;
-    const lastMarkedRead = lastReticulumMarkedReadRef.current;
-    if (
-      lastMarkedRead?.key === readKey &&
-      lastMarkedRead.timestamp >= latestTimestamp
-    ) {
-      return;
+    if (deferredReticulumUnreadReadKeysRef.current.has(readKey)) {
+      // Defer was applied on first entry; consume it once the channel is settled as active.
+      if (enteredChannel || entryTokenChanged || !wasAlreadyActive) {
+        return;
+      }
+      deferredReticulumUnreadReadKeysRef.current.delete(readKey);
+      // Fall through to markRead now that the channel entry transition is complete.
     }
     lastReticulumMarkedReadRef.current = {
       key: readKey,
@@ -8587,7 +8591,11 @@ export const ChatGroup = ({
             : undefined
         }
         hasUnreadMention={hasUnreadMention}
-        hideMuted={channelMuted && groupSettings?.hideMutedChannels === true && !shouldShowMutedChannel}
+        hideMuted={
+          channelMuted &&
+          groupSettings?.hideMutedChannels === true &&
+          !shouldShowMutedChannel
+        }
         isAdmin={isReticulumChannelAdmin}
         isMuted={channelMuted}
         mentionCount={mentionCount}
@@ -9196,8 +9204,12 @@ export const ChatGroup = ({
                                   ch.channelId
                                 );
                                 if (!chMuted) return true;
-                                if (ch.channelId === selectedReticulumChannelId) return true;
-                                const chSummary = reticulumChannelSummariesById.get(ch.channelId);
+                                if (ch.channelId === selectedReticulumChannelId)
+                                  return true;
+                                const chSummary =
+                                  reticulumChannelSummariesById.get(
+                                    ch.channelId
+                                  );
                                 const chHasUnreadMention =
                                   chSummary?.hasUnreadMention === true ||
                                   (chSummary?.mentionCount ?? 0) > 0;

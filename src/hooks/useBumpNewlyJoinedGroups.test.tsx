@@ -1,10 +1,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { createStore, Provider } from 'jotai';
-import {
-  memberGroupsAtom,
-  groupJoinBumpTimestampsAtom,
-} from '../atoms/global';
+import { memberGroupsAtom, groupJoinBumpTimestampsAtom } from '../atoms/global';
 import {
   readReticulumGroupOrder,
   persistReticulumGroupOrder,
@@ -54,9 +51,7 @@ describe('useBumpNewlyJoinedGroups', () => {
 
   it('bumps a newly-appeared group to the top', () => {
     const store = createStore();
-    store.set(memberGroupsAtom, [
-      { groupId: '1', groupName: 'Alpha' },
-    ]);
+    store.set(memberGroupsAtom, [{ groupId: '1', groupName: 'Alpha' }]);
 
     const { rerender } = renderHookWithStore(store);
 
@@ -110,10 +105,7 @@ describe('useBumpNewlyJoinedGroups', () => {
 
     rerender();
 
-    expect(persistReticulumGroupOrder).toHaveBeenCalledWith([
-      '2',
-      '3',
-    ]);
+    expect(persistReticulumGroupOrder).toHaveBeenCalledWith(['2', '3']);
   });
 
   it('does not re-bump already-seen groups', () => {

@@ -161,7 +161,14 @@ export const ReticulumDiscussionDialog = ({
         channelExpiryDurationMs
       )
     );
-  }, [channelExpiryDurationMs, channelId, editor, myAddress, open, selectedGroup]);
+  }, [
+    channelExpiryDurationMs,
+    channelId,
+    editor,
+    myAddress,
+    open,
+    selectedGroup,
+  ]);
 
   const handleExpiryChange = useCallback(
     (durationMs: number | null | undefined) => {

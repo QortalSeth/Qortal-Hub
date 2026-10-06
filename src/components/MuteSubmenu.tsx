@@ -43,9 +43,13 @@ function collectScopeMuteState(
 
   if (channelId != null) {
     const effectiveSectionId = sectionId ?? '';
-    const ch = groupSettings.sections?.[effectiveSectionId]?.channels?.[channelId];
+    const ch =
+      groupSettings.sections?.[effectiveSectionId]?.channels?.[channelId];
     const v = ch?.mutedUntil;
-    return { allMuted: activeMutedUntil(v), sharedUntil: v !== undefined ? v : undefined };
+    return {
+      allMuted: activeMutedUntil(v),
+      sharedUntil: v !== undefined ? v : undefined,
+    };
   }
 
   if (sectionId != null) {
@@ -58,7 +62,8 @@ function collectScopeMuteState(
     return { allMuted, sharedUntil };
   }
 
-  if (!groupSettings.sections) return { allMuted: false, sharedUntil: undefined };
+  if (!groupSettings.sections)
+    return { allMuted: false, sharedUntil: undefined };
   const vals: Array<number | null | undefined> = [];
   for (const section of Object.values(groupSettings.sections)) {
     if (!section?.channels) continue;

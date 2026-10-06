@@ -62,7 +62,7 @@ describe('MuteSubmenu', () => {
       {
         '123': {
           sections: {
-            '': { channels: { 'general': { mutedUntil: null } } },
+            '': { channels: { general: { mutedUntil: null } } },
           },
         },
       },
