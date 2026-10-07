@@ -41,7 +41,10 @@ import {
   isHubBeingViewed,
   shouldNotifyForReticulumDm,
 } from '../../utils/reticulumDmNotifications';
-import { getReticulumNotificationChannelLabel } from '../../utils/reticulumNotificationChannel';
+import {
+  getReticulumNotificationChannelLabel,
+  getChannelVisibilitySymbol,
+} from '../../utils/reticulumNotificationChannel';
 import { MAX_NOTIFICATION_PREVIEW_CHARS } from '../../constants/notificationConstants';
 import qortPng from '../../assets/qort.png';
 
@@ -591,6 +594,7 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
       const groupName =
         String(detail?.groupName || '').trim() || `Group ${groupId}`;
       let channelName = getReticulumNotificationChannelLabel(channelId, null);
+      let channelVisibilitySymbol = '';
       if (!isUnreadCountSync || Number(detail?.mentionCount || 0) > 0) {
         try {
           const channels = await window.reticulumChat?.getChannels?.(
@@ -601,6 +605,7 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
             channelId,
             channels
           );
+          channelVisibilitySymbol = getChannelVisibilitySymbol(channelId, channels);
         } catch {
           // The stable ID remains a useful fallback while metadata is syncing.
         }
@@ -743,7 +748,7 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
         )
           return;
         const previewText = truncatePreview(
-          `${formatChannelLine(channelName)}\n${mentionText}`,
+          `${channelVisibilitySymbol ? channelVisibilitySymbol + '  ' : ''}${channelName}\n${mentionText}`,
           MAX_NOTIFICATION_PREVIEW_CHARS
         );
         const mentionDeliveryMethod = await getNotificationDeliveryMethod();
@@ -805,12 +810,14 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
       if (replyMuted) return;
 
       let channelName = getReticulumNotificationChannelLabel(channelId, null);
+      let channelVisibilitySymbol = '';
       try {
         const channels = await window.reticulumChat?.getChannels?.(
           groupId,
           true
         );
         channelName = getReticulumNotificationChannelLabel(channelId, channels);
+        channelVisibilitySymbol = getChannelVisibilitySymbol(channelId, channels);
       } catch {
         // The stable ID remains a useful fallback while metadata is syncing.
       }
@@ -833,7 +840,7 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
       const replySender = detail.senderName || 'Someone';
       const replyText = detail.messageText || '';
       const previewText = truncatePreview(
-        `${formatChannelLine(channelName)}\n${replyText}`,
+        `${channelVisibilitySymbol ? channelVisibilitySymbol + '  ' : ''}${channelName}\n${replyText}`,
         MAX_NOTIFICATION_PREVIEW_CHARS
       );
       const replyDeliveryMethod = await getNotificationDeliveryMethod();
@@ -908,19 +915,21 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
       if (rxnMuted) return;
 
       let channelName = getReticulumNotificationChannelLabel(channelId, null);
+      let channelVisibilitySymbol = '';
       try {
         const channels = await window.reticulumChat?.getChannels?.(
           groupId,
           true
         );
         channelName = getReticulumNotificationChannelLabel(channelId, channels);
+        channelVisibilitySymbol = getChannelVisibilitySymbol(channelId, channels);
       } catch {
         // The stable ID remains a useful fallback while metadata is syncing.
       }
       const parentMessageText = detail.messageText || '';
       const previewText = parentMessageText
         ? truncatePreview(
-            `${formatChannelLine(channelName)}\n${parentMessageText}`,
+            `${channelVisibilitySymbol ? channelVisibilitySymbol + '  ' : ''}${channelName}\n${parentMessageText}`,
             MAX_NOTIFICATION_PREVIEW_CHARS
           )
         : '';
@@ -1015,12 +1024,14 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
       const groupName =
         String(detail?.groupName || '').trim() || `Group ${groupId}`;
       let channelName = getReticulumNotificationChannelLabel(channelId, null);
+      let channelVisibilitySymbol = '';
       try {
         const channels = await window.reticulumChat?.getChannels?.(
           groupId,
           true
         );
         channelName = getReticulumNotificationChannelLabel(channelId, channels);
+        channelVisibilitySymbol = getChannelVisibilitySymbol(channelId, channels);
       } catch {
         // The stable ID remains a useful fallback while metadata is syncing.
       }
@@ -1032,7 +1043,7 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
       const msgSender = detail.senderName || 'Someone';
       const msgText = detail.messageText || '';
       const previewText = truncatePreview(
-        `${formatChannelLine(channelName)}\n${msgText}`,
+        `${channelVisibilitySymbol ? channelVisibilitySymbol + '  ' : ''}${channelName}\n${msgText}`,
         MAX_NOTIFICATION_PREVIEW_CHARS
       );
       const messageDeliveryMethod = await getNotificationDeliveryMethod();

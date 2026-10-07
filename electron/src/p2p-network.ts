@@ -213,7 +213,6 @@ export class P2PNetwork extends EventEmitter {
    *  handshake.  Once true it never resets — it proves this node's listen
    *  port was reachable at least once during this session. */
   private everHadInbound = false;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private upnpClient: any = null;
   /** Set to true in stop() so a concurrent setupUPnP() knows to tear down immediately. */
   private upnpStopped = false;
@@ -1455,7 +1454,6 @@ export async function startP2PNetwork(
 
 export function stopP2PNetwork(): void {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     require('./stun-coordinator').stopStunCoordinator();
   } catch {
     /* ignore */

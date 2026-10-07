@@ -6047,7 +6047,6 @@ interface NotificationEntry {
 }
 const activeNotifications = new Map<string, NotificationEntry>();
 const MAX_ACTIVE_NOTIFICATIONS = 50;
-const NOTIFICATION_DISPLAY_DURATION_MS = 60_000;
 
 ipcMain.handle(
   'reticulumChat:showNotification',
@@ -6068,22 +6067,11 @@ ipcMain.handle(
       const nid = payload.notificationId || String(Date.now());
       const now = Date.now();
 
-      // Enforce max concurrent notification cap
+      // Enforce max concurrent notification cap: never close an existing
+      // notification to make room. Dropping a reference (or calling .close())
+      // removes it from the OS tray; skip the new notification instead.
       if (activeNotifications.size >= MAX_ACTIVE_NOTIFICATIONS) {
-        let oldestKey: string | null = null;
-        let oldestTs = Infinity;
-        for (const [k, v] of activeNotifications) {
-          if (v.createdAt < oldestTs) {
-            oldestTs = v.createdAt;
-            oldestKey = k;
-          }
-        }
-        if (oldestKey) {
-          const oldest = activeNotifications.get(oldestKey);
-          if (oldest) {
-            closeNotificationEntry(oldest, oldestKey);
-          }
-        }
+        return { success: false, error: 'notification cap reached' };
       }
 
       let notificationIcon: Electron.NativeImage | undefined;
@@ -6117,6 +6105,9 @@ ipcMain.handle(
         eventId: payload.eventId,
         createdAt: now,
       };
+      // Keep the entry (and its Notification object reference) alive until the
+      // OS or user closes it — GC-finalizing a wrapper closes the OS notification
+      // on Linux. Entries are removed by the 'close' handler and dismiss paths.
       activeNotifications.set(nid, entry);
       notification.on('click', () => {
         notification.close();

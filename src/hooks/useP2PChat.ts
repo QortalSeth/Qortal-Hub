@@ -579,7 +579,6 @@ export function useP2PChat(chatId: string): UseP2PChatReturn {
       }
     },
     // chatId is not a dep here — callers pass it explicitly via `fields`.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     []
   );
 

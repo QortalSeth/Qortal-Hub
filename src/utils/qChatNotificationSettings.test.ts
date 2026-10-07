@@ -13,6 +13,7 @@ import {
   getHideMutedChannels,
   setHideMutedChannels,
   groupHasUnreadConsideringMute,
+  getGroupUnreadCountConsideringMute,
   addWelcomeUnreadEventId,
   removeWelcomeUnreadEventId,
   clearWelcomeUnreadForGroup,
@@ -1310,6 +1311,80 @@ describe('groupHasUnreadConsideringMute — welcomeUnreadCount', () => {
     };
     const summary = { unreadCount: 3, mentionCount: 0 };
     expect(groupHasUnreadConsideringMute(settings, summary, 1)).toBe(true);
+  });
+});
+
+describe('getGroupUnreadCountConsideringMute', () => {
+  it('returns 0 when summary is null', () => {
+    expect(getGroupUnreadCountConsideringMute({}, null)).toBe(0);
+  });
+
+  it('returns 0 when all channels are muted', () => {
+    const settings: GroupNotificationSettingsData = {
+      sections: {
+        '': { channels: { general: { mutedUntil: null } } },
+      },
+    };
+    const summary = {
+      unreadCount: 5,
+      mentionCount: 0,
+      channels: [{ channelId: 'general', unreadCount: 5, mentionCount: 0 }],
+    };
+    expect(getGroupUnreadCountConsideringMute(settings, summary)).toBe(0);
+  });
+
+  it('returns correct sum across mixed muted/unmuted channels', () => {
+    const settings: GroupNotificationSettingsData = {
+      sections: {
+        '': {
+          channels: {
+            mutedCh: { mutedUntil: null },
+            unmutedCh: {},
+          },
+        },
+      },
+    };
+    const summary = {
+      unreadCount: 8,
+      mentionCount: 0,
+      channels: [
+        { channelId: 'mutedCh', unreadCount: 6, mentionCount: 0 },
+        { channelId: 'unmutedCh', unreadCount: 2, mentionCount: 0 },
+      ],
+    };
+    expect(getGroupUnreadCountConsideringMute(settings, summary)).toBe(2);
+  });
+
+  it('subtracts welcome unread count when notifyOnWelcomePosts is false', () => {
+    const settings: GroupNotificationSettingsData = {
+      notifyOnWelcomePosts: false,
+    };
+    const summary = { unreadCount: 5, mentionCount: 0 };
+    expect(getGroupUnreadCountConsideringMute(settings, summary, 2)).toBe(3);
+  });
+
+  it('does not subtract welcome count when notifyOnWelcomePosts is true', () => {
+    const settings: GroupNotificationSettingsData = {
+      notifyOnWelcomePosts: true,
+    };
+    const summary = { unreadCount: 5, mentionCount: 0 };
+    expect(getGroupUnreadCountConsideringMute(settings, summary, 2)).toBe(5);
+  });
+
+  it('falls back to aggregate count when no per-channel data', () => {
+    const settings: GroupNotificationSettingsData = {};
+    const summary = { unreadCount: 7, mentionCount: 3 };
+    expect(getGroupUnreadCountConsideringMute(settings, summary)).toBe(7);
+  });
+
+  it('returns 0 when no per-channel data but channel mutes exist', () => {
+    const settings: GroupNotificationSettingsData = {
+      sections: {
+        '': { channels: { general: { mutedUntil: null } } },
+      },
+    };
+    const summary = { unreadCount: 4, mentionCount: 0 };
+    expect(getGroupUnreadCountConsideringMute(settings, summary)).toBe(0);
   });
 });
 

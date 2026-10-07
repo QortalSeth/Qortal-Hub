@@ -444,25 +444,21 @@ export function buildChannelSectionMap(
 }
 
 /**
- * Determines whether a group should show its red unread dot, considering
- * per-channel mute state. Iterates per-channel summaries and excludes
- * muted channels. Falls back to group-level aggregate counts only when
- * no per-channel mutes exist (otherwise we cannot safely filter).
+ * Shared internal helper that iterates per-channel summaries excluding
+ * muted channels. Returns aggregate counts. When no per-channel data
+ * exists, falls back to the raw group-level aggregate values (or all-zeros
+ * if channel-level mutes exist but we cannot safely filter).
+ *
+ * NOTE: This does NOT handle welcome-post subtraction — callers apply
+ * that logic themselves.
  */
-export function groupHasUnreadConsideringMute(
+function computeFilteredChannelCounts(
   groupSettings: GroupNotificationSettingsData | undefined,
-  summary: any,
-  welcomeUnreadCount?: number,
-  fallback: EffectiveNotificationSettings = DEFAULT_NOTIFICATION_SETTINGS
-): boolean {
-  if (!summary) return false;
-
-  const notifyOnWelcomePosts =
-    groupSettings?.notifyOnWelcomePosts ??
-    fallback.notifyOnWelcomePosts ??
-    true;
-  const welcomeCount =
-    !notifyOnWelcomePosts && welcomeUnreadCount ? welcomeUnreadCount : 0;
+  summary: any
+): { totalUnread: number; totalMention: number; anyUnreadMention: boolean } {
+  if (!summary) {
+    return { totalUnread: 0, totalMention: 0, anyUnreadMention: false };
+  }
 
   const channels = Array.isArray(summary?.channels) ? summary.channels : [];
 
@@ -478,24 +474,13 @@ export function groupHasUnreadConsideringMute(
         )
       : false;
     if (!hasChannelMutes) {
-      if (welcomeCount > 0) {
-        const mentionCount = Number(summary?.mentionCount ?? 0);
-        const unreadCount = Number(summary?.unreadCount ?? 0);
-        const hasUnreadMention =
-          summary?.hasUnreadMention === true && mentionCount - welcomeCount > 0;
-        return (
-          hasUnreadMention ||
-          mentionCount - welcomeCount > 0 ||
-          unreadCount - welcomeCount > 0
-        );
-      }
-      return (
-        summary?.hasUnreadMention === true ||
-        (summary?.mentionCount ?? 0) > 0 ||
-        (summary?.unreadCount ?? 0) > 0
-      );
+      return {
+        totalUnread: Number(summary?.unreadCount ?? 0),
+        totalMention: Number(summary?.mentionCount ?? 0),
+        anyUnreadMention: summary?.hasUnreadMention === true,
+      };
     }
-    return false;
+    return { totalUnread: 0, totalMention: 0, anyUnreadMention: false };
   }
 
   // Iterate per-channel summaries, excluding muted channels.
@@ -517,6 +502,32 @@ export function groupHasUnreadConsideringMute(
     if (ch?.hasUnreadMention === true) anyUnreadMention = true;
   }
 
+  return { totalUnread, totalMention, anyUnreadMention };
+}
+
+/**
+ * Determines whether a group should show its red unread dot, considering
+ * per-channel mute state. Delegates channel iteration to
+ * `computeFilteredChannelCounts` and applies welcome-post subtraction.
+ */
+export function groupHasUnreadConsideringMute(
+  groupSettings: GroupNotificationSettingsData | undefined,
+  summary: any,
+  welcomeUnreadCount?: number,
+  fallback: EffectiveNotificationSettings = DEFAULT_NOTIFICATION_SETTINGS
+): boolean {
+  if (!summary) return false;
+
+  const notifyOnWelcomePosts =
+    groupSettings?.notifyOnWelcomePosts ??
+    fallback.notifyOnWelcomePosts ??
+    true;
+  const welcomeCount =
+    !notifyOnWelcomePosts && welcomeUnreadCount ? welcomeUnreadCount : 0;
+
+  const { totalUnread, totalMention, anyUnreadMention } =
+    computeFilteredChannelCounts(groupSettings, summary);
+
   if (welcomeCount > 0) {
     return (
       anyUnreadMention ||
@@ -525,6 +536,33 @@ export function groupHasUnreadConsideringMute(
     );
   }
   return anyUnreadMention || totalMention > 0 || totalUnread > 0;
+}
+
+/**
+ * Returns the total numeric unread count for a group, considering
+ * per-channel mute state. Delegates channel iteration to
+ * `computeFilteredChannelCounts` and applies welcome-post subtraction.
+ *
+ * Returns 0 for null/undefined summary.
+ */
+export function getGroupUnreadCountConsideringMute(
+  groupSettings: GroupNotificationSettingsData | undefined,
+  summary: any,
+  welcomeUnreadCount?: number,
+  fallback: EffectiveNotificationSettings = DEFAULT_NOTIFICATION_SETTINGS
+): number {
+  if (!summary) return 0;
+
+  const notifyOnWelcomePosts =
+    groupSettings?.notifyOnWelcomePosts ??
+    fallback.notifyOnWelcomePosts ??
+    true;
+  const welcomeCount =
+    !notifyOnWelcomePosts && welcomeUnreadCount ? welcomeUnreadCount : 0;
+
+  const { totalUnread } = computeFilteredChannelCounts(groupSettings, summary);
+
+  return Math.max(0, totalUnread - welcomeCount);
 }
 
 export async function getHideMutedChannels(

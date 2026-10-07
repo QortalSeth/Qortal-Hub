@@ -140,7 +140,6 @@ export function useMessageReadObserver(
       window.removeEventListener('focus', recheck);
       document.removeEventListener('visibilitychange', recheck);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Intentionally once — root is a stable DOM ref, captured once is correct.
 
   /**

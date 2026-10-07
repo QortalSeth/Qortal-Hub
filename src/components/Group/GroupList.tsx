@@ -90,6 +90,7 @@ import { useTranslation } from 'react-i18next';
 import {
   isScopeMuted,
   groupHasUnreadConsideringMute,
+  getGroupUnreadCountConsideringMute,
   getWelcomeUnreadCount,
   DEFAULT_NOTIFICATION_SETTINGS,
   applyNotificationSettingsToAllGroups,
@@ -2031,15 +2032,20 @@ const GroupItem = memo(
       groupMuteSettings?.notifyOnWelcomePosts ??
       globalNotifForm.notifyOnWelcomePosts ??
       true;
-    const reticulumRawUnreadCount = Math.max(
+    const reticulumFilteredUnreadCount = Math.max(
       0,
-      Number(group?.reticulumChatSummary?.unreadCount || 0)
+      getGroupUnreadCountConsideringMute(
+        groupMuteSettings,
+        group?.reticulumChatSummary,
+        welcomeUnreadCount,
+        globalNotifForm
+      )
     );
     const reticulumReplyCount = Math.max(
       0,
       Number(group?.reticulumChatSummary?.replyCount || 0)
     );
-    const hasReticulumUnread = reticulumRawUnreadCount > 0;
+    const hasReticulumUnread = reticulumFilteredUnreadCount > 0;
     const hasReticulumMention =
       (group?.reticulumChatSummary?.hasUnreadMention === true ||
         (group?.reticulumChatSummary?.mentionCount ?? 0) > 0) &&

@@ -183,7 +183,6 @@ describe('GroupCallAudioSenderEngine', () => {
             latestCapturePort = this.port;
             capturePorts.push(this.port);
             // The test needs the exact node instance used as the graph target.
-            // eslint-disable-next-line @typescript-eslint/no-this-alias
             latestCaptureNode = this;
           }
         }

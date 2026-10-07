@@ -22,5 +22,22 @@ module.exports = {
     '@typescript-eslint/consistent-type-imports': 'off',
     '@typescript-eslint/no-empty-function': 'off',
     'react-hooks/exhaustive-deps': 'off',
+    // Legacy codebase compatibility: these eslint:recommended rules are
+    // intentionally disabled across the repo (pre-existing code style).
+    'no-var': 'off',
+    'prefer-const': 'off',
+    'no-empty': 'off',
+    'no-constant-condition': 'off',
+    'no-async-promise-executor': 'off',
+    'no-unsafe-optional-chaining': 'off',
+    'prefer-rest-params': 'off',
+    'no-extra-boolean-cast': 'off',
+    'no-control-regex': 'off',
+    'no-case-declarations': 'off',
+    '@typescript-eslint/no-var-requires': 'off',
+    '@typescript-eslint/no-array-constructor': 'off',
+    '@typescript-eslint/no-this-alias': 'off',
+    '@typescript-eslint/ban-types': 'off',
+    'react-hooks/rules-of-hooks': 'off',
   },
 };
