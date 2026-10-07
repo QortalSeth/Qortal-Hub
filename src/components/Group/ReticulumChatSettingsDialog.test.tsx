@@ -1,9 +1,11 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent } from '@testing-library/react';
 import { createStore, Provider } from 'jotai';
 import { createTheme, ThemeProvider } from '@mui/material';
 import {
   memberGroupsAtom,
+  globalNotificationFormAtom,
+  DEFAULT_GLOBAL_NOTIF_FORM,
   reticulumChatTextScaleAtom,
   reticulumHighlightOwnMessagesAtom,
   reticulumLegacyThreadsEnabledAtom,
@@ -34,22 +36,34 @@ vi.mock('../../utils/qChatNotificationSettings', async () => {
   };
 });
 
-function renderDialog(memberGroups: any[] = [{ groupId: 1 }, { groupId: 2 }]) {
+function renderDialog(
+  memberGroups: any[] = [{ groupId: 1 }, { groupId: 2 }],
+  committedForm = DEFAULT_GLOBAL_NOTIF_FORM
+) {
   const store = createStore();
   store.set(memberGroupsAtom, memberGroups);
+  store.set(globalNotificationFormAtom, committedForm);
   store.set(reticulumChatTextScaleAtom as any, 'default');
   store.set(reticulumHighlightOwnMessagesAtom as any, false);
   store.set(reticulumLegacyThreadsEnabledAtom as any, false);
 
-  const theme = createTheme();
+  return {
+    store,
+    ...render(
+      <ThemeProvider theme={createTheme()}>
+        <Provider store={store}>
+          <ReticulumChatSettingsDialog open={true} onClose={() => {}} />
+        </Provider>
+      </ThemeProvider>
+    ),
+  };
+}
 
-  return render(
-    <ThemeProvider theme={theme}>
-      <Provider store={store}>
-        <ReticulumChatSettingsDialog open={true} onClose={() => {}} />
-      </Provider>
-    </ThemeProvider>
+function openNotifications() {
+  const navButtons = screen.getAllByText(
+    'reticulum:settings.nav.notifications'
   );
+  fireEvent.click(navButtons[navButtons.length - 1]);
 }
 
 afterEach(() => {
@@ -66,11 +80,7 @@ describe('ReticulumChatSettingsDialog — Notifications section', () => {
 
   it('renders notification controls with default values when navigated to', () => {
     renderDialog();
-
-    const navButtons = screen.getAllByText(
-      'reticulum:settings.nav.notifications'
-    );
-    fireEvent.click(navButtons[navButtons.length - 1]);
+    openNotifications();
 
     expect(
       screen.getByText('reticulum:settings.notifications.title')
@@ -107,11 +117,7 @@ describe('ReticulumChatSettingsDialog — Notifications section', () => {
 
   it('renders the Apply to All Groups button', () => {
     renderDialog();
-
-    const navButtons = screen.getAllByText(
-      'reticulum:settings.nav.notifications'
-    );
-    fireEvent.click(navButtons[navButtons.length - 1]);
+    openNotifications();
 
     expect(
       screen.getByText('reticulum:settings.notifications.apply_button')
@@ -123,26 +129,109 @@ describe('ReticulumChatSettingsDialog — Notifications section', () => {
       await import('../../utils/qChatNotificationSettings');
 
     renderDialog();
+    openNotifications();
 
-    const navButtons = screen.getAllByText(
-      'reticulum:settings.nav.notifications'
-    );
-    fireEvent.click(navButtons[navButtons.length - 1]);
+    const noneRadio = screen
+      .getAllByRole('radio')
+      .find((r) => r.getAttribute('value') === 'none');
+    fireEvent.click(noneRadio!);
 
     const applyButton = screen.getByText(
       'reticulum:settings.notifications.apply_button'
     );
-    fireEvent.click(applyButton);
+    await act(async () => {
+      fireEvent.click(applyButton);
+    });
 
     expect(applyNotificationSettingsToAllGroups).toHaveBeenCalledWith(
       [1, 2],
       expect.objectContaining({
-        pushLevel: 'mentions',
+        pushLevel: 'none',
         suppressEveryoneHere: false,
         notifyOnReplies: true,
+        notifyOnReactions: true,
         notifyOnWelcomePosts: true,
         hideMutedChannels: false,
       })
+    );
+  });
+
+  it('does not update the committed atom until Apply is clicked', async () => {
+    const { store } = renderDialog();
+    openNotifications();
+
+    const noneRadio = screen
+      .getAllByRole('radio')
+      .find((r) => r.getAttribute('value') === 'none');
+    fireEvent.click(noneRadio!);
+
+    expect(store.get(globalNotificationFormAtom)).toEqual(
+      DEFAULT_GLOBAL_NOTIF_FORM
+    );
+
+    const applyButton = screen.getByText(
+      'reticulum:settings.notifications.apply_button'
+    );
+    await act(async () => {
+      fireEvent.click(applyButton);
+    });
+
+    expect(store.get(globalNotificationFormAtom).pushLevel).toBe('none');
+  });
+
+  it('disables Apply when the draft equals the committed atom', () => {
+    renderDialog();
+    openNotifications();
+
+    expect(
+      screen
+        .getByText('reticulum:settings.notifications.apply_button')
+        .closest('button')
+    ).toBeDisabled();
+  });
+
+  it('shows Revert when a field differs from defaults, even after only toggling reactions', () => {
+    renderDialog();
+    openNotifications();
+
+    const reactionsCheckbox = screen.getAllByRole('checkbox')[3];
+    fireEvent.click(reactionsCheckbox);
+
+    expect(
+      screen.getByText('reticulum:settings.notifications.revert_button')
+    ).toBeInTheDocument();
+  });
+
+  it('does not call setNotificationDeliveryMethod when Revert is clicked', async () => {
+    const { setNotificationDeliveryMethod } =
+      await import('../../utils/qChatNotificationSettings');
+
+    renderDialog();
+    openNotifications();
+
+    const reactionsCheckbox = screen.getAllByRole('checkbox')[3];
+    fireEvent.click(reactionsCheckbox);
+
+    const revertButton = screen.getByText(
+      'reticulum:settings.notifications.revert_button'
+    );
+    fireEvent.click(revertButton);
+
+    expect(setNotificationDeliveryMethod).not.toHaveBeenCalled();
+  });
+
+  it('discards edits when the dialog is closed without applying', () => {
+    const { store, unmount } = renderDialog();
+    openNotifications();
+
+    const noneRadio = screen
+      .getAllByRole('radio')
+      .find((r) => r.getAttribute('value') === 'none');
+    fireEvent.click(noneRadio!);
+    unmount();
+
+    expect(store.get(globalNotificationFormAtom)).toEqual(
+      DEFAULT_GLOBAL_NOTIF_FORM
     );
   });
 });

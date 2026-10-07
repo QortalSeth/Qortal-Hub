@@ -155,13 +155,17 @@ export const ReticulumChatSettingsDialog = ({
   const [accessibilityExpanded, setAccessibilityExpanded] = useState(true);
   const [notificationsExpanded, setNotificationsExpanded] = useState(true);
   const [legacyExpanded, setLegacyExpanded] = useState(true);
-  const [notifForm, setNotifForm] = useAtom(globalNotificationFormAtom);
+  const [committedNotifForm, setNotifForm] = useAtom(
+    globalNotificationFormAtom
+  );
+  const [draftNotifForm, setDraftNotifForm] = useState(committedNotifForm);
   const [deliveryMethod, setDeliveryMethod] =
     useState<NotificationDeliveryMethod>('native');
   const [deliveryMethodLoaded, setDeliveryMethodLoaded] = useState(false);
   const [applying, setApplying] = useState(false);
   useEffect(() => {
     if (open && !deliveryMethodLoaded) {
+      setDraftNotifForm(committedNotifForm);
       getNotificationDeliveryMethod().then((method) => {
         setDeliveryMethod(method);
         setDeliveryMethodLoaded(true);
@@ -170,15 +174,28 @@ export const ReticulumChatSettingsDialog = ({
       setDeliveryMethod(getDefaultNotificationDeliveryMethod());
       setDeliveryMethodLoaded(false);
     }
-  }, [open, deliveryMethodLoaded]);
+  }, [open, deliveryMethodLoaded, committedNotifForm]);
   const notifFormChanged =
-    notifForm.pushLevel !== DEFAULT_GLOBAL_NOTIF_FORM.pushLevel ||
-    notifForm.suppressEveryoneHere !==
+    draftNotifForm.pushLevel !== DEFAULT_GLOBAL_NOTIF_FORM.pushLevel ||
+    draftNotifForm.suppressEveryoneHere !==
       DEFAULT_GLOBAL_NOTIF_FORM.suppressEveryoneHere ||
-    notifForm.notifyOnReplies !== DEFAULT_GLOBAL_NOTIF_FORM.notifyOnReplies ||
-    notifForm.notifyOnWelcomePosts !==
+    draftNotifForm.notifyOnReplies !==
+      DEFAULT_GLOBAL_NOTIF_FORM.notifyOnReplies ||
+    draftNotifForm.notifyOnReactions !==
+      DEFAULT_GLOBAL_NOTIF_FORM.notifyOnReactions ||
+    draftNotifForm.notifyOnWelcomePosts !==
       DEFAULT_GLOBAL_NOTIF_FORM.notifyOnWelcomePosts ||
-    notifForm.hideMutedChannels !== DEFAULT_GLOBAL_NOTIF_FORM.hideMutedChannels;
+    draftNotifForm.hideMutedChannels !==
+      DEFAULT_GLOBAL_NOTIF_FORM.hideMutedChannels;
+  const applyDisabled =
+    draftNotifForm.pushLevel === committedNotifForm.pushLevel &&
+    draftNotifForm.suppressEveryoneHere ===
+      committedNotifForm.suppressEveryoneHere &&
+    draftNotifForm.notifyOnReplies === committedNotifForm.notifyOnReplies &&
+    draftNotifForm.notifyOnReactions === committedNotifForm.notifyOnReactions &&
+    draftNotifForm.notifyOnWelcomePosts ===
+      committedNotifForm.notifyOnWelcomePosts &&
+    draftNotifForm.hideMutedChannels === committedNotifForm.hideMutedChannels;
   const [textScale, setTextScale] = useAtom(reticulumChatTextScaleAtom);
   const [highlightOwnMessages, setHighlightOwnMessages] = useAtom(
     reticulumHighlightOwnMessagesAtom
@@ -542,9 +559,9 @@ export const ReticulumChatSettingsDialog = ({
                 {t('reticulum:settings.notifications.description')}
               </Typography>
               <RadioGroup
-                value={notifForm.pushLevel}
+                value={draftNotifForm.pushLevel}
                 onChange={(_, value: string) =>
-                  setNotifForm((prev) => ({
+                  setDraftNotifForm((prev) => ({
                     ...prev,
                     pushLevel: value as PushLevel,
                   }))
@@ -622,11 +639,11 @@ export const ReticulumChatSettingsDialog = ({
                   control={
                     <Checkbox
                       size="small"
-                      checked={notifForm.suppressEveryoneHere}
-                      disabled={notifForm.pushLevel === 'all'}
+                      checked={draftNotifForm.suppressEveryoneHere}
+                      disabled={draftNotifForm.pushLevel === 'all'}
                       onChange={(_, checked) => {
-                        if (notifForm.pushLevel === 'all') return;
-                        setNotifForm((prev) => ({
+                        if (draftNotifForm.pushLevel === 'all') return;
+                        setDraftNotifForm((prev) => ({
                           ...prev,
                           suppressEveryoneHere: checked,
                         }));
@@ -638,7 +655,7 @@ export const ReticulumChatSettingsDialog = ({
                       sx={{
                         fontSize: 14,
                         fontWeight: 600,
-                        opacity: notifForm.pushLevel === 'all' ? 0.4 : 1,
+                        opacity: draftNotifForm.pushLevel === 'all' ? 0.4 : 1,
                       }}
                     >
                       {t('group:notification_settings.suppress_everyone_here')}
@@ -658,11 +675,11 @@ export const ReticulumChatSettingsDialog = ({
                   control={
                     <Checkbox
                       size="small"
-                      checked={notifForm.notifyOnReplies}
-                      disabled={notifForm.pushLevel === 'all'}
+                      checked={draftNotifForm.notifyOnReplies}
+                      disabled={draftNotifForm.pushLevel === 'all'}
                       onChange={(_, checked) => {
-                        if (notifForm.pushLevel === 'all') return;
-                        setNotifForm((prev) => ({
+                        if (draftNotifForm.pushLevel === 'all') return;
+                        setDraftNotifForm((prev) => ({
                           ...prev,
                           notifyOnReplies: checked,
                         }));
@@ -674,7 +691,7 @@ export const ReticulumChatSettingsDialog = ({
                       sx={{
                         fontSize: 14,
                         fontWeight: 600,
-                        opacity: notifForm.pushLevel === 'all' ? 0.4 : 1,
+                        opacity: draftNotifForm.pushLevel === 'all' ? 0.4 : 1,
                       }}
                     >
                       {t('group:notification_settings.notify_on_replies')}
@@ -694,11 +711,11 @@ export const ReticulumChatSettingsDialog = ({
                   control={
                     <Checkbox
                       size="small"
-                      checked={notifForm.notifyOnReactions}
-                      disabled={notifForm.pushLevel === 'all'}
+                      checked={draftNotifForm.notifyOnReactions}
+                      disabled={draftNotifForm.pushLevel === 'all'}
                       onChange={(_, checked) => {
-                        if (notifForm.pushLevel === 'all') return;
-                        setNotifForm((prev) => ({
+                        if (draftNotifForm.pushLevel === 'all') return;
+                        setDraftNotifForm((prev) => ({
                           ...prev,
                           notifyOnReactions: checked,
                         }));
@@ -710,7 +727,7 @@ export const ReticulumChatSettingsDialog = ({
                       sx={{
                         fontSize: 14,
                         fontWeight: 600,
-                        opacity: notifForm.pushLevel === 'all' ? 0.4 : 1,
+                        opacity: draftNotifForm.pushLevel === 'all' ? 0.4 : 1,
                       }}
                     >
                       {t('group:notification_settings.notify_on_reactions')}
@@ -730,11 +747,11 @@ export const ReticulumChatSettingsDialog = ({
                   control={
                     <Checkbox
                       size="small"
-                      checked={notifForm.notifyOnWelcomePosts}
-                      disabled={notifForm.pushLevel === 'all'}
+                      checked={draftNotifForm.notifyOnWelcomePosts}
+                      disabled={draftNotifForm.pushLevel === 'all'}
                       onChange={(_, checked) => {
-                        if (notifForm.pushLevel === 'all') return;
-                        setNotifForm((prev) => ({
+                        if (draftNotifForm.pushLevel === 'all') return;
+                        setDraftNotifForm((prev) => ({
                           ...prev,
                           notifyOnWelcomePosts: checked,
                         }));
@@ -746,7 +763,7 @@ export const ReticulumChatSettingsDialog = ({
                       sx={{
                         fontSize: 14,
                         fontWeight: 600,
-                        opacity: notifForm.pushLevel === 'all' ? 0.4 : 1,
+                        opacity: draftNotifForm.pushLevel === 'all' ? 0.4 : 1,
                       }}
                     >
                       {t('group:notification_settings.notify_on_welcome_posts')}
@@ -766,9 +783,9 @@ export const ReticulumChatSettingsDialog = ({
                   control={
                     <Checkbox
                       size="small"
-                      checked={notifForm.hideMutedChannels}
+                      checked={draftNotifForm.hideMutedChannels}
                       onChange={(_, checked) =>
-                        setNotifForm((prev) => ({
+                        setDraftNotifForm((prev) => ({
                           ...prev,
                           hideMutedChannels: checked,
                         }))
@@ -790,6 +807,72 @@ export const ReticulumChatSettingsDialog = ({
                     },
                   }}
                 />
+              </Box>
+              <Box
+                sx={{
+                  display: 'flex',
+                  gap: 2,
+                  mt: 3,
+                  alignItems: 'center',
+                }}
+              >
+                <Button
+                  variant="contained"
+                  disabled={applying || applyDisabled}
+                  onClick={async () => {
+                    setApplying(true);
+                    try {
+                      const groupIds = memberGroups
+                        .map((g: { groupId: number | string }) => g.groupId)
+                        .filter((id) => id != null && id !== '' && id !== '0');
+                      await applyNotificationSettingsToAllGroups(
+                        groupIds,
+                        draftNotifForm
+                      );
+                      setNotifForm(draftNotifForm);
+                      onClose();
+                    } finally {
+                      setApplying(false);
+                    }
+                  }}
+                  sx={{
+                    textTransform: 'none',
+                    fontWeight: 600,
+                    color: 'common.white',
+                  }}
+                >
+                  {t('reticulum:settings.notifications.apply_button')}
+                </Button>
+                {notifFormChanged && (
+                  <Button
+                    variant="text"
+                    disabled={applying}
+                    onClick={async () => {
+                      setApplying(true);
+                      try {
+                        const groupIds = memberGroups
+                          .map((g: { groupId: number | string }) => g.groupId)
+                          .filter(
+                            (id) => id != null && id !== '' && id !== '0'
+                          );
+                        await applyNotificationSettingsToAllGroups(
+                          groupIds,
+                          DEFAULT_GLOBAL_NOTIF_FORM
+                        );
+                        setNotifForm(DEFAULT_GLOBAL_NOTIF_FORM);
+                        onClose();
+                      } finally {
+                        setApplying(false);
+                      }
+                    }}
+                    sx={{
+                      textTransform: 'none',
+                      fontWeight: 600,
+                    }}
+                  >
+                    {t('reticulum:settings.notifications.revert_button')}
+                  </Button>
+                )}
               </Box>
               <Typography
                 sx={{
@@ -873,77 +956,6 @@ export const ReticulumChatSettingsDialog = ({
                   }}
                 />
               </RadioGroup>
-              <Box
-                sx={{
-                  display: 'flex',
-                  gap: 2,
-                  mt: 3,
-                  alignItems: 'center',
-                }}
-              >
-                <Button
-                  variant="contained"
-                  disabled={applying}
-                  onClick={async () => {
-                    setApplying(true);
-                    try {
-                      const groupIds = memberGroups
-                        .map((g: { groupId: number | string }) => g.groupId)
-                        .filter((id) => id != null && id !== '' && id !== '0');
-                      await applyNotificationSettingsToAllGroups(
-                        groupIds,
-                        notifForm
-                      );
-                      onClose();
-                    } finally {
-                      setApplying(false);
-                    }
-                  }}
-                  sx={{
-                    textTransform: 'none',
-                    fontWeight: 600,
-                    color: 'common.white',
-                  }}
-                >
-                  {t('reticulum:settings.notifications.apply_button')}
-                </Button>
-                {notifFormChanged && (
-                  <Button
-                    variant="text"
-                    disabled={applying}
-                    onClick={async () => {
-                      setApplying(true);
-                      try {
-                        const groupIds = memberGroups
-                          .map((g: { groupId: number | string }) => g.groupId)
-                          .filter(
-                            (id) => id != null && id !== '' && id !== '0'
-                          );
-                        await applyNotificationSettingsToAllGroups(
-                          groupIds,
-                          DEFAULT_GLOBAL_NOTIF_FORM
-                        );
-                        setNotifForm(DEFAULT_GLOBAL_NOTIF_FORM);
-                        setDeliveryMethod(
-                          getDefaultNotificationDeliveryMethod()
-                        );
-                        void setNotificationDeliveryMethod(
-                          getDefaultNotificationDeliveryMethod()
-                        );
-                        onClose();
-                      } finally {
-                        setApplying(false);
-                      }
-                    }}
-                    sx={{
-                      textTransform: 'none',
-                      fontWeight: 600,
-                    }}
-                  >
-                    {t('reticulum:settings.notifications.revert_button')}
-                  </Button>
-                )}
-              </Box>
             </>
           ) : activeSection === 'legacy-threads' ? (
             <>
