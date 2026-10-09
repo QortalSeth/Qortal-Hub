@@ -54,6 +54,7 @@ import {
   MAX_SIZE_MESSAGE,
   MIN_REQUIRED_QORTS,
   PUBLIC_NOTIFICATION_CODE_FIRST_SECRET_KEY,
+  RESOURCE_TYPE_NUMBER_GROUP_CHAT_REACTIONS,
   TIME_DAYS_1_IN_MILLISECONDS,
   TIME_MONTHS_1_IN_MILLISECONDS,
   TIME_MINUTES_2_IN_MILLISECONDS,
@@ -92,7 +93,6 @@ import { alpha } from '@mui/material/styles';
 import ShortUniqueId from 'short-unique-id';
 import { ReplyPreview } from './MessageItem';
 import { ExitIcon } from '../../assets/Icons/ExitIcon';
-import { RESOURCE_TYPE_NUMBER_GROUP_CHAT_REACTIONS } from '../../constants/constants';
 import { getFee, isExtMsg } from '../../background/background.ts';
 import { appHeighOffset, appHeighOffsetPx } from '../Desktop/CustomTitleBar';
 import AppViewerContainer from '../Apps/AppViewerContainer';
@@ -127,7 +127,7 @@ import { ContextMenu } from '../ContextMenu';
 import { NotificationSettingsSubmenu } from '../NotificationSettingsSubmenu';
 import { MuteSubmenu } from '../MuteSubmenu';
 import { isScopeMuted } from '../../utils/qChatNotificationSettings';
-import { Menu, Item, Separator, contextMenu } from 'react-contexify';
+import { Menu as ContexifyMenu, Item, Separator, contextMenu } from 'react-contexify';
 import { createPortal } from 'react-dom';
 import { messageHasImage } from '../../utils/chat';
 import { useTranslation } from 'react-i18next';
@@ -3137,6 +3137,40 @@ export const ChatGroup = ({
     setReticulumSearchBeforeDate('');
     setReticulumSearchSort('relevance');
   }, []);
+  // Type-ahead for the `from` filter menu: listen at the document level
+  // while the menu is open, accumulate typed characters, and scroll the
+  // first matching author into view. The search overlay panel carries
+  // data-search-panel for scoped DOM queries.
+  const reticulumSearchFromBufferRef = useRef<{
+    buffer: string;
+    timer: ReturnType<typeof setTimeout> | null;
+  }>({ buffer: '', timer: null });
+  useEffect(() => {
+    if (reticulumSearchFilterMenu !== 'from') {
+      const t = reticulumSearchFromBufferRef.current;
+      t.buffer = '';
+      if (t.timer) { clearTimeout(t.timer); t.timer = null; }
+      return;
+    }
+    const handler = (event: KeyboardEvent) => {
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      if (event.key.length !== 1 || event.key === ' ') return;
+      const t = reticulumSearchFromBufferRef.current;
+      t.buffer = (t.buffer + event.key.toLowerCase()).slice(0, 64);
+      if (t.timer) clearTimeout(t.timer);
+      t.timer = setTimeout(() => { t.buffer = ''; }, 500);
+      const matchIndex = reticulumSearchAuthorOptions.findIndex((a) =>
+        a.name.toLowerCase().startsWith(t.buffer)
+      );
+      if (matchIndex === -1) return;
+      const target = document.querySelector(
+        `[data-author-index="${matchIndex}"]`
+      ) as HTMLElement | null;
+      target?.scrollIntoView({ block: 'start' });
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [reticulumSearchFilterMenu, reticulumSearchAuthorOptions]);
   const openReticulumSearchFilterMenu = useCallback(
     (
       menu: 'in' | 'from' | 'has' | 'date' | 'sort',
@@ -9269,7 +9303,7 @@ export const ChatGroup = ({
               </DndContext>
             )}
             {createPortal(
-              <Menu
+              <ContexifyMenu
                 id={channelAreaMenuId}
                 theme={theme.palette.mode as 'light' | 'dark'}
                 animation="fade"
@@ -9321,11 +9355,11 @@ export const ChatGroup = ({
                     {t('group:chat_group.create_category_menu')}
                   </Typography>
                 </Item>
-              </Menu>,
+              </ContexifyMenu>,
               document.body
             )}
             {createPortal(
-              <Menu
+              <ContexifyMenu
                 id={categoryMenuId}
                 theme={theme.palette.mode as 'light' | 'dark'}
                 animation="fade"
@@ -9438,11 +9472,11 @@ export const ChatGroup = ({
                     </Item>
                   </>
                 )}
-              </Menu>,
+              </ContexifyMenu>,
               document.body
             )}
             {createPortal(
-              <Menu
+              <ContexifyMenu
                 id={channelMenuId}
                 theme={theme.palette.mode as 'light' | 'dark'}
                 animation="fade"
@@ -9557,7 +9591,7 @@ export const ChatGroup = ({
                       )}
                   </>
                 )}
-              </Menu>,
+              </ContexifyMenu>,
               document.body
             )}
           </Box>
@@ -10915,8 +10949,9 @@ export const ChatGroup = ({
                   {t('group:chat_group.filter_anyone')}
                 </MenuItem>
                 <Divider />
-                {reticulumSearchAuthorOptions.map((author) => (
+                {reticulumSearchAuthorOptions.map((author, index) => (
                   <MenuItem
+                    data-author-index={index}
                     key={author.address}
                     onClick={() => {
                       setReticulumSearchAuthorFilter(author.address);

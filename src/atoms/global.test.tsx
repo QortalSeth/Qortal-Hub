@@ -75,11 +75,19 @@ describe('groupChatHasUnreadAtom', () => {
       groups: [
         {
           groupId: '1',
-          reticulumChatSummary: { unreadCount: 5, mentionCount: 0 },
+          reticulumChatSummary: {
+            unreadCount: 5,
+            mentionCount: 0,
+            channels: [{ channelId: 'general', unreadCount: 5, mentionCount: 0 }],
+          },
         },
       ],
       muteCache: {
-        '1': { mutedUntil: null },
+        '1': {
+          sections: {
+            '': { channels: { general: { mutedUntil: null } } },
+          },
+        },
       },
     });
     const { result } = renderHookWithStore(store);
@@ -181,11 +189,11 @@ describe('groupChatHasUnreadAtom', () => {
       ],
       muteCache: {
         '1': {
-          mutedUntil: null,
           sections: {
             'sec-1': {
               channels: {
                 'ch-1': { mutedUntil: 0 },
+                'ch-2': { mutedUntil: null },
               },
             },
           },
@@ -275,7 +283,7 @@ describe('groupChatHasUnreadAtom', () => {
     expect(result.current).toBe(true);
   });
 
-  it('returns false when muted group has channel with inherited mute and unread', () => {
+  it('returns false when muted group has no unmuted channels with unread', () => {
     const store = setupStore({
       groups: [
         {
@@ -289,11 +297,10 @@ describe('groupChatHasUnreadAtom', () => {
       ],
       muteCache: {
         '1': {
-          mutedUntil: null,
           sections: {
             'sec-1': {
               channels: {
-                'ch-1': { mutedUntil: undefined },
+                'ch-1': { mutedUntil: null },
               },
             },
           },
