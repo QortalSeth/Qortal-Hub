@@ -225,6 +225,7 @@ export const applyReticulumJoinUnreadBaseline = async ({
     }
   }
   if (changed) {
+    window.reticulumChat?.dismissNotifications?.(groupId);
     writeStoredChannels(storageKey, completedChannels);
     cleanupReticulumJoinUnreadBaselines({
       address: normalizedAddress,

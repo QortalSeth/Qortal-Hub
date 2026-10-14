@@ -6045,6 +6045,10 @@ export const ChatGroup = ({
           lastReticulumMarkedReadRef.current = null;
         }
       });
+    window.reticulumChat?.dismissNotifications?.(
+      groupId,
+      selectedReticulumChannelId
+    );
   }, [
     isActive,
     myAddress,
@@ -6108,6 +6112,10 @@ export const ChatGroup = ({
           lastReticulumMarkedReadRef.current = null;
         }
       });
+    window.reticulumChat?.dismissNotifications?.(
+      groupId,
+      selectedReticulumChannelId
+    );
   }, [
     myAddress,
     reticulumChatEvents,

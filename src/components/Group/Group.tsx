@@ -3851,6 +3851,7 @@ export const Group = ({
     (e) => {
       const { groupId } = e.detail;
       void markReticulumGroupsRead([groupId]);
+      window.reticulumChat?.dismissNotifications?.(Number(groupId));
       window
         .sendMessage('addTimestampEnterChat', {
           timestamp: Date.now(),
@@ -3890,6 +3891,11 @@ export const Group = ({
     if (!ids.length) return;
 
     void markReticulumGroupsRead(ids);
+    (memberGroupsRef.current || []).forEach((g) => {
+      if (g?.groupId != null) {
+        window.reticulumChat?.dismissNotifications?.(Number(g.groupId));
+      }
+    });
 
     window
       .sendMessage('markAllMemberGroupsRead', { groupIds: ids })
@@ -3942,6 +3948,10 @@ export const Group = ({
       } catch (error) {
         console.error('[ReticulumChat] Failed to mark channel as read:', error);
       }
+      window.reticulumChat?.dismissNotifications?.(
+        numericGroupId,
+        String(channelId)
+      );
       executeEvent('reticulum-chat-summaries-refresh', {});
     },
     [myAddress, reticulumChatEnabled]
@@ -3983,6 +3993,10 @@ export const Group = ({
             error
           );
         }
+        window.reticulumChat?.dismissNotifications?.(
+          numericGroupId,
+          String(channelId)
+        );
       }
       executeEvent('reticulum-chat-summaries-refresh', {});
     },

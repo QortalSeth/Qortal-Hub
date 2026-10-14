@@ -6110,7 +6110,6 @@ ipcMain.handle(
       // on Linux. Entries are removed by the 'close' handler and dismiss paths.
       activeNotifications.set(nid, entry);
       notification.on('click', () => {
-        notification.close();
         if (mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.focus();
           if (payload.notificationId) {

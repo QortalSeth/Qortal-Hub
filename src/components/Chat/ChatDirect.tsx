@@ -992,6 +992,10 @@ export const ChatDirect = ({
     );
     if (latestTimestamp <= 0) return;
     void markReticulumDirectRead(latestTimestamp);
+    window.reticulumChat?.dismissNotifications?.(
+      NaN,
+      selectedDirect.address
+    );
   }, [
     markReticulumDirectRead,
     reticulumDirectEnabled,
