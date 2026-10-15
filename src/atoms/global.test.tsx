@@ -78,7 +78,9 @@ describe('groupChatHasUnreadAtom', () => {
           reticulumChatSummary: {
             unreadCount: 5,
             mentionCount: 0,
-            channels: [{ channelId: 'general', unreadCount: 5, mentionCount: 0 }],
+            channels: [
+              { channelId: 'general', unreadCount: 5, mentionCount: 0 },
+            ],
           },
         },
       ],

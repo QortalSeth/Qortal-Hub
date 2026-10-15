@@ -2766,7 +2766,6 @@ export const MessageItemComponent = ({
                   marginLeft: '2px',
                   height:
                     !reticulumChatEnabled && isRepliedToMe ? '72px' : undefined,
-                  maxHeight: reticulumChatEnabled ? '92px' : '72px',
                   minHeight: reticulumChatEnabled ? '72px' : undefined,
                   minWidth: reticulumChatEnabled ? 'min(540px, 100%)' : 0,
                   maxWidth: '100%',
@@ -2943,7 +2942,6 @@ export const MessageItemComponent = ({
                     marginBottom: '6px',
                     marginLeft: '2px',
                     height: isRepliedToMe ? '72px' : undefined,
-                    maxHeight: '72px',
                     minWidth: 0,
                     overflow: 'hidden',
                     padding: '4px 0 4px 10px',
@@ -4714,7 +4712,6 @@ export const ReplyPreview = ({
         cursor: 'pointer',
         display: 'flex',
         marginTop: '8px',
-        maxHeight: '72px',
         overflow: 'hidden',
         width: '100%',
       }}

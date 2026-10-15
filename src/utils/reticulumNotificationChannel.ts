@@ -35,9 +35,14 @@ export function getChannelVisibilitySymbol(
 ): string {
   const channelId = cleanChannelLabel(channelIdValue) || 'general';
   if (!Array.isArray(channels)) return '';
-  const channel = (channels as { channelId?: unknown; name?: unknown; writeMode?: string; readMode?: string }[]).find(
-    (c) => cleanChannelLabel(c?.channelId) === channelId
-  );
+  const channel = (
+    channels as {
+      channelId?: unknown;
+      name?: unknown;
+      writeMode?: string;
+      readMode?: string;
+    }[]
+  ).find((c) => cleanChannelLabel(c?.channelId) === channelId);
   if (!channel) return '';
   const readMode = channel.readMode;
   const writeMode = channel.writeMode;

@@ -127,7 +127,12 @@ import { ContextMenu } from '../ContextMenu';
 import { NotificationSettingsSubmenu } from '../NotificationSettingsSubmenu';
 import { MuteSubmenu } from '../MuteSubmenu';
 import { isScopeMuted } from '../../utils/qChatNotificationSettings';
-import { Menu as ContexifyMenu, Item, Separator, contextMenu } from 'react-contexify';
+import {
+  Menu as ContexifyMenu,
+  Item,
+  Separator,
+  contextMenu,
+} from 'react-contexify';
 import { createPortal } from 'react-dom';
 import { messageHasImage } from '../../utils/chat';
 import { useTranslation } from 'react-i18next';
@@ -3149,7 +3154,10 @@ export const ChatGroup = ({
     if (reticulumSearchFilterMenu !== 'from') {
       const t = reticulumSearchFromBufferRef.current;
       t.buffer = '';
-      if (t.timer) { clearTimeout(t.timer); t.timer = null; }
+      if (t.timer) {
+        clearTimeout(t.timer);
+        t.timer = null;
+      }
       return;
     }
     const handler = (event: KeyboardEvent) => {
@@ -3158,7 +3166,9 @@ export const ChatGroup = ({
       const t = reticulumSearchFromBufferRef.current;
       t.buffer = (t.buffer + event.key.toLowerCase()).slice(0, 64);
       if (t.timer) clearTimeout(t.timer);
-      t.timer = setTimeout(() => { t.buffer = ''; }, 500);
+      t.timer = setTimeout(() => {
+        t.buffer = '';
+      }, 500);
       const matchIndex = reticulumSearchAuthorOptions.findIndex((a) =>
         a.name.toLowerCase().startsWith(t.buffer)
       );

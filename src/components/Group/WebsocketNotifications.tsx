@@ -605,7 +605,10 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
             channelId,
             channels
           );
-          channelVisibilitySymbol = getChannelVisibilitySymbol(channelId, channels);
+          channelVisibilitySymbol = getChannelVisibilitySymbol(
+            channelId,
+            channels
+          );
         } catch {
           // The stable ID remains a useful fallback while metadata is syncing.
         }
@@ -817,7 +820,10 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
           true
         );
         channelName = getReticulumNotificationChannelLabel(channelId, channels);
-        channelVisibilitySymbol = getChannelVisibilitySymbol(channelId, channels);
+        channelVisibilitySymbol = getChannelVisibilitySymbol(
+          channelId,
+          channels
+        );
       } catch {
         // The stable ID remains a useful fallback while metadata is syncing.
       }
@@ -922,7 +928,10 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
           true
         );
         channelName = getReticulumNotificationChannelLabel(channelId, channels);
-        channelVisibilitySymbol = getChannelVisibilitySymbol(channelId, channels);
+        channelVisibilitySymbol = getChannelVisibilitySymbol(
+          channelId,
+          channels
+        );
       } catch {
         // The stable ID remains a useful fallback while metadata is syncing.
       }
@@ -1031,7 +1040,10 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
           true
         );
         channelName = getReticulumNotificationChannelLabel(channelId, channels);
-        channelVisibilitySymbol = getChannelVisibilitySymbol(channelId, channels);
+        channelVisibilitySymbol = getChannelVisibilitySymbol(
+          channelId,
+          channels
+        );
       } catch {
         // The stable ID remains a useful fallback while metadata is syncing.
       }
