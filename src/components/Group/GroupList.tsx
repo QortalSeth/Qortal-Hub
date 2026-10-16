@@ -94,6 +94,8 @@ import {
   getWelcomeUnreadCount,
   DEFAULT_NOTIFICATION_SETTINGS,
   applyNotificationSettingsToAllGroups,
+  setGlobalNotificationSettings,
+  wipeAllChannelOverrides,
   getNotificationDeliveryMethod,
   setNotificationDeliveryMethod,
   getDefaultNotificationDeliveryMethod,
@@ -825,10 +827,17 @@ export const ReticulumChatSettingsDialog = ({
                       const groupIds = memberGroups
                         .map((g: { groupId: number | string }) => g.groupId)
                         .filter((id) => id != null && id !== '' && id !== '0');
-                      await applyNotificationSettingsToAllGroups(
-                        groupIds,
-                        draftNotifForm
-                      );
+                      // New model: the global defaults are the source of truth.
+                      // Applying sets them as the new defaults and wipes all
+                      // channel overrides so every channel inherits them.
+                      await setGlobalNotificationSettings({
+                        pushLevel: draftNotifForm.pushLevel,
+                        suppressEveryoneHere:
+                          draftNotifForm.suppressEveryoneHere,
+                        notifyOnReplies: draftNotifForm.notifyOnReplies,
+                        notifyOnReactions: draftNotifForm.notifyOnReactions,
+                      });
+                      await wipeAllChannelOverrides(groupIds);
                       setNotifForm(draftNotifForm);
                       onClose();
                     } finally {
@@ -855,10 +864,16 @@ export const ReticulumChatSettingsDialog = ({
                           .filter(
                             (id) => id != null && id !== '' && id !== '0'
                           );
-                        await applyNotificationSettingsToAllGroups(
-                          groupIds,
-                          DEFAULT_GLOBAL_NOTIF_FORM
-                        );
+                        await setGlobalNotificationSettings({
+                          pushLevel: DEFAULT_GLOBAL_NOTIF_FORM.pushLevel,
+                          suppressEveryoneHere:
+                            DEFAULT_GLOBAL_NOTIF_FORM.suppressEveryoneHere,
+                          notifyOnReplies:
+                            DEFAULT_GLOBAL_NOTIF_FORM.notifyOnReplies,
+                          notifyOnReactions:
+                            DEFAULT_GLOBAL_NOTIF_FORM.notifyOnReactions,
+                        });
+                        await wipeAllChannelOverrides(groupIds);
                         setNotifForm(DEFAULT_GLOBAL_NOTIF_FORM);
                         onClose();
                       } finally {

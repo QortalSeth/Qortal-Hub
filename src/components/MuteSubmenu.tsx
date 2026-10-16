@@ -7,8 +7,7 @@ import { useAtomValue } from 'jotai';
 import { notificationSettingsCacheAtom } from '../atoms/global';
 import {
   type ScopeDescriptor,
-  isScopeMuted,
-  getScopeMutedUntil,
+  type GroupNotificationStore,
   setScopeMuted,
   unmuteScope,
 } from '../utils/qChatNotificationSettings';
@@ -33,18 +32,25 @@ function activeMutedUntil(v: number | null | undefined): boolean {
   return v === null || (v !== undefined && v > Date.now());
 }
 
-/** Collect all channel mutedUntil values within a scope. */
+/**
+ * Collect all channel mutedUntil values within a scope from the flat
+ * channel-override store.
+ *
+ * NOTE: in the flat model, section membership is not stored per channel.
+ * For group scope all stored channel overrides are considered; for section
+ * scope the stored overrides are used as-is (a section-scoped mute has
+ * materialized into those channels already). Channel scope resolves the
+ * single channel directly.
+ */
 function collectScopeMuteState(
-  groupSettings: GroupNotificationSettingsData | undefined,
+  groupStore: GroupNotificationStore | undefined,
   sectionId?: string,
   channelId?: string
 ): { allMuted: boolean; sharedUntil: number | null | undefined } {
-  if (!groupSettings) return { allMuted: false, sharedUntil: undefined };
+  if (!groupStore) return { allMuted: false, sharedUntil: undefined };
 
   if (channelId != null) {
-    const effectiveSectionId = sectionId ?? '';
-    const ch =
-      groupSettings.sections?.[effectiveSectionId]?.channels?.[channelId];
+    const ch = groupStore.channels?.[String(channelId)];
     const v = ch?.mutedUntil;
     return {
       allMuted: activeMutedUntil(v),
@@ -52,25 +58,9 @@ function collectScopeMuteState(
     };
   }
 
-  if (sectionId != null) {
-    const section = groupSettings.sections?.[sectionId];
-    if (!section?.channels) return { allMuted: false, sharedUntil: undefined };
-    const vals = Object.values(section.channels).map((ch) => ch?.mutedUntil);
-    const allMuted = vals.length > 0 && vals.every((v) => activeMutedUntil(v));
-    const first = vals[0];
-    const sharedUntil = vals.every((v) => v === first) ? first : undefined;
-    return { allMuted, sharedUntil };
-  }
-
-  if (!groupSettings.sections)
-    return { allMuted: false, sharedUntil: undefined };
-  const vals: Array<number | null | undefined> = [];
-  for (const section of Object.values(groupSettings.sections)) {
-    if (!section?.channels) continue;
-    for (const ch of Object.values(section.channels)) {
-      vals.push(ch?.mutedUntil);
-    }
-  }
+  const vals = Object.values(groupStore.channels ?? {}).map(
+    (ch) => ch?.mutedUntil
+  );
   if (vals.length === 0) return { allMuted: false, sharedUntil: undefined };
   const allMuted = vals.every((v) => activeMutedUntil(v));
   const first = vals[0];

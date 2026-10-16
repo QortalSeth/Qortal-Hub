@@ -118,10 +118,9 @@ import { sortArrayByTimestampAndGroupName } from '../../utils/time';
 import {
   migrateNotificationSettings,
   getEffectiveNotificationSettings,
-  getGroupNotificationSettings,
+  getGroupNotificationStore,
   groupHasUnreadConsideringMute,
   isScopeMuted,
-  buildChannelSectionMap,
   addWelcomeUnreadEventId,
   removeWelcomeUnreadEventId,
   clearWelcomeUnreadForGroup,
@@ -1655,10 +1654,9 @@ export const Group = ({
           const groupId = Number(groupIdStr);
           if (!Number.isInteger(groupId) || groupId <= 0) continue;
           try {
-            const settings = await getGroupNotificationSettings(
-              groupId,
-              undefined
-            ).catch(() => null);
+            const settings = await getGroupNotificationStore(groupId).catch(
+              () => null
+            );
             if (
               !groupHasUnreadConsideringMute(
                 settings,
@@ -2907,15 +2905,11 @@ export const Group = ({
                 } catch {}
               }
               if (effectiveSettings?.notifyOnReactions && rxnGroupName) {
-                const rxnGroupSettings = await getGroupNotificationSettings(
+                const rxnGroupStore = await getGroupNotificationStore(
                   Number(event.groupId)
                 ).catch(() => null);
-                const rxnSectionMap = rxnGroupSettings
-                  ? buildChannelSectionMap(rxnGroupSettings)
-                  : new Map();
-                const rxnSectionId = rxnSectionMap.get(channelId);
-                const rxnMuted = rxnGroupSettings
-                  ? isScopeMuted(rxnGroupSettings, rxnSectionId, channelId)
+                const rxnMuted = rxnGroupStore
+                  ? isScopeMuted(rxnGroupStore, undefined, channelId)
                   : false;
                 if (!rxnMuted) {
                   let senderName = event.authorPrimaryName?.trim() || '';
@@ -3106,15 +3100,11 @@ export const Group = ({
                 globalNotifFormRef.current
               ).catch(() => null);
               if (effectiveSettings?.notifyOnReplies && groupName) {
-                const replyGroupSettings = await getGroupNotificationSettings(
+                const replyGroupStore = await getGroupNotificationStore(
                   groupId
                 ).catch(() => null);
-                const replySectionMap = replyGroupSettings
-                  ? buildChannelSectionMap(replyGroupSettings)
-                  : new Map();
-                const replySectionId = replySectionMap.get(channelId);
-                const replyMuted = replyGroupSettings
-                  ? isScopeMuted(replyGroupSettings, replySectionId, channelId)
+                const replyMuted = replyGroupStore
+                  ? isScopeMuted(replyGroupStore, undefined, channelId)
                   : false;
                 if (!replyMuted) {
                   executeEvent('q-chat-reply-notification', {
@@ -3141,11 +3131,11 @@ export const Group = ({
         !replyNotificationEmitted
       ) {
         if (isWelcomePost) {
-          const groupSettings = await getGroupNotificationSettings(
-            groupId
-          ).catch(() => null);
+          const groupStore = await getGroupNotificationStore(groupId).catch(
+            () => null
+          );
           if (
-            (groupSettings?.notifyOnWelcomePosts ??
+            (groupStore?.notifyOnWelcomePosts ??
               globalNotifFormRef.current.notifyOnWelcomePosts) === false
           ) {
             suppressMention = true;

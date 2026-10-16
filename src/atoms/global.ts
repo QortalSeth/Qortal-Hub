@@ -87,13 +87,35 @@ export const reticulumEnabledAtom = atomWithReset(true);
  * Keyed by group ID (string). Populated on app load and updated via
  * NOTIFICATION_SETTINGS_UPDATED_EVENT. Derived unread atoms read this
  * to exclude muted channels from their computation.
+ *
+ * Each entry is a flat channel-override store: channels that inherit the
+ * global defaults exactly have no entry in `channels{}`.
  */
 export const notificationSettingsCacheAtom = atomWithReset<
   Record<
     string,
-    import('../utils/qChatNotificationSettings').GroupNotificationSettingsData
+    import('../utils/qChatNotificationSettings').GroupNotificationStore
   >
 >({});
+
+/**
+ * Cache of the global notification settings (the source of truth for all
+ * channels). Populated alongside notificationSettingsCacheAtom. Channels
+ * with no override in their group store inherit these values.
+ */
+export const globalNotificationSettingsAtom = atomWithReset<
+  import('../utils/qChatNotificationSettings').GlobalNotificationSettings | null
+>(null);
+
+/**
+ * Version of the global notification settings currently reflected in
+ * notificationSettingsCacheAtom. Increments whenever the global defaults
+ * change; consumers can watch this to invalidate derived state.
+ */
+export const globalNotificationVersionAtom = atom((get) => {
+  const global = get(globalNotificationSettingsAtom);
+  return global?.version ?? 0;
+});
 
 /** Monotonic tick that increments every ~30s (or on visibility change) to trigger re-evaluation of mute expiry in derived atoms. */
 export const muteExpiryTickAtom = atom(0);

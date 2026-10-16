@@ -2,13 +2,17 @@ import { useCallback, useEffect, useRef } from 'react';
 import { useSetAtom, useAtomValue } from 'jotai';
 import {
   notificationSettingsCacheAtom,
+  globalNotificationSettingsAtom,
   muteExpiryTickAtom,
   memberGroupsAtom,
 } from '../atoms/global';
 import {
-  getGroupNotificationSettings,
+  getGroupNotificationStore,
+  getGlobalNotificationSettings,
+  migrateNotificationSettings,
+  needsNotificationMigration,
   NOTIFICATION_SETTINGS_UPDATED_EVENT,
-  type GroupNotificationSettingsData,
+  type GroupNotificationStore,
 } from '../utils/qChatNotificationSettings';
 import { subscribeToEvent, unsubscribeFromEvent } from '../utils/events';
 
@@ -16,9 +20,10 @@ const POLL_INTERVAL_MS = 30_000;
 
 export function useNotificationSettingsCache() {
   const setCache = useSetAtom(notificationSettingsCacheAtom);
+  const setGlobalCache = useSetAtom(globalNotificationSettingsAtom);
   const setTick = useSetAtom(muteExpiryTickAtom);
   const memberGroups = useAtomValue(memberGroupsAtom);
-  const cacheRef = useRef<Record<string, GroupNotificationSettingsData>>({});
+  const cacheRef = useRef<Record<string, GroupNotificationStore>>({});
   const memberGroupIdsRef = useRef<Array<string | number>>([]);
 
   useEffect(() => {
@@ -27,9 +32,15 @@ export function useNotificationSettingsCache() {
       .filter((id: any) => id !== undefined && id !== null);
   }, [memberGroups]);
 
+  const refreshGlobal = useCallback(async () => {
+    const global = await getGlobalNotificationSettings();
+    setGlobalCache(global);
+    return global;
+  }, [setGlobalCache]);
+
   const refreshGroup = useCallback(
     async (groupId: string | number) => {
-      const settings = await getGroupNotificationSettings(groupId);
+      const settings = await getGroupNotificationStore(groupId);
       cacheRef.current = {
         ...cacheRef.current,
         [String(groupId)]: settings,
@@ -43,6 +54,12 @@ export function useNotificationSettingsCache() {
     const handler = (event: any) => {
       const groupId = event?.detail?.groupId;
       const settings = event?.detail?.settings;
+      const globalSettings = event?.detail?.globalSettings;
+      if (globalSettings && typeof globalSettings === 'object') {
+        setGlobalCache(globalSettings);
+        void refreshGlobal().catch(() => {});
+        return;
+      }
       if (groupId === undefined || groupId === null) return;
       if (settings && typeof settings === 'object') {
         cacheRef.current = {
@@ -58,18 +75,32 @@ export function useNotificationSettingsCache() {
     return () => {
       unsubscribeFromEvent(NOTIFICATION_SETTINGS_UPDATED_EVENT, handler);
     };
-  }, [refreshGroup, setCache]);
+  }, [refreshGroup, refreshGlobal, setGlobalCache, setCache]);
 
+  // Initial load: run migration (once), then populate global + per-group caches.
   useEffect(() => {
     const ids = memberGroupIdsRef.current;
     if (!ids.length) return;
     let cancelled = false;
     void (async () => {
-      const entries: Record<string, GroupNotificationSettingsData> = {};
+      try {
+        if (await needsNotificationMigration()) {
+          await migrateNotificationSettings(ids);
+        }
+      } catch (error) {
+        // Migration is best-effort; continue with defaults if it fails.
+        console.error('Failed to migrate notification settings:', error);
+      }
+      if (cancelled) return;
+      const global = await getGlobalNotificationSettings();
+      if (cancelled) return;
+      setGlobalCache(global);
+
+      const entries: Record<string, GroupNotificationStore> = {};
       for (const id of ids) {
-        const settings = await getGroupNotificationSettings(id);
+        const store = await getGroupNotificationStore(id);
         if (cancelled) return;
-        entries[String(id)] = settings;
+        entries[String(id)] = store;
       }
       if (cancelled) return;
       cacheRef.current = entries;
@@ -78,7 +109,7 @@ export function useNotificationSettingsCache() {
     return () => {
       cancelled = true;
     };
-  }, [memberGroups, setCache]);
+  }, [memberGroups, setCache, setGlobalCache]);
 
   useEffect(() => {
     const intervalId = setInterval(() => {

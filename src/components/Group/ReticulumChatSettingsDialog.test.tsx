@@ -31,6 +31,14 @@ vi.mock('../../utils/qChatNotificationSettings', async () => {
   return {
     ...actual,
     applyNotificationSettingsToAllGroups: vi.fn(async () => {}),
+    setGlobalNotificationSettings: vi.fn(async () => ({
+      pushLevel: 'mentions',
+      suppressEveryoneHere: false,
+      notifyOnReplies: true,
+      notifyOnReactions: true,
+      version: 2,
+    })),
+    wipeAllChannelOverrides: vi.fn(async () => {}),
     getNotificationDeliveryMethod: vi.fn(async () => 'native'),
     setNotificationDeliveryMethod: vi.fn(async () => {}),
   };
@@ -124,8 +132,8 @@ describe('ReticulumChatSettingsDialog — Notifications section', () => {
     ).toBeInTheDocument();
   });
 
-  it('calls applyNotificationSettingsToAllGroups when Apply is clicked', async () => {
-    const { applyNotificationSettingsToAllGroups } =
+  it('sets global defaults and wipes channel overrides when Apply is clicked', async () => {
+    const { setGlobalNotificationSettings, wipeAllChannelOverrides } =
       await import('../../utils/qChatNotificationSettings');
 
     renderDialog();
@@ -143,17 +151,15 @@ describe('ReticulumChatSettingsDialog — Notifications section', () => {
       fireEvent.click(applyButton);
     });
 
-    expect(applyNotificationSettingsToAllGroups).toHaveBeenCalledWith(
-      [1, 2],
+    expect(setGlobalNotificationSettings).toHaveBeenCalledWith(
       expect.objectContaining({
         pushLevel: 'none',
         suppressEveryoneHere: false,
         notifyOnReplies: true,
         notifyOnReactions: true,
-        notifyOnWelcomePosts: true,
-        hideMutedChannels: false,
       })
     );
+    expect(wipeAllChannelOverrides).toHaveBeenCalledWith([1, 2]);
   });
 
   it('does not update the committed atom until Apply is clicked', async () => {

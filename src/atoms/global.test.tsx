@@ -17,13 +17,13 @@ import {
   groupJoinBumpTimestampsAtom,
 } from './global';
 import {
-  type GroupNotificationSettingsData,
+  type GroupNotificationStore,
   groupHasUnreadConsideringMute,
 } from '../utils/qChatNotificationSettings';
 
 function setupStore(overrides: {
   groups?: any[];
-  muteCache?: Record<string, GroupNotificationSettingsData>;
+  muteCache?: Record<string, GroupNotificationStore>;
   myAddress?: string;
   reticulumChatEnabled?: boolean;
 }) {
@@ -86,9 +86,7 @@ describe('groupChatHasUnreadAtom', () => {
       ],
       muteCache: {
         '1': {
-          sections: {
-            '': { channels: { general: { mutedUntil: null } } },
-          },
+          channels: { general: { mutedUntil: null } },
         },
       },
     });
@@ -159,13 +157,8 @@ describe('groupChatHasUnreadAtom', () => {
       ],
       muteCache: {
         '1': {
-          mutedUntil: null,
-          sections: {
-            'sec-1': {
-              channels: {
-                'ch-1': { mutedUntil: 0 },
-              },
-            },
+          channels: {
+            'ch-1': { mutedUntil: 0 },
           },
         },
       },
@@ -191,13 +184,9 @@ describe('groupChatHasUnreadAtom', () => {
       ],
       muteCache: {
         '1': {
-          sections: {
-            'sec-1': {
-              channels: {
-                'ch-1': { mutedUntil: 0 },
-                'ch-2': { mutedUntil: null },
-              },
-            },
+          channels: {
+            'ch-1': { mutedUntil: 0 },
+            'ch-2': { mutedUntil: null },
           },
         },
       },
@@ -240,12 +229,8 @@ describe('groupChatHasUnreadAtom', () => {
       ],
       muteCache: {
         '1': {
-          sections: {
-            'sec-1': {
-              channels: {
-                'ch-1': { mutedUntil: null },
-              },
-            },
+          channels: {
+            'ch-1': { mutedUntil: null },
           },
         },
       },
@@ -271,12 +256,8 @@ describe('groupChatHasUnreadAtom', () => {
       ],
       muteCache: {
         '1': {
-          sections: {
-            'sec-1': {
-              channels: {
-                'ch-1': { mutedUntil: null },
-              },
-            },
+          channels: {
+            'ch-1': { mutedUntil: null },
           },
         },
       },
@@ -299,12 +280,8 @@ describe('groupChatHasUnreadAtom', () => {
       ],
       muteCache: {
         '1': {
-          sections: {
-            'sec-1': {
-              channels: {
-                'ch-1': { mutedUntil: null },
-              },
-            },
+          channels: {
+            'ch-1': { mutedUntil: null },
           },
         },
       },
@@ -348,7 +325,7 @@ describe('groupHasUnreadConsideringMute with globalNotificationFormAtom fallback
     });
 
     const globalForm = store.get(globalNotificationFormAtom);
-    const groupSettings: GroupNotificationSettingsData = {};
+    const groupSettings: GroupNotificationStore = { channels: {} };
     const summary = { unreadCount: 1, mentionCount: 0 };
 
     expect(
@@ -372,7 +349,7 @@ describe('groupHasUnreadConsideringMute with globalNotificationFormAtom fallback
     });
 
     const globalForm = store.get(globalNotificationFormAtom);
-    const groupSettings: GroupNotificationSettingsData = {};
+    const groupSettings: GroupNotificationStore = { channels: {} };
     const summary = { unreadCount: 1, mentionCount: 0 };
 
     expect(

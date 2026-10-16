@@ -29,10 +29,9 @@ import {
 } from '../../utils/qChatMentionNotifications';
 import {
   getEffectiveNotificationSettings,
-  getGroupNotificationSettings,
+  getGroupNotificationStore,
   getNotificationDeliveryMethod,
   isScopeMuted,
-  buildChannelSectionMap,
   shouldFirePushNotification,
   shouldSuppressForMutedChannel,
   getWelcomeUnreadCount,
@@ -559,19 +558,15 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
 
       const channelId = String(detail?.channelId || 'general');
       const isEveryoneOrHere = detail?.isEveryoneOrHere === true;
-      const groupSettings = await getGroupNotificationSettings(groupId).catch(
+      const groupStore = await getGroupNotificationStore(groupId).catch(
         () => null
       );
-      const sectionMap = groupSettings
-        ? buildChannelSectionMap(groupSettings)
-        : new Map();
-      const sectionId = sectionMap.get(channelId);
-      const channelMuted = groupSettings
-        ? isScopeMuted(groupSettings, sectionId, channelId)
+      const channelMuted = groupStore
+        ? isScopeMuted(groupStore, undefined, channelId)
         : false;
       const effectiveSettings = await getEffectiveNotificationSettings(
         groupId,
-        sectionId,
+        undefined,
         channelId,
         globalNotifFormRef.current
       ).catch(() => null);
@@ -800,15 +795,11 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
         String(detail?.groupName || '').trim() || `Group ${groupId}`;
       const channelId = String(detail?.channelId || 'general');
 
-      const replyGroupSettings = await getGroupNotificationSettings(
-        groupId
-      ).catch(() => null);
-      const replySectionMap = replyGroupSettings
-        ? buildChannelSectionMap(replyGroupSettings)
-        : new Map();
-      const replySectionId = replySectionMap.get(channelId);
-      const replyMuted = replyGroupSettings
-        ? isScopeMuted(replyGroupSettings, replySectionId, channelId)
+      const replyGroupStore = await getGroupNotificationStore(groupId).catch(
+        () => null
+      );
+      const replyMuted = replyGroupStore
+        ? isScopeMuted(replyGroupStore, undefined, channelId)
         : false;
       if (replyMuted) return;
 
@@ -908,15 +899,11 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
         String(detail?.groupName || '').trim() || `Group ${groupId}`;
       const channelId = String(detail?.channelId || 'general');
 
-      const rxnGroupSettings = await getGroupNotificationSettings(
-        groupId
-      ).catch(() => null);
-      const rxnSectionMap = rxnGroupSettings
-        ? buildChannelSectionMap(rxnGroupSettings)
-        : new Map();
-      const rxnSectionId = rxnSectionMap.get(channelId);
-      const rxnMuted = rxnGroupSettings
-        ? isScopeMuted(rxnGroupSettings, rxnSectionId, channelId)
+      const rxnGroupStore = await getGroupNotificationStore(groupId).catch(
+        () => null
+      );
+      const rxnMuted = rxnGroupStore
+        ? isScopeMuted(rxnGroupStore, undefined, channelId)
         : false;
       if (rxnMuted) return;
 
@@ -988,19 +975,15 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
       if (!eventId || !Number.isFinite(groupId)) return;
 
       const channelId = String(detail?.channelId || 'general');
-      const groupSettings = await getGroupNotificationSettings(groupId).catch(
+      const groupStore = await getGroupNotificationStore(groupId).catch(
         () => null
       );
-      const sectionMap = groupSettings
-        ? buildChannelSectionMap(groupSettings)
-        : new Map();
-      const sectionId = sectionMap.get(channelId);
-      const channelMuted = groupSettings
-        ? isScopeMuted(groupSettings, sectionId, channelId)
+      const channelMuted = groupStore
+        ? isScopeMuted(groupStore, undefined, channelId)
         : false;
       const effectiveSettings = await getEffectiveNotificationSettings(
         groupId,
-        sectionId,
+        undefined,
         channelId,
         globalNotifFormRef.current
       ).catch(() => null);

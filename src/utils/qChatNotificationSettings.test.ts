@@ -2,27 +2,34 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   resolveEffectiveSettings,
   shouldFirePushNotification,
-  migrateNotificationSettings,
-  getGroupNotificationSettings,
-  setGroupNotificationSettings,
+  getGlobalNotificationSettings,
+  setGlobalNotificationSettings,
+  getGroupNotificationStore,
+  setGroupNotificationStore,
   getEffectiveNotificationSettings,
   setScopeNotificationSettings,
+  applyScopeNotificationSettings,
+  applyNotificationSettingsToAllGroups,
+  wipeAllChannelOverrides,
   isScopeMuted,
+  getScopeMutedUntil,
   setScopeMuted,
   unmuteScope,
   getHideMutedChannels,
   setHideMutedChannels,
   groupHasUnreadConsideringMute,
   getGroupUnreadCountConsideringMute,
+  needsNotificationMigration,
+  migrateNotificationSettings,
   addWelcomeUnreadEventId,
   removeWelcomeUnreadEventId,
   clearWelcomeUnreadForGroup,
   getWelcomeUnreadCount,
   getEffectiveUnreadCount,
-  applyNotificationSettingsToAllGroups,
   DEFAULT_NOTIFICATION_SETTINGS,
-  type GroupNotificationSettingsData,
+  GLOBAL_SETTINGS_KEY,
   type EffectiveNotificationSettings,
+  type GroupNotificationStore,
 } from './qChatNotificationSettings';
 
 afterEach(() => {
@@ -45,1730 +52,880 @@ function mockSendMessage(map: Record<string, unknown>) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// resolveEffectiveSettings (pure)
+// ---------------------------------------------------------------------------
+
 describe('resolveEffectiveSettings', () => {
-  it('returns defaults when no settings stored', () => {
-    const result = resolveEffectiveSettings({});
+  it('returns fallback defaults when no store provided', () => {
+    const result = resolveEffectiveSettings(undefined as any, undefined);
     expect(result).toEqual(DEFAULT_NOTIFICATION_SETTINGS);
   });
 
-  it('uses group-level settings when no section/channel override', () => {
-    const settings: GroupNotificationSettingsData = {
-      pushLevel: 'all',
+  it('applies global defaults when present on the store', () => {
+    const store: GroupNotificationStore = {
+      channels: {},
+      // __globalDefaults is attached by the async loader; simulate here.
+    } as any;
+    (store as any).__globalDefaults = {
+      pushLevel: 'none',
       suppressEveryoneHere: true,
-      notifyOnReplies: true,
+      notifyOnReplies: false,
+      notifyOnReactions: false,
+      version: 3,
     };
-    const result = resolveEffectiveSettings(settings);
-    expect(result).toEqual({
-      pushLevel: 'all',
-      suppressEveryoneHere: true,
+    const result = resolveEffectiveSettings(store as any, undefined);
+    expect(result.pushLevel).toBe('none');
+    expect(result.suppressEveryoneHere).toBe(true);
+    expect(result.notifyOnReplies).toBe(false);
+    expect(result.notifyOnReactions).toBe(false);
+  });
+
+  it('overlays channel override onto global defaults', () => {
+    const store: GroupNotificationStore = {
+      channels: {
+        announcements: { pushLevel: 'all' },
+      },
+    } as any;
+    (store as any).__globalDefaults = {
+      pushLevel: 'mentions',
+      suppressEveryoneHere: false,
       notifyOnReplies: true,
       notifyOnReactions: true,
-      notifyOnWelcomePosts: true,
-    });
-  });
-
-  it('section override wins over group setting', () => {
-    const settings: GroupNotificationSettingsData = {
-      pushLevel: 'all',
-      sections: {
-        'sec-1': {
-          pushLevel: 'none',
-        },
-      },
+      version: 1,
     };
-    const result = resolveEffectiveSettings(settings, 'sec-1');
-    expect(result.pushLevel).toBe('none');
+    const result = resolveEffectiveSettings(store as any, 'announcements');
+    expect(result.pushLevel).toBe('all');
     expect(result.suppressEveryoneHere).toBe(false);
+    expect(result.notifyOnReplies).toBe(true);
   });
 
-  it('channel override wins over section and group', () => {
-    const settings: GroupNotificationSettingsData = {
-      pushLevel: 'all',
-      sections: {
-        'sec-1': {
-          pushLevel: 'none',
-          channels: {
-            'ch-1': {
-              pushLevel: 'mentions',
-            },
-          },
-        },
-      },
+  it('channel with no override inherits global defaults', () => {
+    const store: GroupNotificationStore = {
+      channels: {},
+    } as any;
+    (store as any).__globalDefaults = {
+      pushLevel: 'none',
+      suppressEveryoneHere: false,
+      notifyOnReplies: true,
+      notifyOnReactions: true,
+      version: 1,
     };
-    const result = resolveEffectiveSettings(settings, 'sec-1', 'ch-1');
-    expect(result.pushLevel).toBe('mentions');
+    const result = resolveEffectiveSettings(store as any, 'some-channel');
+    expect(result.pushLevel).toBe('none');
   });
 
-  it('section without channel override inherits section value', () => {
-    const settings: GroupNotificationSettingsData = {
-      pushLevel: 'all',
-      sections: {
-        'sec-1': {
-          pushLevel: 'mentions',
-          suppressEveryoneHere: true,
-          channels: {
-            'ch-1': {
-              notifyOnReplies: true,
-            },
-          },
-        },
-      },
-    };
-    const result = resolveEffectiveSettings(settings, 'sec-1', 'ch-1');
+  it('uses group notifyOnWelcomePosts when present', () => {
+    const store: GroupNotificationStore = {
+      notifyOnWelcomePosts: false,
+      channels: {},
+    } as any;
+    const result = resolveEffectiveSettings(store as any, undefined);
+    expect(result.notifyOnWelcomePosts).toBe(false);
+  });
+
+  it('falls back to fallback.notifyOnWelcomePosts when store has none', () => {
+    const store: GroupNotificationStore = { channels: {} } as any;
+    const result = resolveEffectiveSettings(store as any, undefined, {
+      ...DEFAULT_NOTIFICATION_SETTINGS,
+      notifyOnWelcomePosts: false,
+    });
+    expect(result.notifyOnWelcomePosts).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Global defaults persistence
+// ---------------------------------------------------------------------------
+
+describe('getGlobalNotificationSettings', () => {
+  it('returns defaults when no global settings stored', async () => {
+    mockSendMessage({});
+    const result = await getGlobalNotificationSettings();
     expect(result.pushLevel).toBe('mentions');
+    expect(result.suppressEveryoneHere).toBe(false);
+    expect(result.notifyOnReplies).toBe(true);
+    expect(result.notifyOnReactions).toBe(true);
+    expect(result.version).toBe(1);
+  });
+
+  it('returns stored global settings', async () => {
+    mockSendMessage({
+      [GLOBAL_SETTINGS_KEY]: {
+        pushLevel: 'none',
+        suppressEveryoneHere: true,
+        notifyOnReplies: false,
+        notifyOnReactions: true,
+        version: 5,
+      },
+    });
+    const result = await getGlobalNotificationSettings();
+    expect(result.pushLevel).toBe('none');
     expect(result.suppressEveryoneHere).toBe(true);
+    expect(result.notifyOnReplies).toBe(false);
+    expect(result.version).toBe(5);
+  });
+
+  it('defaults missing fields', async () => {
+    mockSendMessage({
+      [GLOBAL_SETTINGS_KEY]: { pushLevel: 'all' },
+    });
+    const result = await getGlobalNotificationSettings();
+    expect(result.pushLevel).toBe('all');
+    expect(result.suppressEveryoneHere).toBe(false);
+    expect(result.notifyOnReplies).toBe(true);
+    expect(result.notifyOnReactions).toBe(true);
+    expect(result.version).toBe(1);
+  });
+});
+
+describe('setGlobalNotificationSettings', () => {
+  it('persists partial over current values and increments version', async () => {
+    const map: Record<string, unknown> = {
+      [GLOBAL_SETTINGS_KEY]: { pushLevel: 'mentions', version: 2 },
+    };
+    mockSendMessage(map);
+    const result = await setGlobalNotificationSettings({ pushLevel: 'none' });
+    expect(result.pushLevel).toBe('none');
+    expect(result.version).toBe(3);
+    // addUserSettings captured the merged object.
+    const calls = (window.sendMessage as any).mock.calls.filter(
+      (c: any[]) => c[0] === 'addUserSettings'
+    );
+    const stored = calls[calls.length - 1][1].keyValue.value;
+    expect(stored.pushLevel).toBe('none');
+    expect(stored.suppressEveryoneHere).toBe(false);
+    expect(stored.version).toBe(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Group store persistence
+// ---------------------------------------------------------------------------
+
+describe('getGroupNotificationStore', () => {
+  it('returns empty channels store when nothing stored', async () => {
+    mockSendMessage({});
+    const result = await getGroupNotificationStore(456);
+    expect(result).toEqual({ channels: {} });
+  });
+
+  it('returns stored store', async () => {
+    mockSendMessage({
+      'q-chat-notif-456': {
+        notifyOnWelcomePosts: false,
+        hideMutedChannels: true,
+        channels: { 'ch-1': { pushLevel: 'none' } },
+      },
+    });
+    const result = await getGroupNotificationStore(456);
+    expect(result.hideMutedChannels).toBe(true);
+    expect(result.channels['ch-1'].pushLevel).toBe('none');
+  });
+});
+
+describe('setGroupNotificationStore', () => {
+  it('writes store via addUserSettings', async () => {
+    mockSendMessage({});
+    const store: GroupNotificationStore = {
+      channels: { 'ch-1': { mutedUntil: null } },
+    };
+    await setGroupNotificationStore(789, store);
+    const calls = (window.sendMessage as any).mock.calls.filter(
+      (c: any[]) => c[0] === 'addUserSettings'
+    );
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls[calls.length - 1][1].keyValue.key).toBe('q-chat-notif-789');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Scope application (parent always overwrites children)
+// ---------------------------------------------------------------------------
+
+describe('applyScopeNotificationSettings / setScopeNotificationSettings', () => {
+  it('group-scope write materializes into all channels, deleting entries that match global defaults', async () => {
+    // Global defaults: pushLevel mentions, suppressEveryoneHere false.
+    mockSendMessage({
+      [GLOBAL_SETTINGS_KEY]: {
+        pushLevel: 'mentions',
+        suppressEveryoneHere: false,
+        notifyOnReplies: true,
+        notifyOnReactions: true,
+        version: 1,
+      },
+    });
+    window.reticulumChat = {
+      getChannels: vi.fn(async () => [
+        { channelId: 'general', categoryId: '' },
+        { channelId: 'random', categoryId: '' },
+      ]),
+    };
+
+    await setScopeNotificationSettings({ groupId: 123 }, { pushLevel: 'none' });
+
+    const calls = (window.sendMessage as any).mock.calls.filter(
+      (c: any[]) => c[0] === 'addUserSettings'
+    );
+    const stored = calls[calls.length - 1][1].keyValue
+      .value as GroupNotificationStore;
+    // Both channels get pushLevel none because it differs from global 'mentions'.
+    expect(stored.channels['general']?.pushLevel).toBe('none');
+    expect(stored.channels['random']?.pushLevel).toBe('none');
+  });
+
+  it('writes suppressEveryoneHere to all channels in scope', async () => {
+    mockSendMessage({
+      [GLOBAL_SETTINGS_KEY]: {
+        pushLevel: 'mentions',
+        suppressEveryoneHere: false,
+        notifyOnReplies: true,
+        notifyOnReactions: true,
+        version: 1,
+      },
+    });
+    window.reticulumChat = {
+      getChannels: vi.fn(async () => [
+        { channelId: 'general', categoryId: '' },
+        { channelId: 'random', categoryId: '' },
+      ]),
+    };
+
+    await setScopeNotificationSettings(
+      { groupId: 1 },
+      { suppressEveryoneHere: true }
+    );
+
+    const calls = (window.sendMessage as any).mock.calls.filter(
+      (c: any[]) => c[0] === 'addUserSettings'
+    );
+    const stored = calls[calls.length - 1][1].keyValue
+      .value as GroupNotificationStore;
+    expect(stored.channels['general']?.suppressEveryoneHere).toBe(true);
+    expect(stored.channels['random']?.suppressEveryoneHere).toBe(true);
+  });
+
+  it('deletes channel entry when settings match global defaults', async () => {
+    mockSendMessage({
+      [GLOBAL_SETTINGS_KEY]: {
+        pushLevel: 'mentions',
+        suppressEveryoneHere: false,
+        notifyOnReplies: true,
+        notifyOnReactions: true,
+        version: 1,
+      },
+      'q-chat-notif-1': {
+        channels: {
+          general: { pushLevel: 'none' },
+          random: { pushLevel: 'mentions' },
+        },
+      },
+    });
+    window.reticulumChat = {
+      getChannels: vi.fn(async () => [
+        { channelId: 'general', categoryId: '' },
+        { channelId: 'random', categoryId: '' },
+      ]),
+    };
+
+    // Apply pushLevel 'mentions' (matches global default) to the group.
+    await setScopeNotificationSettings(
+      { groupId: 1 },
+      { pushLevel: 'mentions' }
+    );
+
+    const calls = (window.sendMessage as any).mock.calls.filter(
+      (c: any[]) => c[0] === 'addUserSettings'
+    );
+    const stored = calls[calls.length - 1][1].keyValue
+      .value as GroupNotificationStore;
+    expect(stored.channels['general']).toBeUndefined();
+    expect(stored.channels['random']).toBeUndefined();
+  });
+
+  it('section-scope writes affect only channels in that section', async () => {
+    mockSendMessage({
+      [GLOBAL_SETTINGS_KEY]: {
+        pushLevel: 'mentions',
+        suppressEveryoneHere: false,
+        notifyOnReplies: true,
+        notifyOnReactions: true,
+        version: 1,
+      },
+    });
+    window.reticulumChat = {
+      getChannels: vi.fn(async () => [
+        { channelId: 'general', categoryId: 'sec-1' },
+        { channelId: 'support', categoryId: 'sec-1' },
+        { channelId: 'offtopic', categoryId: 'sec-2' },
+      ]),
+    };
+
+    await setScopeNotificationSettings(
+      { groupId: 9, sectionId: 'sec-1' },
+      { pushLevel: 'all' }
+    );
+
+    const calls = (window.sendMessage as any).mock.calls.filter(
+      (c: any[]) => c[0] === 'addUserSettings'
+    );
+    const stored = calls[calls.length - 1][1].keyValue
+      .value as GroupNotificationStore;
+    expect(stored.channels['general']?.pushLevel).toBe('all');
+    expect(stored.channels['support']?.pushLevel).toBe('all');
+    expect(stored.channels['offtopic']).toBeUndefined();
+  });
+
+  it('channel-scope write affects only that channel', async () => {
+    mockSendMessage({
+      [GLOBAL_SETTINGS_KEY]: {
+        pushLevel: 'mentions',
+        suppressEveryoneHere: false,
+        notifyOnReplies: true,
+        notifyOnReactions: true,
+        version: 1,
+      },
+      'q-chat-notif-9': {
+        channels: { 'ch-1': { pushLevel: 'all' }, 'ch-2': {} },
+      },
+    });
+
+    await setScopeNotificationSettings(
+      { groupId: 9, sectionId: 'sec-1', channelId: 'ch-1' },
+      { pushLevel: 'none' }
+    );
+
+    const calls = (window.sendMessage as any).mock.calls.filter(
+      (c: any[]) => c[0] === 'addUserSettings'
+    );
+    const stored = calls[calls.length - 1][1].keyValue
+      .value as GroupNotificationStore;
+    expect(stored.channels['ch-1']?.pushLevel).toBe('none');
+    // ch-2 was empty; it stays absent.
+    expect(stored.channels['ch-2']).toBeUndefined();
+  });
+
+  it('writes group-only fields when scope is group-wide', async () => {
+    mockSendMessage({
+      [GLOBAL_SETTINGS_KEY]: {
+        pushLevel: 'mentions',
+        suppressEveryoneHere: false,
+        notifyOnReplies: true,
+        notifyOnReactions: true,
+        version: 1,
+      },
+    });
+    await applyScopeNotificationSettings(
+      { groupId: 4 },
+      { notifyOnWelcomePosts: false, hideMutedChannels: true }
+    );
+    const calls = (window.sendMessage as any).mock.calls.filter(
+      (c: any[]) => c[0] === 'addUserSettings'
+    );
+    const stored = calls[calls.length - 1][1].keyValue
+      .value as GroupNotificationStore;
+    expect(stored.notifyOnWelcomePosts).toBe(false);
+    expect(stored.hideMutedChannels).toBe(true);
+  });
+});
+
+describe('applyNotificationSettingsToAllGroups', () => {
+  it('applies settings to all provided groups', async () => {
+    mockSendMessage({});
+    window.reticulumChat = {
+      getChannels: vi.fn(async () => []),
+    };
+    await applyNotificationSettingsToAllGroups([1, 2, 3], {
+      pushLevel: 'none',
+    });
+    const calls = (window.sendMessage as any).mock.calls.filter(
+      (c: any[]) => c[0] === 'addUserSettings'
+    );
+    const keys = calls.map((c: any[]) => c[1].keyValue.key);
+    expect(keys).toContain('q-chat-notif-1');
+    expect(keys).toContain('q-chat-notif-2');
+    expect(keys).toContain('q-chat-notif-3');
+  });
+
+  it('handles empty group list without error', async () => {
+    mockSendMessage({});
+    await expect(
+      applyNotificationSettingsToAllGroups([], {})
+    ).resolves.toBeUndefined();
+  });
+});
+
+describe('wipeAllChannelOverrides', () => {
+  it('clears channels maps for the given groups', async () => {
+    mockSendMessage({
+      'q-chat-notif-1': { channels: { general: { pushLevel: 'none' } } },
+      'q-chat-notif-2': { channels: { random: { mutedUntil: null } } },
+    });
+    await wipeAllChannelOverrides([1, 2]);
+    const calls = (window.sendMessage as any).mock.calls.filter(
+      (c: any[]) => c[0] === 'addUserSettings'
+    );
+    for (const c of calls) {
+      const stored = c[1].keyValue.value as GroupNotificationStore;
+      expect(Object.keys(stored.channels).length).toBe(0);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Effective settings (async)
+// ---------------------------------------------------------------------------
+
+describe('getEffectiveNotificationSettings', () => {
+  it('returns global defaults when no channel override stored', async () => {
+    mockSendMessage({
+      [GLOBAL_SETTINGS_KEY]: {
+        pushLevel: 'none',
+        suppressEveryoneHere: true,
+        notifyOnReplies: false,
+        notifyOnReactions: false,
+        version: 2,
+      },
+    });
+    const result = await getEffectiveNotificationSettings(
+      123,
+      undefined,
+      'ch-1'
+    );
+    expect(result.pushLevel).toBe('none');
+    expect(result.suppressEveryoneHere).toBe(true);
+    expect(result.notifyOnReplies).toBe(false);
+  });
+
+  it('applies channel override onto global defaults', async () => {
+    mockSendMessage({
+      [GLOBAL_SETTINGS_KEY]: {
+        pushLevel: 'mentions',
+        suppressEveryoneHere: false,
+        notifyOnReplies: true,
+        notifyOnReactions: true,
+        version: 1,
+      },
+      'q-chat-notif-123': {
+        channels: { 'ch-1': { pushLevel: 'all' } },
+      },
+    });
+    const result = await getEffectiveNotificationSettings(
+      123,
+      undefined,
+      'ch-1'
+    );
+    expect(result.pushLevel).toBe('all');
+  });
+
+  it('uses DEFAULT_NOTIFICATION_SETTINGS when no global stored', async () => {
+    mockSendMessage({});
+    const result = await getEffectiveNotificationSettings(
+      123,
+      undefined,
+      'ch-1'
+    );
+    expect(result.pushLevel).toBe('mentions');
     expect(result.notifyOnReplies).toBe(true);
   });
 });
 
-describe('shouldFirePushNotification', () => {
-  const base = DEFAULT_NOTIFICATION_SETTINGS;
-
-  it('fires for all messages when pushLevel is all', () => {
-    expect(
-      shouldFirePushNotification(
-        { ...base, pushLevel: 'all' },
-        false,
-        false,
-        false
-      )
-    ).toBe(true);
-  });
-
-  it('fires for mentions when pushLevel is mentions and not suppressed', () => {
-    expect(
-      shouldFirePushNotification(
-        { ...base, pushLevel: 'mentions' },
-        true,
-        false,
-        false
-      )
-    ).toBe(true);
-  });
-
-  it('does not fire for non-mentions when pushLevel is mentions', () => {
-    expect(
-      shouldFirePushNotification(
-        { ...base, pushLevel: 'mentions' },
-        false,
-        false,
-        false
-      )
-    ).toBe(false);
-  });
-
-  it('suppresses @everyone when suppressEveryoneHere is true', () => {
-    expect(
-      shouldFirePushNotification(
-        { ...base, pushLevel: 'mentions', suppressEveryoneHere: true },
-        true,
-        true,
-        false
-      )
-    ).toBe(false);
-  });
-
-  it('does not suppress @name mentions when suppressEveryoneHere is true', () => {
-    expect(
-      shouldFirePushNotification(
-        { ...base, pushLevel: 'mentions', suppressEveryoneHere: true },
-        true,
-        false,
-        false
-      )
-    ).toBe(true);
-  });
-
-  it('does not fire when pushLevel is none and no reply', () => {
-    expect(
-      shouldFirePushNotification(
-        { ...base, pushLevel: 'none' },
-        true,
-        false,
-        false
-      )
-    ).toBe(false);
-  });
-
-  it('fires for reply when notifyOnReplies is true even with none', () => {
-    expect(
-      shouldFirePushNotification(
-        { ...base, pushLevel: 'none', notifyOnReplies: true },
-        false,
-        false,
-        true
-      )
-    ).toBe(true);
-  });
-
-  it('all messages overrides suppress for @everyone', () => {
-    expect(
-      shouldFirePushNotification(
-        { ...base, pushLevel: 'all', suppressEveryoneHere: true },
-        true,
-        true,
-        false
-      )
-    ).toBe(true);
-  });
-
-  it('fires for non-mentioned message when pushLevel is all', () => {
-    expect(
-      shouldFirePushNotification(
-        { ...base, pushLevel: 'all' },
-        false,
-        false,
-        false
-      )
-    ).toBe(true);
-  });
-
-  it('does not fire for non-mentioned message when pushLevel is mentions', () => {
-    expect(
-      shouldFirePushNotification(
-        { ...base, pushLevel: 'mentions' },
-        false,
-        false,
-        false
-      )
-    ).toBe(false);
-  });
-
-  it('does not fire for non-mentioned message when pushLevel is none', () => {
-    expect(
-      shouldFirePushNotification(
-        { ...base, pushLevel: 'none' },
-        false,
-        false,
-        false
-      )
-    ).toBe(false);
-  });
-
-  it('fires for reaction when notifyOnReactions is true', () => {
-    expect(
-      shouldFirePushNotification(
-        { ...base, pushLevel: 'none', notifyOnReactions: true },
-        false,
-        false,
-        false,
-        true
-      )
-    ).toBe(true);
-  });
-
-  it('does not fire for reaction when notifyOnReactions is false', () => {
-    expect(
-      shouldFirePushNotification(
-        { ...base, pushLevel: 'none', notifyOnReactions: false },
-        false,
-        false,
-        false,
-        true
-      )
-    ).toBe(false);
-  });
-
-  it('fires for all messages when pushLevel is all regardless of reaction', () => {
-    expect(
-      shouldFirePushNotification(
-        { ...base, pushLevel: 'all', notifyOnReactions: false },
-        false,
-        false,
-        false,
-        true
-      )
-    ).toBe(true);
-  });
-
-  it('default isReactionToUser is false (no reaction notifications by default)', () => {
-    expect(
-      shouldFirePushNotification(
-        { ...base, pushLevel: 'none' },
-        false,
-        false,
-        false
-      )
-    ).toBe(false);
-  });
-});
-
-describe('setScopeNotificationSettings', () => {
-  it('writes group-level settings', async () => {
-    const store: Record<string, unknown> = {};
-    vi.stubGlobal('window', {
-      ...window,
-      sendMessage: vi.fn(
-        async (
-          type: string,
-          opts: { key?: string; keyValue?: { key: string; value: unknown } }
-        ) => {
-          if (type === 'getUserSettings' && opts?.key) {
-            return store[opts.key] ?? null;
-          }
-          if (type === 'addUserSettings' && opts?.keyValue) {
-            store[opts.keyValue.key] = opts.keyValue.value;
-            return { error: null };
-          }
-          return null;
-        }
-      ),
-    });
-
-    await setScopeNotificationSettings({ groupId: 123 }, { pushLevel: 'none' });
-
-    const stored = store[
-      'q-chat-notification-settings-123'
-    ] as GroupNotificationSettingsData;
-    expect(stored.pushLevel).toBe('none');
-  });
-
-  it('writes section-level override within group JSON', async () => {
-    const store: Record<string, unknown> = {};
-    vi.stubGlobal('window', {
-      ...window,
-      sendMessage: vi.fn(
-        async (
-          type: string,
-          opts: { key?: string; keyValue?: { key: string; value: unknown } }
-        ) => {
-          if (type === 'getUserSettings' && opts?.key) {
-            return store[opts.key] ?? null;
-          }
-          if (type === 'addUserSettings' && opts?.keyValue) {
-            store[opts.keyValue.key] = opts.keyValue.value;
-            return { error: null };
-          }
-          return null;
-        }
-      ),
-    });
-
-    await setScopeNotificationSettings(
-      { groupId: 123, sectionId: 'sec-1' },
-      { pushLevel: 'all' }
-    );
-
-    const stored = store[
-      'q-chat-notification-settings-123'
-    ] as GroupNotificationSettingsData;
-    expect(stored.sections?.['sec-1']?.pushLevel).toBe('all');
-  });
-
-  it('writes channel-level override within section JSON', async () => {
-    const store: Record<string, unknown> = {};
-    vi.stubGlobal('window', {
-      ...window,
-      sendMessage: vi.fn(
-        async (
-          type: string,
-          opts: { key?: string; keyValue?: { key: string; value: unknown } }
-        ) => {
-          if (type === 'getUserSettings' && opts?.key) {
-            return store[opts.key] ?? null;
-          }
-          if (type === 'addUserSettings' && opts?.keyValue) {
-            store[opts.keyValue.key] = opts.keyValue.value;
-            return { error: null };
-          }
-          return null;
-        }
-      ),
-    });
-
-    await setScopeNotificationSettings(
-      { groupId: 123, sectionId: 'sec-1', channelId: 'ch-1' },
-      { notifyOnReplies: true }
-    );
-
-    const stored = store[
-      'q-chat-notification-settings-123'
-    ] as GroupNotificationSettingsData;
-    expect(
-      stored.sections?.['sec-1']?.channels?.['ch-1']?.notifyOnReplies
-    ).toBe(true);
-  });
-});
-
-describe('migrateNotificationSettings', () => {
-  it('skips when already migrated', async () => {
-    const sendMessage = vi.fn().mockResolvedValue(true);
-    vi.stubGlobal('window', { ...window, sendMessage });
-
-    await migrateNotificationSettings([1, 2, 3]);
-
-    expect(sendMessage).toHaveBeenCalledTimes(1);
-  });
-
-  it('sets groups to none when old mention setting was disabled', async () => {
-    const store: Record<string, unknown> = {
-      'q-chat-notification-settings-migrated': false,
-      'q-chat-mention-notifications-disabled': true,
-      mutedGroups: [],
-    };
-    vi.stubGlobal('window', {
-      ...window,
-      sendMessage: vi.fn(
-        async (
-          type: string,
-          opts: { key?: string; keyValue?: { key: string; value: unknown } }
-        ) => {
-          if (type === 'getUserSettings' && opts?.key) {
-            return store[opts.key] ?? null;
-          }
-          if (type === 'addUserSettings' && opts?.keyValue) {
-            store[opts.keyValue.key] = opts.keyValue.value;
-            return { error: null };
-          }
-          return null;
-        }
-      ),
-    });
-
-    await migrateNotificationSettings([1, 2]);
-
-    const s1 = store[
-      'q-chat-notification-settings-1'
-    ] as GroupNotificationSettingsData;
-    const s2 = store[
-      'q-chat-notification-settings-2'
-    ] as GroupNotificationSettingsData;
-    expect(s1?.pushLevel).toBe('none');
-    expect(s2?.pushLevel).toBe('none');
-    expect(store['q-chat-notification-settings-migrated']).toBe(true);
-  });
-
-  it('sets muted groups to none', async () => {
-    const store: Record<string, unknown> = {
-      'q-chat-notification-settings-migrated': false,
-      'q-chat-mention-notifications-disabled': false,
-      mutedGroups: [5, 6],
-    };
-    vi.stubGlobal('window', {
-      ...window,
-      sendMessage: vi.fn(
-        async (
-          type: string,
-          opts: { key?: string; keyValue?: { key: string; value: unknown } }
-        ) => {
-          if (type === 'getUserSettings' && opts?.key) {
-            return store[opts.key] ?? null;
-          }
-          if (type === 'addUserSettings' && opts?.keyValue) {
-            store[opts.keyValue.key] = opts.keyValue.value;
-            return { error: null };
-          }
-          return null;
-        }
-      ),
-    });
-
-    await migrateNotificationSettings([5, 6, 7]);
-
-    const s5 = store[
-      'q-chat-notification-settings-5'
-    ] as GroupNotificationSettingsData;
-    const s6 = store[
-      'q-chat-notification-settings-6'
-    ] as GroupNotificationSettingsData;
-    const s7 = store['q-chat-notification-settings-7'];
-    expect(s5?.pushLevel).toBe('none');
-    expect(s6?.pushLevel).toBe('none');
-    expect(s7).toBeUndefined();
-  });
-
-  it('does not overwrite existing settings', async () => {
-    const store: Record<string, unknown> = {
-      'q-chat-notification-settings-migrated': false,
-      'q-chat-mention-notifications-disabled': true,
-      mutedGroups: [],
-      'q-chat-notification-settings-1': { pushLevel: 'all' },
-    };
-    vi.stubGlobal('window', {
-      ...window,
-      sendMessage: vi.fn(
-        async (
-          type: string,
-          opts: { key?: string; keyValue?: { key: string; value: unknown } }
-        ) => {
-          if (type === 'getUserSettings' && opts?.key) {
-            return store[opts.key] ?? null;
-          }
-          if (type === 'addUserSettings' && opts?.keyValue) {
-            store[opts.keyValue.key] = opts.keyValue.value;
-            return { error: null };
-          }
-          return null;
-        }
-      ),
-    });
-
-    await migrateNotificationSettings([1, 2]);
-
-    const s1 = store[
-      'q-chat-notification-settings-1'
-    ] as GroupNotificationSettingsData;
-    expect(s1.pushLevel).toBe('all');
-  });
-});
-
-describe('getEffectiveNotificationSettings (async)', () => {
-  it('returns defaults when no settings stored', async () => {
-    mockSendMessage({});
-    const result = await getEffectiveNotificationSettings(123);
-    expect(result).toEqual(DEFAULT_NOTIFICATION_SETTINGS);
-  });
-
-  it('resolves group-level settings', async () => {
-    mockSendMessage({
-      'q-chat-notification-settings-123': { pushLevel: 'all' },
-    });
-    const result = await getEffectiveNotificationSettings(123);
-    expect(result.pushLevel).toBe('all');
-  });
-});
-
-describe('getGroupNotificationSettings', () => {
-  it('returns empty object when no settings stored', async () => {
-    mockSendMessage({});
-    const result = await getGroupNotificationSettings(456);
-    expect(result).toEqual({});
-  });
-
-  it('returns stored settings', async () => {
-    mockSendMessage({
-      'q-chat-notification-settings-456': { pushLevel: 'none' },
-    });
-    const result = await getGroupNotificationSettings(456);
-    expect(result.pushLevel).toBe('none');
-  });
-});
-
-describe('setGroupNotificationSettings', () => {
-  it('writes settings and fires event', async () => {
-    const store: Record<string, unknown> = {};
-    vi.stubGlobal('window', {
-      ...window,
-      sendMessage: vi.fn(
-        async (
-          type: string,
-          opts: { keyValue?: { key: string; value: unknown } }
-        ) => {
-          if (type === 'addUserSettings' && opts?.keyValue) {
-            store[opts.keyValue.key] = opts.keyValue.value;
-            return { error: null };
-          }
-          return null;
-        }
-      ),
-    });
-
-    await setGroupNotificationSettings(789, { pushLevel: 'mentions' });
-
-    expect(store['q-chat-notification-settings-789']).toEqual({
-      pushLevel: 'mentions',
-    });
-  });
-});
+// ---------------------------------------------------------------------------
+// Mute helpers (flat model)
+// ---------------------------------------------------------------------------
 
 describe('isScopeMuted', () => {
   it('returns false when no mutedUntil set at any level', () => {
-    const settings: GroupNotificationSettingsData = {};
-    expect(isScopeMuted(settings)).toBe(false);
-    expect(isScopeMuted(settings, 'sec-1')).toBe(false);
-    expect(isScopeMuted(settings, 'sec-1', 'ch-1')).toBe(false);
+    const settings: GroupNotificationStore = { channels: {} };
+    expect(isScopeMuted(settings, undefined, 'ch-1')).toBe(false);
   });
 
   it('returns true when channel mute is active with future timestamp', () => {
-    const settings: GroupNotificationSettingsData = {
-      sections: {
-        '': { channels: { 'ch-1': { mutedUntil: Date.now() + 60_000 } } },
-      },
+    const settings: GroupNotificationStore = {
+      channels: { 'ch-1': { mutedUntil: Date.now() + 60_000 } },
     };
     expect(isScopeMuted(settings, undefined, 'ch-1')).toBe(true);
   });
 
   it('returns true when channel is muted indefinitely (null)', () => {
-    const settings: GroupNotificationSettingsData = {
-      sections: { '': { channels: { 'ch-1': { mutedUntil: null } } } },
+    const settings: GroupNotificationStore = {
+      channels: { 'ch-1': { mutedUntil: null } },
     };
     expect(isScopeMuted(settings, undefined, 'ch-1')).toBe(true);
   });
 
   it('returns false when channel mute has expired', () => {
-    const settings: GroupNotificationSettingsData = {
-      sections: {
-        '': { channels: { 'ch-1': { mutedUntil: Date.now() - 60_000 } } },
-      },
+    const settings: GroupNotificationStore = {
+      channels: { 'ch-1': { mutedUntil: Date.now() - 60_000 } },
     };
     expect(isScopeMuted(settings, undefined, 'ch-1')).toBe(false);
   });
 
-  it('channel is muted via its own mutedUntil', () => {
-    const settings: GroupNotificationSettingsData = {
-      sections: {
-        'sec-1': {
-          channels: {
-            'ch-1': { mutedUntil: Date.now() + 60_000 },
-          },
-        },
-      },
+  it('channel without an entry is not muted', () => {
+    const settings: GroupNotificationStore = {
+      channels: { 'ch-1': { mutedUntil: null } },
     };
-    expect(isScopeMuted(settings, 'sec-1', 'ch-1')).toBe(true);
+    expect(isScopeMuted(settings, undefined, 'ch-2')).toBe(false);
+  });
+});
+
+describe('getScopeMutedUntil', () => {
+  it('returns undefined when no channel', () => {
+    const settings: GroupNotificationStore = { channels: {} };
+    expect(getScopeMutedUntil(settings, undefined, 'ch-1')).toBeUndefined();
   });
 
-  it('sibling channel is unaffected', () => {
-    const settings: GroupNotificationSettingsData = {
-      sections: {
-        'sec-1': {
-          channels: {
-            'ch-1': { mutedUntil: Date.now() + 60_000 },
-            'ch-2': {},
-          },
-        },
-      },
+  it('returns stored value', () => {
+    const settings: GroupNotificationStore = {
+      channels: { 'ch-1': { mutedUntil: null } },
     };
-    expect(isScopeMuted(settings, 'sec-1', 'ch-1')).toBe(true);
-    expect(isScopeMuted(settings, 'sec-1', 'ch-2')).toBe(false);
-  });
-
-  it('channel mute does not affect siblings', () => {
-    const settings: GroupNotificationSettingsData = {
-      sections: {
-        'sec-1': {
-          channels: {
-            'ch-1': { mutedUntil: Date.now() + 60_000 },
-            'ch-2': {},
-          },
-        },
-      },
-    };
-    expect(isScopeMuted(settings, 'sec-1', 'ch-1')).toBe(true);
-    expect(isScopeMuted(settings, 'sec-1', 'ch-2')).toBe(false);
-  });
-
-  it('channel own mute wins over section unmute', () => {
-    const settings: GroupNotificationSettingsData = {
-      sections: {
-        'sec-1': {
-          mutedUntil: undefined,
-          channels: {
-            'ch-1': { mutedUntil: null },
-          },
-        },
-      },
-    };
-    expect(isScopeMuted(settings, 'sec-1', 'ch-1')).toBe(true);
-  });
-
-  it('channel in default category (no sectionId) is muted via empty-string section', () => {
-    const settings: GroupNotificationSettingsData = {
-      sections: {
-        '': {
-          channels: {
-            'ch-1': { mutedUntil: null },
-          },
-        },
-      },
-    };
-    expect(isScopeMuted(settings, undefined, 'ch-1')).toBe(true);
-  });
-
-  it('channel in default category with empty-string sectionId is muted', () => {
-    const settings: GroupNotificationSettingsData = {
-      sections: {
-        '': {
-          channels: {
-            'ch-1': { mutedUntil: null },
-          },
-        },
-      },
-    };
-    expect(isScopeMuted(settings, '', 'ch-1')).toBe(true);
-  });
-
-  it('channel unmute (0) overrides group mute', () => {
-    const settings: GroupNotificationSettingsData = {
-      mutedUntil: null,
-      sections: {
-        'sec-1': {
-          channels: {
-            'ch-1': { mutedUntil: 0 },
-          },
-        },
-      },
-    };
-    expect(isScopeMuted(settings, 'sec-1', 'ch-1')).toBe(false);
-  });
-
-  it('channel unmute (0) overrides section mute', () => {
-    const settings: GroupNotificationSettingsData = {
-      sections: {
-        'sec-1': {
-          mutedUntil: null,
-          channels: {
-            'ch-1': { mutedUntil: 0 },
-          },
-        },
-      },
-    };
-    expect(isScopeMuted(settings, 'sec-1', 'ch-1')).toBe(false);
-  });
-
-  it('section unmute (0) overrides group mute', () => {
-    const settings: GroupNotificationSettingsData = {
-      mutedUntil: null,
-      sections: {
-        'sec-1': {
-          mutedUntil: 0,
-        },
-      },
-    };
-    expect(isScopeMuted(settings, 'sec-1')).toBe(false);
-  });
-
-  it('channel mute overrides section unmute', () => {
-    const settings: GroupNotificationSettingsData = {
-      sections: {
-        'sec-1': {
-          mutedUntil: 0,
-          channels: {
-            'ch-1': { mutedUntil: null },
-          },
-        },
-      },
-    };
-    expect(isScopeMuted(settings, 'sec-1', 'ch-1')).toBe(true);
-  });
-
-  it('channel unmute in default category overrides group mute', () => {
-    const settings: GroupNotificationSettingsData = {
-      mutedUntil: null,
-      sections: {
-        '': {
-          channels: {
-            'ch-1': { mutedUntil: 0 },
-          },
-        },
-      },
-    };
-    expect(isScopeMuted(settings, undefined, 'ch-1')).toBe(false);
-  });
-
-  it('unmuted (0) channel is not muted, sibling with null is muted', () => {
-    const settings: GroupNotificationSettingsData = {
-      sections: {
-        'sec-1': {
-          channels: {
-            'ch-1': { mutedUntil: 0 },
-            'ch-2': { mutedUntil: null },
-          },
-        },
-      },
-    };
-    expect(isScopeMuted(settings, 'sec-1', 'ch-1')).toBe(false);
-    expect(isScopeMuted(settings, 'sec-1', 'ch-2')).toBe(true);
+    expect(getScopeMutedUntil(settings, undefined, 'ch-1')).toBeNull();
   });
 });
 
 describe('setScopeMuted / unmuteScope', () => {
-  function createStoreMock() {
-    const store: Record<string, unknown> = {};
-    vi.stubGlobal('window', {
-      ...window,
-      sendMessage: vi.fn(
-        async (
-          type: string,
-          opts: { key?: string; keyValue?: { key: string; value: unknown } }
-        ) => {
-          if (type === 'getUserSettings' && opts?.key) {
-            return store[opts.key] ?? null;
-          }
-          if (type === 'addUserSettings' && opts?.keyValue) {
-            store[opts.keyValue.key] = opts.keyValue.value;
-            return { error: null };
-          }
-          return null;
-        }
-      ),
-    });
-    return store;
-  }
-
   it('writes mutedUntil on all channels for group scope', async () => {
-    const store = createStoreMock();
-    vi.stubGlobal('window', {
-      ...(window as any),
-      sendMessage: (window as any).sendMessage,
-      reticulumChat: {
-        getChannels: async () => [
-          { channelId: 'general', categoryId: '' },
-          { channelId: 'random', categoryId: 'sec-1' },
-        ],
-      },
-    });
-    const ts = Date.now() + 3600_000;
+    mockSendMessage({});
+    window.reticulumChat = {
+      getChannels: vi.fn(async () => [
+        { channelId: 'general', categoryId: '' },
+        { channelId: 'random', categoryId: '' },
+      ]),
+    };
+    const ts = Date.now() + 60_000;
     await setScopeMuted({ groupId: 123 }, ts);
-    const stored = store[
-      'q-chat-notification-settings-123'
-    ] as GroupNotificationSettingsData;
-    expect(stored.sections?.['']?.channels?.['general']?.mutedUntil).toBe(ts);
-    expect(stored.sections?.['sec-1']?.channels?.['random']?.mutedUntil).toBe(
-      ts
+    const calls = (window.sendMessage as any).mock.calls.filter(
+      (c: any[]) => c[0] === 'addUserSettings'
     );
+    const stored = calls[calls.length - 1][1].keyValue
+      .value as GroupNotificationStore;
+    expect(stored.channels['general']?.mutedUntil).toBe(ts);
+    expect(stored.channels['random']?.mutedUntil).toBe(ts);
   });
 
   it('writes mutedUntil on all channels in section for section scope', async () => {
-    const store = createStoreMock();
-    vi.stubGlobal('window', {
-      ...(window as any),
-      sendMessage: (window as any).sendMessage,
-      reticulumChat: {
-        getChannels: async () => [
-          { channelId: 'general', categoryId: '' },
-          { channelId: 'support', categoryId: 'sec-1' },
-          { channelId: 'offtopic', categoryId: 'sec-1' },
-        ],
-      },
-    });
+    mockSendMessage({});
+    window.reticulumChat = {
+      getChannels: vi.fn(async () => [
+        { channelId: 'support', categoryId: 'sec-1' },
+        { channelId: 'offtopic', categoryId: 'sec-1' },
+        { channelId: 'general', categoryId: 'sec-2' },
+      ]),
+    };
     await setScopeMuted({ groupId: 123, sectionId: 'sec-1' }, null);
-    const stored = store[
-      'q-chat-notification-settings-123'
-    ] as GroupNotificationSettingsData;
-    expect(
-      stored.sections?.['sec-1']?.channels?.['support']?.mutedUntil
-    ).toBeNull();
-    expect(
-      stored.sections?.['sec-1']?.channels?.['offtopic']?.mutedUntil
-    ).toBeNull();
-    expect(
-      stored.sections?.['']?.channels?.['general']?.mutedUntil
-    ).toBeUndefined();
+    const calls = (window.sendMessage as any).mock.calls.filter(
+      (c: any[]) => c[0] === 'addUserSettings'
+    );
+    const stored = calls[calls.length - 1][1].keyValue
+      .value as GroupNotificationStore;
+    expect(stored.channels['support']?.mutedUntil).toBeNull();
+    expect(stored.channels['offtopic']?.mutedUntil).toBeNull();
+    expect(stored.channels['general']?.mutedUntil).toBeUndefined();
   });
 
   it('writes mutedUntil at channel level', async () => {
-    const store = createStoreMock();
-    const ts = Date.now() + 900_000;
+    mockSendMessage({});
+    const ts = Date.now() + 60_000;
     await setScopeMuted(
       { groupId: 123, sectionId: 'sec-1', channelId: 'ch-1' },
       ts
     );
-    const stored = store[
-      'q-chat-notification-settings-123'
-    ] as GroupNotificationSettingsData;
-    expect(stored.sections?.['sec-1']?.channels?.['ch-1']?.mutedUntil).toBe(ts);
+    const calls = (window.sendMessage as any).mock.calls.filter(
+      (c: any[]) => c[0] === 'addUserSettings'
+    );
+    const stored = calls[calls.length - 1][1].keyValue
+      .value as GroupNotificationStore;
+    expect(stored.channels['ch-1']?.mutedUntil).toBe(ts);
   });
 
   it('unmuteScope clears mutedUntil at channel level', async () => {
-    const store = createStoreMock();
-    await setScopeMuted(
-      { groupId: 123, sectionId: 'sec-1', channelId: 'ch-1' },
-      null
+    mockSendMessage({});
+    await unmuteScope({ groupId: 123, sectionId: 'sec-1', channelId: 'ch-1' });
+    const calls = (window.sendMessage as any).mock.calls.filter(
+      (c: any[]) => c[0] === 'addUserSettings'
     );
-    await unmuteScope({
-      groupId: 123,
-      sectionId: 'sec-1',
-      channelId: 'ch-1',
-    });
-    const stored = store[
-      'q-chat-notification-settings-123'
-    ] as GroupNotificationSettingsData;
-    expect(stored.sections?.['sec-1']?.channels?.['ch-1']?.mutedUntil).toBe(0);
-  });
-
-  it('writes mutedUntil for channel in default category (no sectionId)', async () => {
-    const store = createStoreMock();
-    await setScopeMuted({ groupId: 123, channelId: 'ch-1' }, null);
-    const stored = store[
-      'q-chat-notification-settings-123'
-    ] as GroupNotificationSettingsData;
-    expect(stored.sections?.['']?.channels?.['ch-1']?.mutedUntil).toBeNull();
-  });
-
-  it('writes mutedUntil for channel with empty-string sectionId', async () => {
-    const store = createStoreMock();
-    await setScopeMuted(
-      { groupId: 123, sectionId: '', channelId: 'ch-1' },
-      null
-    );
-    const stored = store[
-      'q-chat-notification-settings-123'
-    ] as GroupNotificationSettingsData;
-    expect(stored.sections?.['']?.channels?.['ch-1']?.mutedUntil).toBeNull();
+    const stored = calls[calls.length - 1][1].keyValue
+      .value as GroupNotificationStore;
+    // 0 = explicitly unmuted = treated as "no override" and pruned.
+    expect(stored.channels['ch-1']?.mutedUntil).toBeUndefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Group-only settings accessors
+// ---------------------------------------------------------------------------
 
 describe('getHideMutedChannels / setHideMutedChannels', () => {
-  function createStoreMock(initial?: Record<string, unknown>) {
-    const store: Record<string, unknown> = { ...initial };
-    vi.stubGlobal('window', {
-      ...window,
-      sendMessage: vi.fn(
-        async (
-          type: string,
-          opts: { key?: string; keyValue?: { key: string; value: unknown } }
-        ) => {
-          if (type === 'getUserSettings' && opts?.key) {
-            return store[opts.key] ?? null;
-          }
-          if (type === 'addUserSettings' && opts?.keyValue) {
-            store[opts.keyValue.key] = opts.keyValue.value;
-            return { error: null };
-          }
-          return null;
-        }
-      ),
+  it('reads hideMutedChannels from store', async () => {
+    mockSendMessage({
+      'q-chat-notif-123': { hideMutedChannels: true, channels: {} },
     });
-    return store;
-  }
-
-  it('getHideMutedChannels returns false by default', async () => {
-    createStoreMock({});
-    const result = await getHideMutedChannels(123);
-    expect(result).toBe(false);
+    expect(await getHideMutedChannels(123)).toBe(true);
   });
 
-  it('getHideMutedChannels returns true when set', async () => {
-    createStoreMock({
-      'q-chat-notification-settings-123': { hideMutedChannels: true },
-    });
-    const result = await getHideMutedChannels(123);
-    expect(result).toBe(true);
-  });
-
-  it('setHideMutedChannels writes to group root', async () => {
-    const store = createStoreMock();
-    await setHideMutedChannels(123, true);
-    const stored = store[
-      'q-chat-notification-settings-123'
-    ] as GroupNotificationSettingsData;
-    expect(stored.hideMutedChannels).toBe(true);
-  });
-
-  it('setHideMutedChannels preserves existing settings', async () => {
-    const store = createStoreMock({
-      'q-chat-notification-settings-123': { pushLevel: 'none' },
+  it('writes hideMutedChannels preserving channels', async () => {
+    mockSendMessage({
+      'q-chat-notif-123': { channels: { 'ch-1': { pushLevel: 'none' } } },
     });
     await setHideMutedChannels(123, true);
-    const stored = store[
-      'q-chat-notification-settings-123'
-    ] as GroupNotificationSettingsData;
+    const calls = (window.sendMessage as any).mock.calls.filter(
+      (c: any[]) => c[0] === 'addUserSettings'
+    );
+    const stored = calls[calls.length - 1][1].keyValue
+      .value as GroupNotificationStore;
     expect(stored.hideMutedChannels).toBe(true);
-    expect(stored.pushLevel).toBe('none');
+    expect(stored.channels['ch-1']?.pushLevel).toBe('none');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Unread-count helpers (flat model)
+// ---------------------------------------------------------------------------
 
 describe('groupHasUnreadConsideringMute', () => {
   it('returns true when group is not muted and has unread', () => {
-    const settings: GroupNotificationSettingsData = {};
+    const settings: GroupNotificationStore = { channels: {} };
     const summary = { unreadCount: 5, mentionCount: 0 };
     expect(groupHasUnreadConsideringMute(settings, summary)).toBe(true);
   });
 
   it('returns false when group is not muted and no unread', () => {
-    const settings: GroupNotificationSettingsData = {};
+    const settings: GroupNotificationStore = { channels: {} };
     const summary = { unreadCount: 0, mentionCount: 0 };
     expect(groupHasUnreadConsideringMute(settings, summary)).toBe(false);
   });
 
-  it('returns false when all channels are muted (no unmuted channels)', () => {
-    const settings: GroupNotificationSettingsData = {
-      sections: {
-        '': { channels: { general: { mutedUntil: null } } },
+  it('returns false when all channels with unread are muted', () => {
+    const settings: GroupNotificationStore = {
+      channels: {
+        general: { mutedUntil: null },
+        random: { mutedUntil: null },
       },
     };
     const summary = {
-      unreadCount: 5,
-      mentionCount: 0,
-      channels: [{ channelId: 'general', unreadCount: 5, mentionCount: 0 }],
-    };
-    expect(groupHasUnreadConsideringMute(settings, summary)).toBe(false);
-  });
-
-  it('returns true when some channels are unmuted and have unread', () => {
-    const settings: GroupNotificationSettingsData = {
-      sections: {
-        'sec-1': {
-          channels: {
-            'ch-1': {},
-          },
-        },
-      },
-    };
-    const summary = {
-      unreadCount: 5,
-      mentionCount: 0,
       channels: [
-        { channelId: 'ch-1', unreadCount: 3, mentionCount: 0 },
-        { channelId: 'ch-2', unreadCount: 2, mentionCount: 0 },
-      ],
-    };
-    expect(groupHasUnreadConsideringMute(settings, summary)).toBe(true);
-  });
-
-  it('returns false when only muted channels have unread', () => {
-    const settings: GroupNotificationSettingsData = {
-      sections: {
-        'sec-1': {
-          channels: {
-            'ch-1': { mutedUntil: null },
-            'ch-2': { mutedUntil: null },
-          },
-        },
-      },
-    };
-    const summary = {
-      unreadCount: 5,
-      mentionCount: 0,
-      channels: [
-        { channelId: 'ch-1', unreadCount: 3, mentionCount: 0 },
-        { channelId: 'ch-2', unreadCount: 2, mentionCount: 0 },
+        { channelId: 'general', unreadCount: 3, mentionCount: 0 },
+        { channelId: 'random', unreadCount: 2, mentionCount: 0 },
       ],
     };
     expect(groupHasUnreadConsideringMute(settings, summary)).toBe(false);
   });
 
   it('returns true when unmuted channel has mention', () => {
-    const settings: GroupNotificationSettingsData = {
-      sections: {
-        'sec-1': {
-          channels: {
-            'ch-1': {},
-          },
-        },
+    const settings: GroupNotificationStore = {
+      channels: {
+        general: { mutedUntil: null },
+        random: {},
       },
     };
     const summary = {
-      unreadCount: 0,
-      mentionCount: 1,
-      hasUnreadMention: true,
       channels: [
-        {
-          channelId: 'ch-1',
-          unreadCount: 0,
-          mentionCount: 1,
-          hasUnreadMention: true,
-        },
+        { channelId: 'general', unreadCount: 3, mentionCount: 0 },
+        { channelId: 'random', unreadCount: 0, mentionCount: 1 },
       ],
     };
     expect(groupHasUnreadConsideringMute(settings, summary)).toBe(true);
-  });
-
-  it('returns false when no summary provided', () => {
-    const settings: GroupNotificationSettingsData = {};
-    expect(groupHasUnreadConsideringMute(settings, null)).toBe(false);
-  });
-
-  it('returns true when group is muted and unmuted channel in default section has unread', () => {
-    const settings: GroupNotificationSettingsData = {
-      mutedUntil: null,
-      sections: {
-        '': {
-          channels: {
-            'ch-1': { mutedUntil: 0 },
-          },
-        },
-      },
-    };
-    const summary = {
-      unreadCount: 5,
-      mentionCount: 0,
-      channels: [{ channelId: 'ch-1', unreadCount: 5, mentionCount: 0 }],
-    };
-    expect(groupHasUnreadConsideringMute(settings, summary)).toBe(true);
-  });
-
-  it('returns true when non-muted group has non-muted channel with unread', () => {
-    const settings: GroupNotificationSettingsData = {};
-    const summary = {
-      unreadCount: 5,
-      mentionCount: 0,
-      channels: [{ channelId: 'ch-1', unreadCount: 5, mentionCount: 0 }],
-    };
-    expect(groupHasUnreadConsideringMute(settings, summary)).toBe(true);
-  });
-
-  it('returns false when non-muted group has only muted channels with unread', () => {
-    const settings: GroupNotificationSettingsData = {
-      sections: {
-        'sec-1': {
-          channels: {
-            'ch-1': { mutedUntil: null },
-          },
-        },
-      },
-    };
-    const summary = {
-      unreadCount: 5,
-      mentionCount: 0,
-      channels: [{ channelId: 'ch-1', unreadCount: 5, mentionCount: 0 }],
-    };
-    expect(groupHasUnreadConsideringMute(settings, summary)).toBe(false);
-  });
-
-  it('returns true when non-muted group has mixed muted and non-muted channels', () => {
-    const settings: GroupNotificationSettingsData = {
-      sections: {
-        'sec-1': {
-          channels: {
-            'ch-1': { mutedUntil: null },
-          },
-        },
-      },
-    };
-    const summary = {
-      unreadCount: 8,
-      mentionCount: 0,
-      channels: [
-        { channelId: 'ch-1', unreadCount: 3, mentionCount: 0 },
-        { channelId: 'ch-2', unreadCount: 5, mentionCount: 0 },
-      ],
-    };
-    expect(groupHasUnreadConsideringMute(settings, summary)).toBe(true);
-  });
-
-  it('returns false when all channels are muted with unread', () => {
-    const settings: GroupNotificationSettingsData = {
-      sections: {
-        'sec-1': {
-          channels: {
-            'ch-1': { mutedUntil: null },
-          },
-        },
-      },
-    };
-    const summary = {
-      unreadCount: 5,
-      mentionCount: 0,
-      channels: [{ channelId: 'ch-1', unreadCount: 5, mentionCount: 0 }],
-    };
-    expect(groupHasUnreadConsideringMute(settings, summary)).toBe(false);
-  });
-
-  it('returns true when non-muted group has empty channels array with aggregate unread', () => {
-    const settings: GroupNotificationSettingsData = {};
-    const summary = {
-      unreadCount: 5,
-      mentionCount: 0,
-      channels: [] as any[],
-    };
-    expect(groupHasUnreadConsideringMute(settings, summary)).toBe(true);
-  });
-
-  it('excludes muted channel unread but includes non-muted channel mention in non-muted group', () => {
-    const settings: GroupNotificationSettingsData = {
-      sections: {
-        'sec-1': {
-          channels: {
-            'ch-1': { mutedUntil: null },
-          },
-        },
-      },
-    };
-    const summary = {
-      unreadCount: 3,
-      mentionCount: 1,
-      hasUnreadMention: true,
-      channels: [
-        { channelId: 'ch-1', unreadCount: 3, mentionCount: 0 },
-        {
-          channelId: 'ch-2',
-          unreadCount: 0,
-          mentionCount: 1,
-          hasUnreadMention: true,
-        },
-      ],
-    };
-    expect(groupHasUnreadConsideringMute(settings, summary)).toBe(true);
-  });
-});
-
-describe('resolveEffectiveSettings — notifyOnReactions', () => {
-  it('defaults to true when not stored', () => {
-    const result = resolveEffectiveSettings({});
-    expect(result.notifyOnReactions).toBe(true);
-  });
-
-  it('returns false when stored as false at group level', () => {
-    const settings: GroupNotificationSettingsData = {
-      notifyOnReactions: false,
-    };
-    const result = resolveEffectiveSettings(settings);
-    expect(result.notifyOnReactions).toBe(false);
-  });
-
-  it('returns true when stored as true at group level', () => {
-    const settings: GroupNotificationSettingsData = {
-      notifyOnReactions: true,
-    };
-    const result = resolveEffectiveSettings(settings);
-    expect(result.notifyOnReactions).toBe(true);
-  });
-
-  it('section override wins over group', () => {
-    const settings: GroupNotificationSettingsData = {
-      notifyOnReactions: false,
-      sections: {
-        'sec-1': {
-          notifyOnReactions: true,
-        },
-      },
-    };
-    const result = resolveEffectiveSettings(settings, 'sec-1');
-    expect(result.notifyOnReactions).toBe(true);
-  });
-
-  it('channel override wins over section and group', () => {
-    const settings: GroupNotificationSettingsData = {
-      notifyOnReactions: false,
-      sections: {
-        'sec-1': {
-          notifyOnReactions: false,
-          channels: {
-            'ch-1': {
-              notifyOnReactions: true,
-            },
-          },
-        },
-      },
-    };
-    const result = resolveEffectiveSettings(settings, 'sec-1', 'ch-1');
-    expect(result.notifyOnReactions).toBe(true);
-  });
-});
-
-describe('resolveEffectiveSettings — notifyOnWelcomePosts', () => {
-  it('defaults to true when not stored', () => {
-    const result = resolveEffectiveSettings({});
-    expect(result.notifyOnWelcomePosts).toBe(true);
-  });
-
-  it('returns false when stored as false', () => {
-    const settings: GroupNotificationSettingsData = {
-      notifyOnWelcomePosts: false,
-    };
-    const result = resolveEffectiveSettings(settings);
-    expect(result.notifyOnWelcomePosts).toBe(false);
-  });
-
-  it('returns true when stored as true', () => {
-    const settings: GroupNotificationSettingsData = {
-      notifyOnWelcomePosts: true,
-    };
-    const result = resolveEffectiveSettings(settings);
-    expect(result.notifyOnWelcomePosts).toBe(true);
-  });
-
-  it('does not inherit from section or channel', () => {
-    const settings: GroupNotificationSettingsData = {
-      notifyOnWelcomePosts: false,
-      sections: {
-        'sec-1': {
-          // @ts-expect-error — notifyOnWelcomePosts is not in ScopeNotificationSettings
-          notifyOnWelcomePosts: true,
-        },
-      },
-    };
-    const result = resolveEffectiveSettings(settings, 'sec-1');
-    expect(result.notifyOnWelcomePosts).toBe(false);
-  });
-});
-
-describe('groupHasUnreadConsideringMute — welcomeUnreadCount', () => {
-  it('subtracts welcome count when notifyOnWelcomePosts is false', () => {
-    const settings: GroupNotificationSettingsData = {
-      notifyOnWelcomePosts: false,
-    };
-    const summary = { unreadCount: 1, mentionCount: 0 };
-    expect(groupHasUnreadConsideringMute(settings, summary, 1)).toBe(false);
-  });
-
-  it('does not subtract when notifyOnWelcomePosts is true', () => {
-    const settings: GroupNotificationSettingsData = {
-      notifyOnWelcomePosts: true,
-    };
-    const summary = { unreadCount: 1, mentionCount: 0 };
-    expect(groupHasUnreadConsideringMute(settings, summary, 1)).toBe(true);
-  });
-
-  it('does not subtract when notifyOnWelcomePosts is undefined (default)', () => {
-    const settings: GroupNotificationSettingsData = {};
-    const summary = { unreadCount: 1, mentionCount: 0 };
-    expect(groupHasUnreadConsideringMute(settings, summary, 1)).toBe(true);
-  });
-
-  it('subtracts from mentionCount when notifyOnWelcomePosts is false', () => {
-    const settings: GroupNotificationSettingsData = {
-      notifyOnWelcomePosts: false,
-    };
-    const summary = { unreadCount: 0, mentionCount: 2 };
-    expect(groupHasUnreadConsideringMute(settings, summary, 2)).toBe(false);
-  });
-
-  it('shows unread when non-welcome messages remain after subtraction', () => {
-    const settings: GroupNotificationSettingsData = {
-      notifyOnWelcomePosts: false,
-    };
-    const summary = { unreadCount: 3, mentionCount: 0 };
-    expect(groupHasUnreadConsideringMute(settings, summary, 1)).toBe(true);
   });
 });
 
 describe('getGroupUnreadCountConsideringMute', () => {
-  it('returns 0 when summary is null', () => {
-    expect(getGroupUnreadCountConsideringMute({}, null)).toBe(0);
-  });
-
   it('returns 0 when all channels are muted', () => {
-    const settings: GroupNotificationSettingsData = {
-      sections: {
-        '': { channels: { general: { mutedUntil: null } } },
+    const settings: GroupNotificationStore = {
+      channels: {
+        general: { mutedUntil: null },
+        random: { mutedUntil: null },
       },
     };
     const summary = {
-      unreadCount: 5,
-      mentionCount: 0,
-      channels: [{ channelId: 'general', unreadCount: 5, mentionCount: 0 }],
+      channels: [
+        { channelId: 'general', unreadCount: 3, mentionCount: 0 },
+        { channelId: 'random', unreadCount: 2, mentionCount: 0 },
+      ],
     };
     expect(getGroupUnreadCountConsideringMute(settings, summary)).toBe(0);
   });
 
-  it('returns correct sum across mixed muted/unmuted channels', () => {
-    const settings: GroupNotificationSettingsData = {
-      sections: {
-        '': {
-          channels: {
-            mutedCh: { mutedUntil: null },
-            unmutedCh: {},
-          },
-        },
+  it('returns sum across mixed muted/unmuted channels', () => {
+    const settings: GroupNotificationStore = {
+      channels: {
+        general: {},
+        random: { mutedUntil: null },
       },
     };
     const summary = {
-      unreadCount: 8,
-      mentionCount: 0,
       channels: [
-        { channelId: 'mutedCh', unreadCount: 6, mentionCount: 0 },
-        { channelId: 'unmutedCh', unreadCount: 2, mentionCount: 0 },
+        { channelId: 'general', unreadCount: 3, mentionCount: 0 },
+        { channelId: 'random', unreadCount: 2, mentionCount: 0 },
       ],
     };
-    expect(getGroupUnreadCountConsideringMute(settings, summary)).toBe(2);
-  });
-
-  it('subtracts welcome unread count when notifyOnWelcomePosts is false', () => {
-    const settings: GroupNotificationSettingsData = {
-      notifyOnWelcomePosts: false,
-    };
-    const summary = { unreadCount: 5, mentionCount: 0 };
-    expect(getGroupUnreadCountConsideringMute(settings, summary, 2)).toBe(3);
-  });
-
-  it('does not subtract welcome count when notifyOnWelcomePosts is true', () => {
-    const settings: GroupNotificationSettingsData = {
-      notifyOnWelcomePosts: true,
-    };
-    const summary = { unreadCount: 5, mentionCount: 0 };
-    expect(getGroupUnreadCountConsideringMute(settings, summary, 2)).toBe(5);
+    expect(getGroupUnreadCountConsideringMute(settings, summary)).toBe(3);
   });
 
   it('falls back to aggregate count when no per-channel data', () => {
-    const settings: GroupNotificationSettingsData = {};
+    const settings: GroupNotificationStore = { channels: {} };
     const summary = { unreadCount: 7, mentionCount: 3 };
     expect(getGroupUnreadCountConsideringMute(settings, summary)).toBe(7);
   });
-
-  it('returns 0 when no per-channel data but channel mutes exist', () => {
-    const settings: GroupNotificationSettingsData = {
-      sections: {
-        '': { channels: { general: { mutedUntil: null } } },
-      },
-    };
-    const summary = { unreadCount: 4, mentionCount: 0 };
-    expect(getGroupUnreadCountConsideringMute(settings, summary)).toBe(0);
-  });
 });
 
-describe('welcome-post tracking helpers', () => {
-  it('addWelcomeUnreadEventId adds event ID', () => {
-    const map = {};
-    const next = addWelcomeUnreadEventId(map, 'group-1', 'evt-1');
-    expect(next['group-1']).toEqual(new Set(['evt-1']));
+// ---------------------------------------------------------------------------
+// Migration
+// ---------------------------------------------------------------------------
+
+describe('needsNotificationMigration', () => {
+  it('returns true when global key absent', async () => {
+    mockSendMessage({});
+    expect(await needsNotificationMigration()).toBe(true);
   });
 
-  it('addWelcomeUnreadEventId is idempotent', () => {
-    const map = addWelcomeUnreadEventId({}, 'group-1', 'evt-1');
-    const next = addWelcomeUnreadEventId(map, 'group-1', 'evt-1');
-    expect(next).toBe(map);
-  });
-
-  it('addWelcomeUnreadEventId preserves other groups', () => {
-    const map = addWelcomeUnreadEventId({}, 'group-1', 'evt-1');
-    const next = addWelcomeUnreadEventId(map, 'group-2', 'evt-2');
-    expect(next['group-1']).toEqual(new Set(['evt-1']));
-    expect(next['group-2']).toEqual(new Set(['evt-2']));
-  });
-
-  it('removeWelcomeUnreadEventId removes event ID', () => {
-    const map = addWelcomeUnreadEventId({}, 'group-1', 'evt-1');
-    const next = removeWelcomeUnreadEventId(map, 'group-1', 'evt-1');
-    expect(next['group-1']).toBeUndefined();
-  });
-
-  it('removeWelcomeUnreadEventId is no-op when not found', () => {
-    const map = addWelcomeUnreadEventId({}, 'group-1', 'evt-1');
-    const next = removeWelcomeUnreadEventId(map, 'group-1', 'evt-2');
-    expect(next).toBe(map);
-  });
-
-  it('clearWelcomeUnreadForGroup removes the group entry', () => {
-    const map = addWelcomeUnreadEventId({}, 'group-1', 'evt-1');
-    const next = clearWelcomeUnreadForGroup(map, 'group-1');
-    expect(next['group-1']).toBeUndefined();
-  });
-
-  it('clearWelcomeUnreadForGroup is no-op when not found', () => {
-    const map = {};
-    const next = clearWelcomeUnreadForGroup(map, 'group-1');
-    expect(next).toBe(map);
-  });
-
-  it('getWelcomeUnreadCount returns 0 for undefined map', () => {
-    expect(getWelcomeUnreadCount(undefined, 'group-1')).toBe(0);
-  });
-
-  it('getWelcomeUnreadCount returns set size', () => {
-    const map = addWelcomeUnreadEventId(
-      addWelcomeUnreadEventId({}, 'group-1', 'evt-1'),
-      'group-1',
-      'evt-2'
-    );
-    expect(getWelcomeUnreadCount(map, 'group-1')).toBe(2);
-  });
-
-  it('getWelcomeUnreadCount returns 0 for unknown group', () => {
-    const map = addWelcomeUnreadEventId({}, 'group-1', 'evt-1');
-    expect(getWelcomeUnreadCount(map, 'group-2')).toBe(0);
-  });
-});
-
-describe('getEffectiveUnreadCount', () => {
-  it('returns total when notifyOnWelcomePosts is true', () => {
-    expect(
-      getEffectiveUnreadCount({ unreadCount: 3, mentionCount: 2 }, true, 2)
-    ).toBe(5);
-  });
-
-  it('subtracts welcome count when notifyOnWelcomePosts is false', () => {
-    expect(
-      getEffectiveUnreadCount({ unreadCount: 1, mentionCount: 2 }, false, 1)
-    ).toBe(2);
-  });
-
-  it('clamps to 0 when welcome count exceeds total', () => {
-    expect(
-      getEffectiveUnreadCount({ unreadCount: 1, mentionCount: 0 }, false, 5)
-    ).toBe(0);
-  });
-});
-
-describe('applyNotificationSettingsToAllGroups', () => {
-  function createStoreMock(initial?: Record<string, unknown>) {
-    const store: Record<string, unknown> = { ...initial };
-    vi.stubGlobal('window', {
-      ...window,
-      sendMessage: vi.fn(
-        async (
-          type: string,
-          opts: { key?: string; keyValue?: { key: string; value: unknown } }
-        ) => {
-          if (type === 'getUserSettings' && opts?.key) {
-            return store[opts.key] ?? null;
-          }
-          if (type === 'addUserSettings' && opts?.keyValue) {
-            store[opts.keyValue.key] = opts.keyValue.value;
-            return { error: null };
-          }
-          return null;
-        }
-      ),
+  it('returns false when global key present', async () => {
+    mockSendMessage({
+      [GLOBAL_SETTINGS_KEY]: { pushLevel: 'mentions', version: 1 },
     });
-    return store;
-  }
-
-  it('writes to all provided groups', async () => {
-    const store = createStoreMock();
-
-    await applyNotificationSettingsToAllGroups([1, 2, 3], {
-      pushLevel: 'none',
-    });
-
-    for (const id of [1, 2, 3]) {
-      const stored = store[
-        `q-chat-notification-settings-${id}`
-      ] as GroupNotificationSettingsData;
-      expect(stored.pushLevel).toBe('none');
-    }
+    expect(await needsNotificationMigration()).toBe(false);
   });
+});
 
-  it('preserves section and channel overrides', async () => {
-    const store = createStoreMock({
+describe('migrateNotificationSettings', () => {
+  it('writes new keys and preserves group-only fields', async () => {
+    const map: Record<string, unknown> = {
+      'q-chat-notification-settings-migrated': false,
       'q-chat-notification-settings-1': {
-        pushLevel: 'all',
+        notifyOnWelcomePosts: false,
+        hideMutedChannels: true,
         sections: {
-          'sec-1': {
-            pushLevel: 'mentions',
-            channels: {
-              'ch-1': {
-                pushLevel: 'none',
-              },
-            },
-          },
+          '': { channels: { general: { mutedUntil: null } } },
         },
       },
-    });
+    };
+    mockSendMessage(map);
+    (window as any).reticulumChat = {
+      getChannels: vi.fn(async () => []),
+    };
+    await migrateNotificationSettings([1]);
 
-    await applyNotificationSettingsToAllGroups([1], {
-      pushLevel: 'none',
-      hideMutedChannels: true,
-    });
-
-    const stored = store[
-      'q-chat-notification-settings-1'
-    ] as GroupNotificationSettingsData;
-
-    expect(stored.pushLevel).toBe('none');
-    expect(stored.hideMutedChannels).toBe(true);
-    expect(stored.sections?.['sec-1']?.pushLevel).toBe('mentions');
-    expect(stored.sections?.['sec-1']?.channels?.['ch-1']?.pushLevel).toBe(
-      'none'
+    const calls = (window.sendMessage as any).mock.calls.filter(
+      (c: any[]) => c[0] === 'addUserSettings'
     );
-  });
-
-  it('handles empty group list without error', async () => {
-    const store = createStoreMock();
-
-    await applyNotificationSettingsToAllGroups([], { pushLevel: 'all' });
-
-    expect(Object.keys(store).length).toBe(0);
-  });
-
-  it('writes all notification fields including hideMutedChannels', async () => {
-    const store = createStoreMock();
-
-    await applyNotificationSettingsToAllGroups([1], {
-      pushLevel: 'mentions',
-      suppressEveryoneHere: true,
-      notifyOnReplies: false,
-      notifyOnWelcomePosts: false,
-      hideMutedChannels: true,
-    });
-
-    const stored = store[
-      'q-chat-notification-settings-1'
-    ] as GroupNotificationSettingsData;
-
-    expect(stored.pushLevel).toBe('mentions');
-    expect(stored.suppressEveryoneHere).toBe(true);
-    expect(stored.notifyOnReplies).toBe(false);
+    const stored = calls.find(
+      (c: any[]) => c[1]?.keyValue?.key === 'q-chat-notif-1'
+    )?.[1]?.keyValue?.value as GroupNotificationStore;
+    expect(stored).toBeTruthy();
     expect(stored.notifyOnWelcomePosts).toBe(false);
     expect(stored.hideMutedChannels).toBe(true);
+    expect(stored.channels['general']?.mutedUntil).toBeNull();
+  });
+
+  it('skips when already migrated', async () => {
+    mockSendMessage({ 'q-chat-notification-settings-migrated': true });
+    await migrateNotificationSettings([1, 2]);
+    const addCalls = (window.sendMessage as any).mock.calls.filter(
+      (c: any[]) => c[0] === 'addUserSettings'
+    );
+    expect(addCalls.length).toBe(0);
   });
 });
 
-describe('resolveEffectiveSettings — fallback parameter', () => {
-  const customFallback: EffectiveNotificationSettings = {
-    pushLevel: 'none',
-    suppressEveryoneHere: true,
-    notifyOnReplies: false,
-    notifyOnReactions: false,
-    notifyOnWelcomePosts: false,
-  };
+// ---------------------------------------------------------------------------
+// Push decision helpers (unchanged)
+// ---------------------------------------------------------------------------
 
-  it('all five fields fall back to supplied fallback when no settings stored', () => {
-    const result = resolveEffectiveSettings(
-      {},
-      undefined,
-      undefined,
-      customFallback
-    );
-    expect(result).toEqual(customFallback);
-  });
-
-  it('stored group field overrides corresponding fallback field', () => {
-    const settings: GroupNotificationSettingsData = {
+describe('shouldFirePushNotification', () => {
+  it('fires for any message when pushLevel is all', () => {
+    const effective: EffectiveNotificationSettings = {
+      ...DEFAULT_NOTIFICATION_SETTINGS,
       pushLevel: 'all',
     };
-    const result = resolveEffectiveSettings(
-      settings,
-      undefined,
-      undefined,
-      customFallback
+    expect(shouldFirePushNotification(effective, false, false, false)).toBe(
+      true
     );
-    expect(result.pushLevel).toBe('all');
-    expect(result.suppressEveryoneHere).toBe(true);
-    expect(result.notifyOnReplies).toBe(false);
-    expect(result.notifyOnReactions).toBe(false);
-    expect(result.notifyOnWelcomePosts).toBe(false);
   });
 
-  it('section override wins over both fallback and group', () => {
-    const settings: GroupNotificationSettingsData = {
-      pushLevel: 'all',
-      sections: {
-        'sec-1': {
-          pushLevel: 'mentions',
-          suppressEveryoneHere: false,
-        },
-      },
+  it('fires for mention when pushLevel is mentions', () => {
+    const effective: EffectiveNotificationSettings = {
+      ...DEFAULT_NOTIFICATION_SETTINGS,
+      pushLevel: 'mentions',
     };
-    const result = resolveEffectiveSettings(
-      settings,
-      'sec-1',
-      undefined,
-      customFallback
+    expect(shouldFirePushNotification(effective, true, false, false)).toBe(
+      true
     );
-    expect(result.pushLevel).toBe('mentions');
-    expect(result.suppressEveryoneHere).toBe(false);
-    expect(result.notifyOnReplies).toBe(false);
-    expect(result.notifyOnReactions).toBe(false);
-    expect(result.notifyOnWelcomePosts).toBe(false);
   });
 
-  it('channel override wins over section, group, and fallback', () => {
-    const settings: GroupNotificationSettingsData = {
-      pushLevel: 'all',
-      sections: {
-        'sec-1': {
-          pushLevel: 'mentions',
-          channels: {
-            'ch-1': {
-              pushLevel: 'none',
-            },
-          },
-        },
-      },
+  it('suppresses everyone/here mention when suppressEveryoneHere', () => {
+    const effective: EffectiveNotificationSettings = {
+      ...DEFAULT_NOTIFICATION_SETTINGS,
+      pushLevel: 'mentions',
+      suppressEveryoneHere: true,
     };
-    const result = resolveEffectiveSettings(
-      settings,
-      'sec-1',
-      'ch-1',
-      customFallback
+    expect(shouldFirePushNotification(effective, true, true, false)).toBe(
+      false
     );
-    expect(result.pushLevel).toBe('none');
   });
 
-  it('defaults to DEFAULT_NOTIFICATION_SETTINGS when no fallback supplied', () => {
-    const result = resolveEffectiveSettings({});
-    expect(result).toEqual(DEFAULT_NOTIFICATION_SETTINGS);
-  });
-});
-
-describe('getEffectiveNotificationSettings — fallback parameter', () => {
-  const customFallback: EffectiveNotificationSettings = {
-    pushLevel: 'none',
-    suppressEveryoneHere: true,
-    notifyOnReplies: false,
-    notifyOnReactions: false,
-    notifyOnWelcomePosts: false,
-  };
-
-  it('returns fallback values when no settings stored', async () => {
-    mockSendMessage({});
-    const result = await getEffectiveNotificationSettings(
-      123,
-      undefined,
-      undefined,
-      customFallback
+  it('fires for reply when notifyOnReplies', () => {
+    const effective: EffectiveNotificationSettings = {
+      ...DEFAULT_NOTIFICATION_SETTINGS,
+      pushLevel: 'none',
+      notifyOnReplies: true,
+    };
+    expect(shouldFirePushNotification(effective, false, false, true)).toBe(
+      true
     );
-    expect(result).toEqual(customFallback);
   });
 
-  it('stored group field overrides fallback', async () => {
-    mockSendMessage({
-      'q-chat-notification-settings-123': { pushLevel: 'all' },
-    });
-    const result = await getEffectiveNotificationSettings(
-      123,
-      undefined,
-      undefined,
-      customFallback
-    );
-    expect(result.pushLevel).toBe('all');
-    expect(result.suppressEveryoneHere).toBe(true);
-    expect(result.notifyOnReplies).toBe(false);
-    expect(result.notifyOnReactions).toBe(false);
-    expect(result.notifyOnWelcomePosts).toBe(false);
-  });
-
-  it('defaults to DEFAULT_NOTIFICATION_SETTINGS when no fallback supplied', async () => {
-    mockSendMessage({});
-    const result = await getEffectiveNotificationSettings(123);
-    expect(result).toEqual(DEFAULT_NOTIFICATION_SETTINGS);
-  });
-});
-
-describe('groupHasUnreadConsideringMute — fallback parameter', () => {
-  const fallbackNotifyOff: EffectiveNotificationSettings = {
-    pushLevel: 'mentions',
-    suppressEveryoneHere: false,
-    notifyOnReplies: true,
-    notifyOnReactions: true,
-    notifyOnWelcomePosts: false,
-  };
-
-  const fallbackNotifyOn: EffectiveNotificationSettings = {
-    pushLevel: 'mentions',
-    suppressEveryoneHere: false,
-    notifyOnReplies: true,
-    notifyOnReactions: true,
-    notifyOnWelcomePosts: true,
-  };
-
-  it('uses fallback.notifyOnWelcomePosts when group has no stored value', () => {
-    const settings: GroupNotificationSettingsData = {};
-    const summary = { unreadCount: 1, mentionCount: 0 };
+  it('fires for reaction when notifyOnReactions', () => {
+    const effective: EffectiveNotificationSettings = {
+      ...DEFAULT_NOTIFICATION_SETTINGS,
+      pushLevel: 'none',
+      notifyOnReactions: true,
+    };
     expect(
-      groupHasUnreadConsideringMute(settings, summary, 1, fallbackNotifyOff)
-    ).toBe(false);
-  });
-
-  it('uses fallback.notifyOnWelcomePosts=true when fallback says true', () => {
-    const settings: GroupNotificationSettingsData = {};
-    const summary = { unreadCount: 1, mentionCount: 0 };
-    expect(
-      groupHasUnreadConsideringMute(settings, summary, 1, fallbackNotifyOn)
+      shouldFirePushNotification(effective, false, false, false, true)
     ).toBe(true);
   });
+});
 
-  it('stored notifyOnWelcomePosts overrides fallback', () => {
-    const settings: GroupNotificationSettingsData = {
-      notifyOnWelcomePosts: true,
-    };
-    const summary = { unreadCount: 1, mentionCount: 0 };
-    expect(
-      groupHasUnreadConsideringMute(settings, summary, 1, fallbackNotifyOff)
-    ).toBe(true);
+// ---------------------------------------------------------------------------
+// Welcome-post unread helpers
+// ---------------------------------------------------------------------------
+
+describe('welcome unread helpers', () => {
+  it('addWelcomeUnreadEventId adds and dedupes', () => {
+    const m1 = addWelcomeUnreadEventId({}, '1', 'evt-1');
+    expect(m1['1']?.has('evt-1')).toBe(true);
+    const m2 = addWelcomeUnreadEventId(m1, '1', 'evt-1');
+    expect(m2['1']?.size).toBe(1);
   });
 
-  it('mute state comes from per-channel storage, not fallback', () => {
-    const settings: GroupNotificationSettingsData = {
-      sections: {
-        '': { channels: { general: { mutedUntil: null } } },
-      },
-    };
-    const summary = {
-      unreadCount: 5,
-      mentionCount: 0,
-      channels: [{ channelId: 'general', unreadCount: 5, mentionCount: 0 }],
-    };
-    expect(
-      groupHasUnreadConsideringMute(settings, summary, 0, fallbackNotifyOn)
-    ).toBe(false);
+  it('removeWelcomeUnreadEventId removes', () => {
+    const m1 = addWelcomeUnreadEventId({}, '1', 'evt-1');
+    const m2 = removeWelcomeUnreadEventId(m1, '1', 'evt-1');
+    // When the set becomes empty the key is dropped entirely.
+    expect(m2['1']).toBeUndefined();
   });
 
-  it('defaults to true when no fallback supplied and no stored value', () => {
-    const settings: GroupNotificationSettingsData = {};
-    const summary = { unreadCount: 1, mentionCount: 0 };
-    expect(groupHasUnreadConsideringMute(settings, summary, 1)).toBe(true);
+  it('clearWelcomeUnreadForGroup clears', () => {
+    const m1 = addWelcomeUnreadEventId({}, '1', 'evt-1');
+    const m2 = clearWelcomeUnreadForGroup(m1, '1');
+    expect(m2['1']).toBeUndefined();
+  });
+
+  it('getWelcomeUnreadCount counts', () => {
+    const m1 = addWelcomeUnreadEventId(
+      addWelcomeUnreadEventId({}, '1', 'a'),
+      '1',
+      'b'
+    );
+    expect(getWelcomeUnreadCount(m1, '1')).toBe(2);
+    expect(getWelcomeUnreadCount(undefined, '1')).toBe(0);
+  });
+
+  it('getEffectiveUnreadCount subtracts welcome count when suppressed', () => {
+    expect(
+      getEffectiveUnreadCount({ unreadCount: 5, mentionCount: 2 }, false, 3)
+    ).toBe(4);
+    expect(
+      getEffectiveUnreadCount({ unreadCount: 5, mentionCount: 2 }, true, 3)
+    ).toBe(7);
   });
 });

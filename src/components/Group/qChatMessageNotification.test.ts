@@ -3,7 +3,7 @@ import {
   shouldFirePushNotification,
   isScopeMuted,
   DEFAULT_NOTIFICATION_SETTINGS,
-  type GroupNotificationSettingsData,
+  type GroupNotificationStore,
 } from '../../utils/qChatNotificationSettings';
 import {
   executeEvent,
@@ -109,8 +109,8 @@ describe('All Messages push decision with isMention false', () => {
   });
 
   it('fires when pushLevel is all and channel mute check passes with non-muted channel', () => {
-    const settings: GroupNotificationSettingsData = {
-      pushLevel: 'all',
+    const settings: GroupNotificationStore = {
+      channels: {},
     };
     const muted = isScopeMuted(settings, undefined, 'general');
     const effective = { ...base, pushLevel: 'all' as const };

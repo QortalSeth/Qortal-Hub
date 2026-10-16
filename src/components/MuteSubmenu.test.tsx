@@ -6,7 +6,7 @@ import {
   notificationSettingsCacheAtom,
   muteExpiryTickAtom,
 } from '../atoms/global';
-import type { GroupNotificationSettingsData } from '../utils/qChatNotificationSettings';
+import type { GroupNotificationStore } from '../utils/qChatNotificationSettings';
 
 vi.mock('react-contexify', () => ({
   Item: ({ children, onClick }: any) => (
@@ -29,12 +29,13 @@ vi.mock('react-i18next', () => ({
 }));
 
 function renderWithMuteState(
-  cache: Record<string, GroupNotificationSettingsData>,
+  cache: Record<string, GroupNotificationStore>,
   scope: { groupId: string | number; sectionId?: string; channelId?: string },
   scopeType: 'Group' | 'Section' | 'Channel'
 ) {
   const store = createStore();
   store.set(notificationSettingsCacheAtom, cache);
+  store.set(muteExpiryTickAtom, 0);
 
   return render(
     <Provider store={store}>
@@ -61,9 +62,7 @@ describe('MuteSubmenu', () => {
     renderWithMuteState(
       {
         '123': {
-          sections: {
-            '': { channels: { general: { mutedUntil: null } } },
-          },
+          channels: { general: { mutedUntil: null } },
         },
       },
       { groupId: 123 },
@@ -78,11 +77,7 @@ describe('MuteSubmenu', () => {
     renderWithMuteState(
       {
         '123': {
-          sections: {
-            'sec-1': {
-              channels: { 'ch-1': { mutedUntil: null } },
-            },
-          },
+          channels: { 'ch-1': { mutedUntil: null } },
         },
       },
       { groupId: 123, sectionId: 'sec-1', channelId: 'ch-1' },
@@ -95,7 +90,11 @@ describe('MuteSubmenu', () => {
 
   it('renders submenu when group mute has expired', () => {
     renderWithMuteState(
-      { '123': { mutedUntil: Date.now() - 60_000 } },
+      {
+        '123': {
+          channels: { general: { mutedUntil: Date.now() - 60_000 } },
+        },
+      },
       { groupId: 123 },
       'Group'
     );
