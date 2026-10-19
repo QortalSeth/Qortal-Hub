@@ -102,6 +102,10 @@ function eventPassesAuthorExclusion(
 
 const RETICULUM_CHAT_EXPIRY_PRUNE_INTERVAL_MS = 60 * 1000;
 const RETICULUM_CHAT_CHANNEL_SUMMARY_CACHE_MAX_ENTRIES = 4096;
+// High, so ordinary sessions never evict, but growth is still bounded on very
+// active long-running Hubs (the report found an unbounded per-process map).
+const RETICULUM_CHAT_MEMORY_EVENTS_MAX_ENTRIES = 200_000;
+const RETICULUM_CHAT_MEMORY_SEARCH_TEXT_MAX_ENTRIES = 100_000;
 const RETICULUM_DM_EXPIRY_DAY_MS = 24 * 60 * 60 * 1000;
 export const RETICULUM_DM_DEFAULT_EXPIRY_MS = 30 * RETICULUM_DM_EXPIRY_DAY_MS;
 const RETICULUM_DM_ALLOWED_EXPIRY_MS = new Set([
@@ -1569,6 +1573,16 @@ export class ReticulumChatDatabase {
     .toString('hex');
   private db: DB;
   private readonly relayCacheKey: string;
+  private memoryGoneRanges = new Map<
+    string,
+    {
+      groupId: number;
+      author: string;
+      stream: string;
+      from: number;
+      to: number;
+    }
+  >();
   private memoryEvents = new Map<string, ReticulumChatEvent>();
   private memoryGroupKeys = new Map<string, ReticulumChatGroupKey>();
   private memoryGroupKeyDigests = new Map<
@@ -1681,6 +1695,7 @@ export class ReticulumChatDatabase {
   private stmtDeleteSearchMirror: Statement;
   private stmtSearchMirror: Statement;
   private stmtUpsertSearchText: Statement;
+  private stmtGetSearchMirrorRowid: Statement;
   private stmtDeleteSearchText: Statement;
   private stmtUpsertChannel: Statement;
   private stmtGetChannels: Statement;
@@ -1719,6 +1734,9 @@ export class ReticulumChatDatabase {
   private stmtCountMissingRangePeerUnavailable: Statement;
   private stmtGetMissingRangePeerUnavailable: Statement;
   private stmtClearMissingRangePeerUnavailable: Statement;
+  private stmtUpsertGoneRange: Statement;
+  private stmtGetGoneRange: Statement;
+  private stmtClearGoneRange: Statement;
   private stmtUpsertKnownUnavailableRange: Statement;
   private stmtParkKnownUnavailableRange: Statement;
   private stmtGetKnownUnavailableRange: Statement;
@@ -2341,13 +2359,16 @@ export class ReticulumChatDatabase {
     this.stmtDeleteSearchMirror = this.db.prepare(
       'DELETE FROM reticulum_chat_search_index WHERE event_id = ?'
     );
+    this.stmtGetSearchMirrorRowid = this.db.prepare(
+      'SELECT rowid FROM reticulum_chat_search_index WHERE event_id = ?'
+    );
     this.stmtUpsertSearchText = this.db.prepare(`
       INSERT INTO reticulum_chat_search_fts
-        (event_id, group_id, channel_id, author_address, timestamp, event_type, search_text)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+        (rowid, event_id, group_id, channel_id, author_address, timestamp, event_type, search_text)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
     this.stmtDeleteSearchText = this.db.prepare(
-      'DELETE FROM reticulum_chat_search_fts WHERE event_id = ?'
+      'DELETE FROM reticulum_chat_search_fts WHERE rowid = ? AND event_id = ?'
     );
     this.stmtUpsertChannel = this.db.prepare(`
       INSERT OR REPLACE INTO reticulum_chat_channels
@@ -2701,6 +2722,23 @@ export class ReticulumChatDatabase {
       WHERE group_id = ? AND author_address = ? AND author_stream_id = ?
         AND from_seq <= ? AND to_seq >= ?
     `);
+    this.stmtUpsertGoneRange = this.db.prepare(`
+      INSERT OR REPLACE INTO rchat_gone_ranges
+        (group_id, author_address, author_stream_id, from_seq, to_seq, confirmed_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    this.stmtGetGoneRange = this.db.prepare(`
+      SELECT group_id, author_address, author_stream_id, from_seq, to_seq, confirmed_at
+      FROM rchat_gone_ranges
+      WHERE group_id = ? AND author_address = ? AND author_stream_id = ?
+        AND from_seq <= ? AND to_seq >= ?
+      LIMIT 1
+    `);
+    this.stmtClearGoneRange = this.db.prepare(`
+      DELETE FROM rchat_gone_ranges
+      WHERE group_id = ? AND author_address = ? AND author_stream_id = ?
+        AND from_seq <= ? AND to_seq >= ?
+    `);
     this.stmtUpsertKnownUnavailableRange = this.db.prepare(`
       INSERT INTO rchat_known_unavailable_ranges
         (group_id, author_address, author_stream_id, from_seq, to_seq,
@@ -2977,6 +3015,7 @@ export class ReticulumChatDatabase {
     this.backfillMessageProjection();
     this.backfillSearchIndex();
     this.migrateProjectedSearchIndex();
+    this.migrateFtsRowidKeys();
     this.scrubExistingDeletedMessagePayloads();
     this.pruneExpiredMessages();
     this.pruneExpiredDirectMessages();
@@ -4336,6 +4375,9 @@ export class ReticulumChatDatabase {
         (?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const tx = this.db.transaction((ids: string[]) => {
+      // Resolve search-index rows once for the whole pass (not once per event)
+      // and delete by rowid, which is keyed instead of a full FTS table scan.
+      const allIds = new Set<string>();
       for (const rootEventId of ids) {
         const rows = getThreadEvents.all(rootEventId, rootEventId) as Array<{
           event_id?: string;
@@ -4346,9 +4388,6 @@ export class ReticulumChatDatabase {
           author_seq?: number;
           timestamp?: number;
         }>;
-        const eventIds = rows
-          .map((row) => (typeof row.event_id === 'string' ? row.event_id : ''))
-          .filter(Boolean);
         for (const row of rows) {
           if (
             typeof row.event_id !== 'string' ||
@@ -4359,6 +4398,7 @@ export class ReticulumChatDatabase {
           ) {
             continue;
           }
+          allIds.add(row.event_id);
           insertExpiredMarker.run(
             row.event_id,
             row.group_id,
@@ -4370,26 +4410,45 @@ export class ReticulumChatDatabase {
             now
           );
         }
-        for (const eventId of eventIds) {
-          this.memoryMeta.delete(eventId);
-          this.memoryEvents.delete(eventId);
-          this.memoryScrubbedEvents.delete(eventId);
-          this.memoryScrubbedEventOverrides.delete(eventId);
-          this.memorySearchText.delete(eventId);
-          this.memoryMentions.delete(eventId);
-          this.memoryRelayCache.delete(eventId);
-          this.stmtDeleteSearchText.run(eventId);
-          this.stmtDeleteSearchMirror.run(eventId);
-          this.stmtDeleteMentionsForEvent.run(eventId);
-          this.stmtDeleteRelayByEvent.run(eventId);
-          this.stmtDeleteEvent.run(eventId);
+        allIds.add(rootEventId);
+      }
+      const batchIds = [...allIds];
+      // Resolve mirror rowids for the batch in chunks to stay under SQLite's
+      // variable limit. The mirror's rowid is stable because its upsert is
+      // ON CONFLICT(event_id) DO UPDATE.
+      const rowids = new Map<string, number>();
+      for (let i = 0; i < batchIds.length; i += 500) {
+        const chunk = batchIds.slice(i, i + 500);
+        const placeholders = chunk.map(() => '?').join(', ');
+        const rows = this.db
+          .prepare(
+            `SELECT event_id, rowid FROM reticulum_chat_search_index
+             WHERE event_id IN (${placeholders})`
+          )
+          .all(...chunk) as Array<{ event_id?: string; rowid?: number }>;
+        for (const row of rows) {
+          if (row.event_id && typeof row.rowid === 'number') {
+            rowids.set(row.event_id, row.rowid);
+          }
         }
+      }
+      for (const eventId of batchIds) {
+        this.memoryMeta.delete(eventId);
+        this.memoryEvents.delete(eventId);
+        this.memoryScrubbedEvents.delete(eventId);
+        this.memoryScrubbedEventOverrides.delete(eventId);
+        this.memorySearchText.delete(eventId);
+        this.memoryMentions.delete(eventId);
+        this.memoryRelayCache.delete(eventId);
+        const rowid = rowids.get(eventId);
+        if (rowid !== undefined) this.stmtDeleteSearchText.run(rowid, eventId);
+        this.stmtDeleteSearchMirror.run(eventId);
+        this.stmtDeleteMentionsForEvent.run(eventId);
+        this.stmtDeleteRelayByEvent.run(eventId);
+        this.stmtDeleteEvent.run(eventId);
+      }
+      for (const rootEventId of ids) {
         this.stmtDeleteMessageProjection.run(rootEventId);
-        this.memorySearchText.delete(rootEventId);
-        this.stmtDeleteSearchText.run(rootEventId);
-        this.stmtDeleteSearchMirror.run(rootEventId);
-        this.stmtDeleteMentionsForEvent.run(rootEventId);
-        this.stmtDeleteRelayByEvent.run(rootEventId);
       }
     });
     tx(rootIds);
@@ -5033,7 +5092,7 @@ export class ReticulumChatDatabase {
           );
       }
       this.clearMissingRangesForEvent(event);
-      this.memoryEvents.set(event.eventId, event);
+      this.setMemoryEvent(event.eventId, event);
       this.memoryMeta.set(event.eventId, {
         ownEvent,
         lastServedAt: now,
@@ -5534,7 +5593,7 @@ export class ReticulumChatDatabase {
             null,
         });
       }
-      this.stmtDeleteSearchText.run(eventId);
+      this.deleteSearchIndexRow(eventId);
       this.stmtDeleteSearchMirror.run(eventId);
       this.stmtDeleteMentionsForEvent.run(eventId);
       this.stmtDeleteRelayByEvent.run(eventId);
@@ -5865,6 +5924,39 @@ export class ReticulumChatDatabase {
     };
   }
 
+  private setMemoryEvent(eventId: string, event: ReticulumChatEvent): void {
+    this.memoryEvents.set(eventId, event);
+    if (this.memoryEvents.size > RETICULUM_CHAT_MEMORY_EVENTS_MAX_ENTRIES) {
+      // Bound the map: it is a supplement for committed rows (SQL is the
+      // authority), so dropping the oldest entries is safe and cheap here.
+      const overflow =
+        this.memoryEvents.size - RETICULUM_CHAT_MEMORY_EVENTS_MAX_ENTRIES;
+      let dropped = 0;
+      for (const key of this.memoryEvents.keys()) {
+        if (dropped >= overflow) break;
+        this.memoryEvents.delete(key);
+        dropped += 1;
+      }
+    }
+  }
+
+  private setMemorySearchText(eventId: string, text: string): void {
+    this.memorySearchText.set(eventId, text);
+    if (
+      this.memorySearchText.size > RETICULUM_CHAT_MEMORY_SEARCH_TEXT_MAX_ENTRIES
+    ) {
+      const overflow =
+        this.memorySearchText.size -
+        RETICULUM_CHAT_MEMORY_SEARCH_TEXT_MAX_ENTRIES;
+      let dropped = 0;
+      for (const key of this.memorySearchText.keys()) {
+        if (dropped >= overflow) break;
+        this.memorySearchText.delete(key);
+        dropped += 1;
+      }
+    }
+  }
+
   private applyMessageProjectionEvent(event: ReticulumChatEvent): void {
     if (
       event.eventType === 'message' ||
@@ -5971,7 +6063,7 @@ export class ReticulumChatDatabase {
     this.memoryScrubbedEventOverrides.delete(eventId);
     this.memorySearchText.delete(eventId);
     this.memoryMentions.delete(eventId);
-    this.stmtDeleteSearchText.run(eventId);
+    this.deleteSearchIndexRow(eventId);
     this.stmtDeleteSearchMirror.run(eventId);
     this.stmtDeleteMentionsForEvent.run(eventId);
     this.stmtDeleteEvent.run(eventId);
@@ -6429,9 +6521,9 @@ export class ReticulumChatDatabase {
   ): void {
     const normalized = normalizeSearchText(text);
     if (!normalized) return;
-    this.memorySearchText.set(event.eventId, normalized);
-    if (replaceExisting) this.stmtDeleteSearchText.run(event.eventId);
-    this.stmtUpsertSearchMirror.run(
+    this.setMemorySearchText(event.eventId, normalized);
+    if (replaceExisting) this.deleteSearchIndexRow(event.eventId);
+    const mirrorResult = this.stmtUpsertSearchMirror.run(
       event.eventId,
       event.groupId,
       normalizeReticulumChatChannelId(event.channelId),
@@ -6441,6 +6533,7 @@ export class ReticulumChatDatabase {
       normalized
     );
     this.stmtUpsertSearchText.run(
+      mirrorResult.lastInsertRowid,
       event.eventId,
       event.groupId,
       normalizeReticulumChatChannelId(event.channelId),
@@ -6552,6 +6645,21 @@ export class ReticulumChatDatabase {
     return row;
   }
 
+  private deleteSearchIndexRow(eventId: string): void {
+    // FTS5 can only address rows by rowid or MATCH; deleting by event_id (an
+    // UNINDEXED column) is a full table scan. Resolve the mirror row's rowid
+    // (primary-key lookup) and only delete when a mirror row exists. Skipping
+    // when there is no mirror row removes the scan from the new-message path,
+    // and the `AND event_id = ?` guard keeps a stale rowid (e.g. written by an
+    // older Hub after a downgrade) from deleting another message's row.
+    const row = this.stmtGetSearchMirrorRowid.get(eventId) as
+      | { rowid?: number }
+      | undefined;
+    if (row && typeof row.rowid === 'number') {
+      this.stmtDeleteSearchText.run(row.rowid, eventId);
+    }
+  }
+
   private upsertProjectedSearchText(
     projection: MessageProjectionRow,
     text: string
@@ -6559,11 +6667,11 @@ export class ReticulumChatDatabase {
     const normalized = normalizeSearchText(text);
     const rootEventId = projection.root_event_id;
     this.memorySearchText.delete(rootEventId);
-    this.stmtDeleteSearchText.run(rootEventId);
+    this.deleteSearchIndexRow(rootEventId);
     this.stmtDeleteSearchMirror.run(rootEventId);
     if (!normalized) return;
-    this.memorySearchText.set(rootEventId, normalized);
-    this.stmtUpsertSearchMirror.run(
+    this.setMemorySearchText(rootEventId, normalized);
+    const mirrorResult = this.stmtUpsertSearchMirror.run(
       rootEventId,
       projection.group_id,
       normalizeReticulumChatChannelId(projection.channel_id),
@@ -6572,7 +6680,10 @@ export class ReticulumChatDatabase {
       projection.root_event_type,
       normalized
     );
+    // Give the FTS row the mirror row's rowid so deletes are keyed lookups.
+    // ON CONFLICT(event_id) DO UPDATE preserves the rowid across updates.
     this.stmtUpsertSearchText.run(
+      mirrorResult.lastInsertRowid,
       rootEventId,
       projection.group_id,
       normalizeReticulumChatChannelId(projection.channel_id),
@@ -6636,7 +6747,7 @@ export class ReticulumChatDatabase {
   deleteSearchText(eventId: string): boolean {
     if (typeof eventId !== 'string' || !eventId) return false;
     this.memorySearchText.delete(eventId);
-    this.stmtDeleteSearchText.run(eventId);
+    this.deleteSearchIndexRow(eventId);
     this.stmtDeleteSearchMirror.run(eventId);
     return true;
   }
@@ -9080,6 +9191,100 @@ export class ReticulumChatDatabase {
     );
   }
 
+  isRangeGone(
+    groupId: number,
+    authorAddress: string,
+    authorStreamId: string | undefined,
+    fromSeq: number,
+    toSeq: number
+  ): boolean {
+    const author = String(authorAddress || '').trim();
+    const stream = normalizeReticulumChatAuthorStreamId(authorStreamId);
+    const from = Math.max(1, Math.floor(fromSeq));
+    const to = Math.max(from, Math.floor(toSeq));
+    // In-memory mirror keeps check/clear consistent within a session; persisted
+    // rows survive reopen (they are loaded by the same query path).
+    for (const entry of this.memoryGoneRanges.values()) {
+      if (
+        entry.groupId === groupId &&
+        entry.author === author &&
+        entry.stream === stream &&
+        entry.from <= from &&
+        entry.to >= to
+      ) {
+        return true;
+      }
+    }
+    const row = this.stmtGetGoneRange.get(groupId, author, stream, from, to) as
+      | { group_id?: number }
+      | undefined;
+    return Boolean(row);
+  }
+
+  markRangeGone(
+    groupId: number,
+    authorAddress: string,
+    authorStreamId: string | undefined,
+    fromSeq: number,
+    toSeq: number,
+    confirmedAt = Date.now()
+  ): boolean {
+    if (!Number.isInteger(groupId) || groupId <= 0) return false;
+    const author = String(authorAddress || '').trim();
+    const stream = normalizeReticulumChatAuthorStreamId(authorStreamId);
+    const from = Math.max(1, Math.floor(fromSeq));
+    const to = Math.max(from, Math.floor(toSeq));
+    if (!author || !stream) return false;
+    this.memoryGoneRanges.set(
+      this.goneRangeKey(groupId, author, stream, from, to),
+      { groupId, author, stream, from, to }
+    );
+    this.stmtUpsertGoneRange.run(
+      groupId,
+      author,
+      stream,
+      from,
+      to,
+      Math.max(0, Math.floor(confirmedAt))
+    );
+    return true;
+  }
+
+  private goneRangeKey(
+    groupId: number,
+    author: string,
+    stream: string,
+    fromSeq: number,
+    toSeq: number
+  ): string {
+    return `${groupId}:${author}:${stream}:${fromSeq}:${toSeq}`;
+  }
+
+  clearGoneRange(
+    groupId: number,
+    authorAddress: string,
+    authorStreamId: string | undefined,
+    fromSeq: number,
+    toSeq: number
+  ): void {
+    const author = String(authorAddress || '').trim();
+    const stream = normalizeReticulumChatAuthorStreamId(authorStreamId);
+    const from = Math.max(1, Math.floor(fromSeq));
+    const to = Math.max(from, Math.floor(toSeq));
+    for (const [key, entry] of this.memoryGoneRanges) {
+      if (
+        entry.groupId === groupId &&
+        entry.author === author &&
+        entry.stream === stream &&
+        entry.from <= to &&
+        entry.to >= from
+      ) {
+        this.memoryGoneRanges.delete(key);
+      }
+    }
+    this.stmtClearGoneRange.run(groupId, author, stream, to, from);
+  }
+
   markMissingRangeKnownUnavailable(
     groupId: number,
     authorAddress: string,
@@ -9203,6 +9408,25 @@ export class ReticulumChatDatabase {
       recheckAt: row.recheck_at,
       peerHashes,
     };
+  }
+
+  deleteMissingRange(
+    groupId: number,
+    authorAddress: string,
+    authorStreamId: string,
+    fromSeq: number,
+    toSeq: number
+  ): void {
+    const author = String(authorAddress || '').trim();
+    const stream = normalizeReticulumChatAuthorStreamId(authorStreamId);
+    const from = Math.max(1, Math.floor(fromSeq));
+    const to = Math.max(from, Math.floor(toSeq));
+    if (!Number.isInteger(groupId) || groupId <= 0 || !author || !stream)
+      return;
+    this.stmtDeleteMissingRange.run(groupId, author, stream, from, to);
+    this.memoryMissingRanges.delete(
+      this.missingRangeKey(groupId, author, stream, from, to)
+    );
   }
 
   clearMissingRangeKnownUnavailable(
@@ -9452,6 +9676,17 @@ export class ReticulumChatDatabase {
   }
 
   private clearMissingRangesForEvent(event: ReticulumChatEvent): void {
+    // A late event inside a locally "gone" range (or a known-unavailable range)
+    // must clear those markers so the range can be re-served/imported normally.
+    // Cleared before the early return below: a "gone" range has no persisted
+    // missing-range row, so this must run even when `rows` is empty.
+    this.clearGoneRange(
+      event.groupId,
+      event.authorAddress,
+      event.authorStreamId,
+      event.authorSeq,
+      event.authorSeq
+    );
     const rows = this.dedupeMissingRangeRows([
       ...(this.stmtGetMissingRangesForSeq.all(
         event.groupId,
@@ -10039,6 +10274,16 @@ export class ReticulumChatDatabase {
     }
 
     return [...gaps.values()]
+      .filter(
+        (gap) =>
+          !this.isRangeGone(
+            groupId,
+            gap.authorAddress,
+            gap.authorStreamId,
+            gap.fromSeq,
+            gap.toSeq
+          )
+      )
       .sort(
         (a, b) =>
           b.toSeq - a.toSeq ||
@@ -11307,11 +11552,9 @@ export class ReticulumChatDatabase {
     for (const channel of this.getChannels(groupId, false)) {
       channels.add(channel.channelId);
     }
-    for (const event of this.memoryEvents.values()) {
-      if (event.groupId !== groupId) continue;
-      const channelId = normalizeReticulumChatChannelId(event.channelId);
-      if (!archivedChannels.has(channelId)) channels.add(channelId);
-    }
+    // Events enter memoryEvents only after their SQL insert succeeded, so
+    // stmtGetKnownChannels already returns every event-bearing channel. The
+    // previous per-group scan of the whole in-memory map was redundant.
     return [...channels];
   }
 
@@ -12289,6 +12532,75 @@ export class ReticulumChatDatabase {
       }
     });
     tx(rows);
+  }
+
+  private migrateFtsRowidKeys(): void {
+    // One-time local rebuild: older Hubs inserted FTS rows without an explicit
+    // rowid, so a `WHERE event_id = ?` delete scanned the whole (unindexed)
+    // virtual table. Give every FTS row the rowid of its mirror row so future
+    // deletes are keyed lookups. FTS5 only addresses rows by rowid or MATCH,
+    // and both tables hold the same normalized text today.
+    const migrationName = 'fts-rowid-keyed-deletes-v1';
+    const applied = this.db
+      .prepare('SELECT 1 FROM rchat_schema_migrations WHERE name = ? LIMIT 1')
+      .get(migrationName);
+    if (applied) return;
+    const rows = this.db
+      .prepare(
+        `
+          SELECT event_id, group_id, channel_id, author_address, timestamp, event_type, search_text,
+                 rowid
+          FROM reticulum_chat_search_index
+          ORDER BY timestamp DESC, event_id DESC
+        `
+      )
+      .all() as Array<{
+      event_id?: string;
+      group_id?: number;
+      channel_id?: string;
+      author_address?: string;
+      timestamp?: number;
+      event_type?: string;
+      search_text?: string;
+      rowid?: number;
+    }>;
+    const tx = this.db.transaction(() => {
+      this.db.exec('DELETE FROM reticulum_chat_search_fts');
+      const insert = this.db.prepare(`
+        INSERT INTO reticulum_chat_search_fts
+          (rowid, event_id, group_id, channel_id, author_address, timestamp, event_type, search_text)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const row of rows) {
+        if (
+          typeof row.event_id !== 'string' ||
+          typeof row.rowid !== 'number' ||
+          typeof row.group_id !== 'number' ||
+          typeof row.author_address !== 'string' ||
+          typeof row.timestamp !== 'number' ||
+          typeof row.event_type !== 'string' ||
+          typeof row.search_text !== 'string'
+        ) {
+          continue;
+        }
+        insert.run(
+          row.rowid,
+          row.event_id,
+          row.group_id,
+          normalizeReticulumChatChannelId(row.channel_id),
+          row.author_address,
+          row.timestamp,
+          row.event_type,
+          row.search_text
+        );
+      }
+      this.db
+        .prepare(
+          'INSERT INTO rchat_schema_migrations (name, applied_at) VALUES (?, ?)'
+        )
+        .run(migrationName, Date.now());
+    });
+    tx();
   }
 
   private migrateProjectedSearchIndex(): void {
@@ -13283,6 +13595,10 @@ export class ReticulumChatDatabase {
         run: () => this.initAuthorGapKnownUnavailableSchema(),
       },
       {
+        name: 'author-gap-gone-ranges',
+        run: () => this.initAuthorGoneRangeSchema(),
+      },
+      {
         name: 'rejected-event-author-sequence',
         run: () => this.migrateRejectedEventAuthorSequenceSchema(),
       },
@@ -14136,6 +14452,27 @@ export class ReticulumChatDatabase {
       );
       CREATE INDEX IF NOT EXISTS idx_rchat_known_unavailable_recheck
         ON rchat_known_unavailable_ranges (recheck_at, group_id);
+    `);
+  }
+
+  private initAuthorGoneRangeSchema(): void {
+    // A sequence range that a quorum of providers can serve only as scrubbed
+    // or expired rows is locally "gone" (deleted or expired before this node
+    // saw it). These markers stop gap discovery from re-creating the missing
+    // range, but never block import: any event inside the range clears the
+    // marker and is stored normally.
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS rchat_gone_ranges (
+        group_id INTEGER NOT NULL,
+        author_address TEXT NOT NULL,
+        author_stream_id TEXT NOT NULL,
+        from_seq INTEGER NOT NULL,
+        to_seq INTEGER NOT NULL,
+        confirmed_at INTEGER NOT NULL,
+        PRIMARY KEY (group_id, author_address, author_stream_id, from_seq, to_seq)
+      );
+      CREATE INDEX IF NOT EXISTS idx_rchat_gone_ranges_author
+        ON rchat_gone_ranges (group_id, author_address, author_stream_id, from_seq, to_seq);
     `);
   }
 
