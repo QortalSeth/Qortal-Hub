@@ -48,6 +48,8 @@ import {
   subscribeToEvent,
   unsubscribeFromEvent,
 } from '../utils/events';
+import { openQChatTab } from '../utils/openQChatTab';
+import { setPendingNotificationNav } from '../utils/notificationClickBuffer';
 import { formatDate } from '../utils/time';
 import { QCHAT_MENTION_NOTIFICATION_APP_NAME } from '../utils/qChatMentionNotifications';
 import { ReticulumUnreadCountBadge } from './common/ReticulumUnreadCountBadge';
@@ -399,6 +401,8 @@ export const GeneralNotifications = ({
                       )
                     );
                     setAnchorEl(null);
+                    setPendingNotificationNav({ eventName: 'openGroupMessage', detail: { channelId: notification?.data?.channelId, eventId: notification?.data?.eventId, from: notification?.data?.groupId } });
+                    openQChatTab();
                     executeEvent('openGroupMessage', {
                       channelId: notification?.data?.channelId,
                       eventId: notification?.data?.eventId,
@@ -415,6 +419,8 @@ export const GeneralNotifications = ({
                       )
                     );
                     setAnchorEl(null);
+                    setPendingNotificationNav({ eventName: 'openDirectMessageInternal', detail: { address: notification?.data?.from, name: notification?.data?.name } });
+                    openQChatTab();
                     executeEvent('openDirectMessageInternal', {
                       address: notification?.data?.from,
                       name: notification?.data?.name,
@@ -429,6 +435,8 @@ export const GeneralNotifications = ({
                       )
                     );
                     setAnchorEl(null);
+                    setPendingNotificationNav({ eventName: 'openGroupMessage', detail: { from: notification?.data?.groupId, eventId: notification?.data?.eventId, occurrenceStart: notification?.data?.occurrenceStart, timezone: notification?.data?.timezone, openCalendar: true } });
+                    openQChatTab();
                     executeEvent('openGroupMessage', {
                       from: notification?.data?.groupId,
                       eventId: notification?.data?.eventId,

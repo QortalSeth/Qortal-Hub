@@ -149,6 +149,10 @@ import { useBumpNewlyJoinedGroups } from '../../hooks/useBumpNewlyJoinedGroups';
 import { DirectsSidebar } from './DirectsSidebar';
 import { GlobalChatWidget } from './GlobalChatWidget';
 import { openQChatTab, QCHAT_INTERNAL_TAB_ID } from '../../utils/openQChatTab';
+import {
+  drainPendingNotificationNav,
+  type PendingNav,
+} from '../../utils/notificationClickBuffer';
 import { HubOnboardingTour } from '../Onboarding/HubOnboardingTour';
 import { OnboardingQChatPreview } from '../Onboarding/OnboardingQChatPreview';
 import { QORTAL_PROJECT_GROUP_ID } from './findGroupsPinned';
@@ -2868,7 +2872,10 @@ export const Group = ({
             const parentEvent = Array.isArray(parentEvents)
               ? (parentEvents[0] as any)
               : null;
-            if (parentEvent?.authorAddress === myAddressRef.current) {
+            if (
+              parentEvent?.authorAddress === myAddressRef.current &&
+              event.authorAddress !== myAddressRef.current
+            ) {
               const effectiveSettings = await getEffectiveNotificationSettings(
                 Number(event.groupId),
                 undefined,
@@ -4358,6 +4365,16 @@ export const Group = ({
       unsubscribeFromEvent('openGroupMessage', openGroupChatFromNotification);
     };
   }, [openGroupChatFromNotification]);
+
+  // Drain any notification click that arrived before Group.tsx mounted
+  // (e.g. clicks from the Home page). Re-dispatch so the subscriber above
+  // can navigate to the target.
+  useEffect(() => {
+    const pending = drainPendingNotificationNav();
+    if (pending) {
+      executeEvent(pending.eventName, pending.detail);
+    }
+  });
 
   const openGroupAnnouncementFromNotification = useCallback(
     (e) => {

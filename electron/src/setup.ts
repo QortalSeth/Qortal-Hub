@@ -1,5 +1,9 @@
 import type { CapacitorElectronConfig } from '@capacitor-community/electron';
 import {
+  NotificationRegistry,
+  type NotificationEntry,
+} from './notification-registry';
+import {
   CapElectronEventEmitter,
   CapacitorSplashScreen,
   setupCapacitorElectronPlugins,
@@ -6039,14 +6043,7 @@ ipcMain.handle(
   }
 );
 
-interface NotificationEntry {
-  notification: Notification;
-  groupContext?: { groupId: number; channelId: string };
-  eventId?: string;
-  createdAt: number;
-}
-const activeNotifications = new Map<string, NotificationEntry>();
-const MAX_ACTIVE_NOTIFICATIONS = 50;
+const activeNotifications = new NotificationRegistry();
 
 ipcMain.handle(
   'reticulumChat:showNotification',
@@ -6067,12 +6064,11 @@ ipcMain.handle(
       const nid = payload.notificationId || String(Date.now());
       const now = Date.now();
 
-      // Enforce max concurrent notification cap: never close an existing
-      // notification to make room. Dropping a reference (or calling .close())
-      // removes it from the OS tray; skip the new notification instead.
-      if (activeNotifications.size >= MAX_ACTIVE_NOTIFICATIONS) {
-        return { success: false, error: 'notification cap reached' };
-      }
+      // The registry enforces the max-concurrent cap by evicting the OLDEST
+      // logical entry (smallest createdAt) before registering a new one —
+      // OS-closed entries (osClosedBySystem) still count, so the registry
+      // keeps exactly MAX_ACTIVE_NOTIFICATIONS entries at peak. Duplicate ids
+      // are replaced without eviction (dedupe, task 2.2).
 
       let notificationIcon: Electron.NativeImage | undefined;
       if (typeof payload.icon === 'string' && payload.icon.length > 0) {
@@ -6104,11 +6100,15 @@ ipcMain.handle(
         groupContext: payload.groupContext,
         eventId: payload.eventId,
         createdAt: now,
+        osClosedBySystem: false,
       };
+      // The registry handles dedupe (replacing an existing id without
+      // eviction) and cap eviction (oldest createdAt) on registration.
+      activeNotifications.set(nid, entry);
       // Keep the entry (and its Notification object reference) alive until the
       // OS or user closes it — GC-finalizing a wrapper closes the OS notification
-      // on Linux. Entries are removed by the 'close' handler and dismiss paths.
-      activeNotifications.set(nid, entry);
+      // on Linux. Entries are removed by app-initiated close; DE-initiated
+      // 'close' marks osClosedBySystem and retains (D1/E1).
       notification.on('click', () => {
         if (mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.focus();
@@ -6122,7 +6122,11 @@ ipcMain.handle(
         }
       });
       notification.on('close', () => {
-        activeNotifications.delete(nid);
+        // App-initiated closes remove the entry from the registry first, so
+        // this handler only sees DE-initiated closes (auto-dismiss after
+        // timeout, or shade collapse on clicking another notification). Those
+        // must NOT terminate the entry's logical life — retain it (D1/E1).
+        activeNotifications.markOsClosed(nid);
       });
       notification.show();
       return { success: true };
@@ -6133,34 +6137,10 @@ ipcMain.handle(
   }
 );
 
-function closeNotificationEntry(entry: NotificationEntry, nid: string) {
-  try {
-    entry.notification.close();
-  } catch {}
-  activeNotifications.delete(nid);
-}
-
 ipcMain.handle(
   'reticulumChat:dismissNotifications',
   async (_event, params: { groupId: number; channelId?: string }) => {
-    for (const [nid, entry] of activeNotifications) {
-      if (!entry.groupContext) continue;
-      // Match by groupId, or by channelId alone (DM case)
-      if (Number.isFinite(params.groupId)) {
-        if (entry.groupContext.groupId !== params.groupId) continue;
-        if (
-          params.channelId !== undefined &&
-          entry.groupContext.channelId !== params.channelId
-        )
-          continue;
-      } else if (params.channelId) {
-        // DM dismiss: match by channelId only
-        if (entry.groupContext.channelId !== params.channelId) continue;
-      } else {
-        continue;
-      }
-      closeNotificationEntry(entry, nid);
-    }
+    activeNotifications.dismissByContext(params.groupId, params.channelId);
     return { success: true };
   }
 );
@@ -6168,12 +6148,7 @@ ipcMain.handle(
 ipcMain.handle(
   'reticulumChat:dismissNotification',
   async (_event, params: { eventId: string }) => {
-    for (const [nid, entry] of activeNotifications) {
-      if (entry.eventId === params.eventId) {
-        closeNotificationEntry(entry, nid);
-        break;
-      }
-    }
+    activeNotifications.dismissByEventId(params.eventId);
     return { success: true };
   }
 );

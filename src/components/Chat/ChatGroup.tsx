@@ -2078,7 +2078,24 @@ export const ChatGroup = ({
     getTimestampEnterChat(selectedGroup);
   }, [selectedGroup, isActive]);
 
+  const previousGroupRef = useRef(selectedGroup);
+
   useEffect(() => {
+    // Save the previous group's channel selection before resetting.
+    // At this point selectedGroup is already the NEW group ID,
+    // so use previousGroupRef to get the OLD group ID.
+    const prevGroup = previousGroupRef.current;
+    if (prevGroup && selectedReticulumChannelId) {
+      try {
+        const storageKey = `qchat_last_channel_per_group_${myAddress}`;
+        const saved = JSON.parse(localStorage.getItem(storageKey) || '{}');
+        saved[String(prevGroup)] = selectedReticulumChannelId;
+        localStorage.setItem(storageKey, JSON.stringify(saved));
+      } catch {
+        // localStorage access may fail in sandboxed contexts
+      }
+    }
+    previousGroupRef.current = selectedGroup;
     // A channel selection belongs to the group, not to the asynchronous
     // Reticulum-enabled probe. The Reticulum and legacy ChatGroup instances
     // are mounted separately when that mode changes, so resetting here on a
@@ -2088,7 +2105,11 @@ export const ChatGroup = ({
     setReticulumCategories([]);
     setReticulumChannelMetadataVisibleGroupId('');
     reticulumChannelSnapshotGroupIdRef.current = '';
-    setSelectedReticulumChannelId(DEFAULT_RETICULUM_CHANNEL_ID);
+    // Do NOT reset selectedReticulumChannelId here — leave it at the old
+    // channel value from the previous group. The fallback effect at ~2330
+    // is now gated on non-empty channels, so it won't fire during loading.
+    // refreshReticulumChannels will set the correct channel when metadata
+    // arrives, or the fallback will handle it once channels are populated.
     setReticulumChannelSettingsOpen(false);
     setEditingReticulumChannel(null);
   }, [selectedGroup]);
@@ -2124,9 +2145,18 @@ export const ChatGroup = ({
     );
     setReticulumCategories(parsedCategories);
     setReticulumChannels(availableChannels);
-    setSelectedReticulumChannelId((current) =>
-      availableChannels.some((channel) => channel.channelId === current)
-        ? current
+    // Restore saved channel for this group if available
+    let savedChannel = '';
+    try {
+      const storageKey = `qchat_last_channel_per_group_${myAddress}`;
+      const saved = JSON.parse(localStorage.getItem(storageKey) || '{}');
+      savedChannel = saved[String(groupId)] || '';
+    } catch {
+      // localStorage access may fail in sandboxed contexts
+    }
+    setSelectedReticulumChannelId(
+      availableChannels.some((channel) => channel.channelId === savedChannel)
+        ? savedChannel
         : (availableChannels.find(
             (channel) => channel.channelId === DEFAULT_RETICULUM_CHANNEL_ID
           )?.channelId ??
@@ -2298,6 +2328,11 @@ export const ChatGroup = ({
 
   useEffect(() => {
     if (!reticulumChatEnabled) return;
+    // Skip while channels are still loading (empty array) — this is an
+    // intermediate state after setReticulumChannels([]) on group switch.
+    // The correct channel will be set by refreshReticulumChannels when
+    // channel metadata arrives.
+    if (reticulumChannelsForSelectedGroup.length === 0) return;
     if (
       reticulumChannelsForSelectedGroup.some(
         (channel) => channel.channelId === selectedReticulumChannelId
@@ -5969,6 +6004,12 @@ export const ChatGroup = ({
       }
       return;
     }
+    // Gate on channels having been loaded for this group to avoid marking
+    // the wrong channel as read during the loading window after a group switch.
+    // Without this, if the previous group's channel happens to exist in the new
+    // group (e.g. 'general'), it would be marked read before the saved channel
+    // is restored by refreshReticulumChannels.
+    if (reticulumChannelStateGroupId !== String(selectedGroup)) return;
     const readEntryToken =
       typeof reticulumReadEntryToken === 'number'
         ? reticulumReadEntryToken
@@ -6068,6 +6109,7 @@ export const ChatGroup = ({
     reticulumChannelSummariesById,
     selectedGroup,
     selectedReticulumChannelId,
+    reticulumChannelStateGroupId,
   ]);
 
   const acknowledgeReticulumUnreadMessages = useCallback(() => {
@@ -8658,6 +8700,15 @@ export const ChatGroup = ({
           setMessages([]);
           setChatReferences({});
           appliedReticulumEventIdsRef.current.clear();
+          // Persist explicit channel selection
+          try {
+            const storageKey = `qchat_last_channel_per_group_${myAddress}`;
+            const saved = JSON.parse(localStorage.getItem(storageKey) || '{}');
+            saved[String(selectedGroup)] = channelId;
+            localStorage.setItem(storageKey, JSON.stringify(saved));
+          } catch {
+            // localStorage access may fail in sandboxed contexts
+          }
         }}
         selected={selected}
         textScale={reticulumChatTextScale}
