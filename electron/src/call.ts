@@ -25,6 +25,7 @@ import {
   wireFitsReticulum,
 } from './reticulum-wire-size';
 import { deriveAddressFromPublicKey } from './presence';
+import { MAX_CALL_CLOCK_SKEW_MS } from './ed25519-verify-common';
 import { VerifyWorkerPool } from './verify-worker-pool';
 import type { PresenceManager, PresenceRoute } from './presence';
 import type { ReticulumBridge } from './reticulum-bridge';
@@ -32,13 +33,42 @@ import { getRouteBoundDestinationHash } from './reticulum-route-bound-id';
 
 const CALL_MAX_HOPS = 4;
 const CALL_REQUEST_TTL_MS = 60_000;
+/**
+ * U-1: shortest ring a late-delivered request may grant. A sender clock that
+ * runs fast makes the remaining lifetime look tiny; without a floor the device
+ * would ring for a second or two and record a missed call while the caller is
+ * still waiting.
+ */
+const MIN_INBOUND_RING_MS = 15_000;
+/** X-4: how long a remembered destination is still worth trying. */
+const CELL_LAST_KNOWN_ROUTE_MS = 24 * 60 * 60_000;
+
+/**
+ * X-4: why an outbound call could not be started. `lapsed_presence` means a
+ * stale destination was tried and the peer still did not answer reachability,
+ * so the account may simply be asleep rather than unreachable.
+ */
+export interface CallInitiateFailure {
+  reason?: 'no_route' | 'lapsed_presence';
+  usedLapsedPresenceFallback?: boolean;
+}
+/** B-5: re-flood an unanswered CALL_REQUEST this often while ringing. */
+const CALL_REQUEST_REFLOOD_MS = 4_000;
 const RETICULUM_OVERLAY_SEEN_TTL_MS = 60_000;
 const CALL_VERIFY_WORKER_COUNT = 2;
 const CALL_MAX_PENDING_VERIFY = 512;
 const CALL_WIRE_REQUEST = 'CR';
+/** X-3: optional ringing acknowledgement (`CG`). Unknown to old peers. */
+const CALL_WIRE_RINGING = 'CG';
 const CALL_WIRE_ACCEPT = 'CA';
 const CALL_WIRE_REJECT = 'CX';
 const CALL_WIRE_HANGUP = 'CH';
+/**
+ * U-1: the accepting device tells the account's *other* devices that the call
+ * was answered here. Unknown to 3.0.x builds, which drop it as an unrecognised
+ * `t`; they fall back to the caller-signed cancellation instead.
+ */
+const CALL_WIRE_ANSWERED_ELSEWHERE = 'CE';
 const CALL_WIRE_RTC_START = 'RS';
 const CALL_WIRE_RTC_AUTH = 'RH';
 const CALL_WIRE_RTC_PART = 'RP';
@@ -70,6 +100,16 @@ const CALL_SEND_RETRY_MS = 50;
 const CALL_PINNED_SEND_MAX_ATTEMPTS = 120;
 const CALL_PINNED_SEND_RETRY_MS = 250;
 const CALL_PINNED_SEND_TIMEOUT_MS = 30_000;
+/**
+ * Budget for one accept-time cancellation destination.
+ *
+ * The 30s default is right for CALL_ACCEPT and RTC frames, which must outlast
+ * a bridge blip. A cancellation is different: "bridge not ready" is a local
+ * state, and the call is already active by the time it is sent, so a long
+ * retry loop per dead destination is pure churn. The sibling's own request
+ * timeout is the backstop.
+ */
+const CALL_CANCEL_SEND_DEADLINE_MS = 750;
 const CALL_ACCEPT_REPEAT_ATTEMPTS = 5;
 const CALL_ACCEPT_REPEAT_MS = 350;
 const DM_HANGUP_ACK_WAIT_MS = 900;
@@ -78,9 +118,11 @@ let retainedCallLocalAddresses: string[] = [];
 
 export type CallNetworkType =
   | 'CALL_REQUEST'
+  | 'CALL_RINGING'
   | 'CALL_ACCEPT'
   | 'CALL_REJECT'
-  | 'CALL_HANGUP';
+  | 'CALL_HANGUP'
+  | 'CALL_ANSWERED_ELSEWHERE';
 
 export type DirectCallRtcSignalType =
   | 'capability'
@@ -123,9 +165,14 @@ export function buildDirectCallRtcSignedFields(input: {
 
 export const CALL_MESSAGE_TYPES = new Set<string>([
   'CALL_REQUEST',
+  // X-3: optional ringing acknowledgement. Old peers do not know this type and
+  // ignore it, so it is safe to send unconditionally.
+  'CALL_RINGING',
   'CALL_ACCEPT',
   'CALL_REJECT',
   'CALL_HANGUP',
+  // U-1: same compatibility story — old peers drop an unknown type.
+  'CALL_ANSWERED_ELSEWHERE',
 ]);
 
 export function resolveDirectCallSourceEndpoint(
@@ -186,6 +233,15 @@ function encodeCallWire(env: CallWireEnvelope): Record<string, unknown> {
       }
       return wire;
     }
+    case 'CALL_RINGING':
+      return {
+        t: CALL_WIRE_RINGING,
+        c: env.callId,
+        a: env.fromAddress,
+        k: env.fromPublicKey,
+        g: env.signature,
+        m: env.timestamp,
+      };
     case 'CALL_ACCEPT':
       return {
         t: CALL_WIRE_ACCEPT,
@@ -221,6 +277,17 @@ function encodeCallWire(env: CallWireEnvelope): Record<string, unknown> {
         ...(env.reticulumDestinationHash
           ? { r: env.reticulumDestinationHash }
           : {}),
+        // U-1: outside the signed field set on purpose — see
+        // CallHangupEnvelope.answeredElsewhere.
+        ...(env.answeredElsewhere === true ? { w: 1 } : {}),
+      };
+    case 'CALL_ANSWERED_ELSEWHERE':
+      return {
+        t: CALL_WIRE_ANSWERED_ELSEWHERE,
+        c: env.callId,
+        k: env.fromPublicKey,
+        g: env.signature,
+        m: env.timestamp,
       };
     default:
       return {};
@@ -264,6 +331,23 @@ function decodeCompactCallWire(
         ...(reticulumDestinationHash ? { reticulumDestinationHash } : {}),
       };
     }
+    case CALL_WIRE_RINGING:
+      if (
+        typeof wire.c !== 'string' ||
+        typeof wire.k !== 'string' ||
+        typeof wire.g !== 'string' ||
+        typeof wire.m !== 'number'
+      ) {
+        return null;
+      }
+      return {
+        type: 'CALL_RINGING',
+        callId: wire.c,
+        fromAddress: typeof wire.a === 'string' ? wire.a : '',
+        fromPublicKey: wire.k,
+        signature: wire.g,
+        timestamp: wire.m,
+      };
     case CALL_WIRE_ACCEPT:
       if (
         typeof wire.c !== 'string' ||
@@ -312,6 +396,26 @@ function decodeCompactCallWire(
         fromPublicKey: wire.k,
         signature: wire.g,
         timestamp: wire.m,
+        // U-1: the compact decoder rebuilds envelopes from a fixed field list,
+        // so the marker has to be carried explicitly or handleHangup would
+        // never see it.
+        ...(wire.w === 1 ? { answeredElsewhere: true as const } : {}),
+      };
+    case CALL_WIRE_ANSWERED_ELSEWHERE:
+      if (
+        typeof wire.c !== 'string' ||
+        typeof wire.k !== 'string' ||
+        typeof wire.g !== 'string' ||
+        typeof wire.m !== 'number'
+      ) {
+        return null;
+      }
+      return {
+        type: 'CALL_ANSWERED_ELSEWHERE',
+        callId: wire.c,
+        fromPublicKey: wire.k,
+        signature: wire.g,
+        timestamp: wire.m,
       };
     default:
       return null;
@@ -327,6 +431,17 @@ export interface CallRequestEnvelope {
   signature: string;
   timestamp: number;
   reticulumDestinationHash?: string;
+  hopsRemaining?: number;
+}
+
+/** X-3: optional ringing acknowledgement from the callee. */
+export interface CallRingingEnvelope {
+  type: 'CALL_RINGING';
+  callId: string;
+  fromAddress: string;
+  fromPublicKey: string;
+  signature: string;
+  timestamp: number;
   hopsRemaining?: number;
 }
 
@@ -351,8 +466,9 @@ export interface CallRejectEnvelope {
   hopsRemaining?: number;
 }
 
-export interface CallHangupEnvelope {
-  type: 'CALL_HANGUP';
+/** U-1: the accepting device tells the account's own other devices. */
+export interface CallAnsweredElsewhereEnvelope {
+  type: 'CALL_ANSWERED_ELSEWHERE';
   callId: string;
   fromPublicKey: string;
   signature: string;
@@ -361,11 +477,36 @@ export interface CallHangupEnvelope {
   hopsRemaining?: number;
 }
 
+export interface CallHangupEnvelope {
+  type: 'CALL_HANGUP';
+  callId: string;
+  fromPublicKey: string;
+  signature: string;
+  timestamp: number;
+  reticulumDestinationHash?: string;
+  hopsRemaining?: number;
+  /**
+   * U-1: unauthenticated marker set by the caller's accept-time cancellation.
+   * It means "stop ringing, the account answered on another device" — so a
+   * device that already answered for this call keeps the call.
+   *
+   * Deliberately outside the signed field set
+   * ({callId, timestamp, type}). Signing it would change the canonical and no
+   * 3.0.x receiver could verify the cancellation at all, which would regress
+   * every older sibling to ringing out its full timeout. Unsigned is safe
+   * because the marker can only suppress a hangup, never cause one, and only
+   * while this device holds an active record for this exact call id.
+   */
+  answeredElsewhere?: true;
+}
+
 export type CallWireEnvelope =
   | CallRequestEnvelope
+  | CallRingingEnvelope
   | CallAcceptEnvelope
   | CallRejectEnvelope
-  | CallHangupEnvelope;
+  | CallHangupEnvelope
+  | CallAnsweredElsewhereEnvelope;
 
 export type CallDirection = 'outbound' | 'inbound';
 export type CallState = 'pending' | 'active' | 'ended';
@@ -406,6 +547,12 @@ interface CallRecord {
   startedAt: number;
   cleanupTimer?: ReturnType<typeof setTimeout>;
   rejectionFinalizeTimer?: ReturnType<typeof setTimeout>;
+  /** B-5: periodic CALL_REQUEST re-flood while the call is still ringing. */
+  requestRefloodTimer?: ReturnType<typeof setInterval>;
+  /** X-3: the callee confirmed it is ringing. */
+  ringingAcknowledged?: boolean;
+  /** X-4: this call was placed against a lapsed-presence destination. */
+  usedLapsedPresenceFallback?: boolean;
   controlRepeatTimers?: Set<ReturnType<typeof setTimeout>>;
 }
 
@@ -421,26 +568,8 @@ interface DirectCallRtcOutboundSignal {
   cleanupTimer?: ReturnType<typeof setTimeout>;
 }
 
-interface DirectCallRtcInboundSignal {
-  callId: string;
-  senderDestinationHash: string;
-  signalId: string;
-  signalType?: DirectCallRtcSignalType;
-  generation?: string;
-  partCount?: number;
-  payloadHash?: string;
-  timestamp?: number;
-  fromPublicKey?: string;
-  signature?: string;
-  parts: Map<number, string>;
-  bufferedBytes: number;
-  recoveryRounds: number;
-  createdAt: number;
-  verificationStarted?: boolean;
-  completed?: boolean;
-  recoveryTimer?: ReturnType<typeof setTimeout>;
-  cleanupTimer?: ReturnType<typeof setTimeout>;
-}
+// B-14: `DirectCallRtcInboundSignal` was removed together with the legacy
+// `handleRtcWire` inbound path it described.
 
 export type DmCallLinkControlPayload = {
   kind: 'hangup' | 'hangup-ack';
@@ -513,9 +642,14 @@ export class CallManager extends EventEmitter {
   private reticulumUnsub: (() => void) | null = null;
   private seenReticulumOverlayIds = new Map<string, number>();
   private rtcOutboundSignals = new Map<string, DirectCallRtcOutboundSignal>();
-  private rtcInboundSignals = new Map<string, DirectCallRtcInboundSignal>();
-  private rtcInboundBufferedBytes = 0;
-  private rtcCandidateCounts = new Map<string, number>();
+  /** X-4: last known Reticulum destinations per address, for lapsed presence. */
+  private lastKnownReticulumDestinations = new Map<
+    string,
+    { destinationHashes: string[]; atMs: number }
+  >();
+  // B-14: `rtcInboundSignals`, `rtcInboundBufferedBytes` and
+  // `rtcCandidateCounts` were only ever fed by the removed legacy
+  // `handleRtcWire` inbound path.
   private dmCallLinkControlSender: DmCallLinkControlSender | null = null;
   private pendingDmHangupAcks = new Map<string, PendingDmHangupAck>();
 
@@ -965,27 +1099,9 @@ export class CallManager extends EventEmitter {
     this.rtcOutboundSignals.delete(key);
   }
 
-  private clearRtcInboundSignal(key: string): void {
-    const signal = this.rtcInboundSignals.get(key);
-    if (!signal) return;
-    if (signal.recoveryTimer) clearTimeout(signal.recoveryTimer);
-    if (signal.cleanupTimer) clearTimeout(signal.cleanupTimer);
-    this.rtcInboundBufferedBytes = Math.max(
-      0,
-      this.rtcInboundBufferedBytes - signal.bufferedBytes
-    );
-    this.rtcInboundSignals.delete(key);
-  }
-
   private clearRtcSignalsForCall(callId: string): void {
     for (const [key, signal] of this.rtcOutboundSignals) {
       if (signal.callId === callId) this.clearRtcOutboundSignal(key);
-    }
-    for (const [key, signal] of this.rtcInboundSignals) {
-      if (signal.callId === callId) this.clearRtcInboundSignal(key);
-    }
-    for (const key of this.rtcCandidateCounts.keys()) {
-      if (key.startsWith(`${callId}|`)) this.rtcCandidateCounts.delete(key);
     }
   }
 
@@ -993,418 +1109,6 @@ export class CallManager extends EventEmitter {
     for (const key of [...this.rtcOutboundSignals.keys()]) {
       this.clearRtcOutboundSignal(key);
     }
-    for (const key of [...this.rtcInboundSignals.keys()]) {
-      this.clearRtcInboundSignal(key);
-    }
-    this.rtcCandidateCounts.clear();
-    this.rtcInboundBufferedBytes = 0;
-  }
-
-  private getOrCreateRtcInboundSignal(
-    callId: string,
-    signalId: string,
-    senderDestinationHash: string
-  ): DirectCallRtcInboundSignal | null {
-    const key = this.rtcSignalKey(callId, signalId);
-    const existing = this.rtcInboundSignals.get(key);
-    if (existing) {
-      return existing.senderDestinationHash === senderDestinationHash
-        ? existing
-        : null;
-    }
-    if (this.rtcInboundSignals.size >= CALL_RTC_MAX_INBOUND_SIGNALS)
-      return null;
-    const signal: DirectCallRtcInboundSignal = {
-      callId,
-      senderDestinationHash,
-      signalId,
-      parts: new Map(),
-      bufferedBytes: 0,
-      recoveryRounds: 0,
-      createdAt: Date.now(),
-    };
-    signal.cleanupTimer = setTimeout(
-      () => this.clearRtcInboundSignal(key),
-      CALL_RTC_SIGNAL_TTL_MS
-    );
-    signal.cleanupTimer.unref?.();
-    this.rtcInboundSignals.set(key, signal);
-    return signal;
-  }
-
-  private isRtcWireFromSelectedPeer(
-    callId: string,
-    senderDestinationHash: string,
-    peerPresenceHash: string
-  ): { call: CallRecord; peerDestinationHash: string } | null {
-    const call = this.activeCalls.get(callId);
-    if (!call || call.state !== 'active') return null;
-    const selected = this.getRtcPeerDestinationHash(call);
-    const sender = senderDestinationHash.trim().toLowerCase();
-    const transportPeer = peerPresenceHash.trim().toLowerCase();
-    // WebRTC negotiation material is accepted only from the selected device
-    // over its authenticated direct Reticulum link. Relayed/overlay copies are
-    // deliberately ineligible even when their wallet signature is valid.
-    if (!selected || sender !== selected || transportPeer !== selected)
-      return null;
-    return { call, peerDestinationHash: selected };
-  }
-
-  private handleRtcWire(
-    wire: Record<string, unknown>,
-    senderDestinationHash: string,
-    peerPresenceHash: string
-  ): boolean {
-    const wireType = wire.t;
-    if (
-      wireType !== CALL_WIRE_RTC_START &&
-      wireType !== CALL_WIRE_RTC_AUTH &&
-      wireType !== CALL_WIRE_RTC_PART &&
-      wireType !== CALL_WIRE_RTC_ACK &&
-      wireType !== CALL_WIRE_RTC_RESEND
-    ) {
-      return false;
-    }
-    const callId = typeof wire.c === 'string' ? wire.c : '';
-    const signalId = typeof wire.i === 'string' ? wire.i : '';
-    if (!callId || !/^[A-Za-z0-9_-]{8,24}$/.test(signalId)) return true;
-    const selected = this.isRtcWireFromSelectedPeer(
-      callId,
-      senderDestinationHash,
-      peerPresenceHash
-    );
-    if (!selected) return true;
-    const key = this.rtcSignalKey(callId, signalId);
-
-    if (wireType === CALL_WIRE_RTC_ACK) {
-      const outbound = this.rtcOutboundSignals.get(key);
-      if (outbound?.peerDestinationHash === selected.peerDestinationHash) {
-        this.clearRtcOutboundSignal(key);
-      }
-      return true;
-    }
-    if (wireType === CALL_WIRE_RTC_RESEND) {
-      const outbound = this.rtcOutboundSignals.get(key);
-      if (
-        !outbound ||
-        outbound.peerDestinationHash !== selected.peerDestinationHash
-      ) {
-        return true;
-      }
-      if (wire.s === true) {
-        this.sendPinnedCallWireWhenReady(
-          outbound.peerDestinationHash,
-          outbound.startWire,
-          0
-        );
-      }
-      if (wire.a === true) {
-        this.sendPinnedCallWireWhenReady(
-          outbound.peerDestinationHash,
-          outbound.authWire,
-          0
-        );
-      }
-      const missing = Array.isArray(wire.q) ? wire.q : [];
-      for (const rawIndex of missing.slice(0, 32)) {
-        if (!Number.isInteger(rawIndex)) continue;
-        const partWire = outbound.partWires[rawIndex as number];
-        if (partWire) {
-          this.sendPinnedCallWireWhenReady(
-            outbound.peerDestinationHash,
-            partWire,
-            0
-          );
-        }
-      }
-      return true;
-    }
-
-    const signal = this.getOrCreateRtcInboundSignal(
-      callId,
-      signalId,
-      selected.peerDestinationHash
-    );
-    if (!signal) return true;
-    if (signal.completed) {
-      this.sendPinnedCallWireWhenReady(
-        selected.peerDestinationHash,
-        {
-          t: CALL_WIRE_RTC_ACK,
-          c: callId,
-          i: signalId,
-        },
-        0
-      );
-      return true;
-    }
-
-    if (wireType === CALL_WIRE_RTC_START) {
-      const signalType =
-        typeof wire.y === 'string'
-          ? CALL_RTC_SIGNAL_FROM_CODE[wire.y]
-          : undefined;
-      const generation = typeof wire.v === 'string' ? wire.v : '';
-      const partCount = typeof wire.n === 'number' ? wire.n : NaN;
-      const payloadHash =
-        typeof wire.z === 'string' ? wire.z.toLowerCase() : '';
-      const timestamp = typeof wire.m === 'number' ? wire.m : NaN;
-      if (
-        !signalType ||
-        !/^[A-Za-z0-9_-]{8,64}$/.test(generation) ||
-        !Number.isSafeInteger(partCount) ||
-        partCount < 1 ||
-        partCount > CALL_RTC_MAX_FRAGMENTS ||
-        !/^[0-9a-f]{64}$/.test(payloadHash) ||
-        !Number.isFinite(timestamp) ||
-        Date.now() - timestamp > 30_000 ||
-        Date.now() - timestamp < -10_000
-      ) {
-        this.clearRtcInboundSignal(key);
-        return true;
-      }
-      if (
-        (signal.signalType && signal.signalType !== signalType) ||
-        (signal.generation && signal.generation !== generation) ||
-        (signal.partCount && signal.partCount !== partCount) ||
-        (signal.payloadHash && signal.payloadHash !== payloadHash) ||
-        (signal.timestamp && signal.timestamp !== timestamp)
-      ) {
-        this.clearRtcInboundSignal(key);
-        return true;
-      }
-      signal.signalType = signalType;
-      signal.generation = generation;
-      signal.partCount = partCount;
-      signal.payloadHash = payloadHash;
-      signal.timestamp = timestamp;
-    } else if (wireType === CALL_WIRE_RTC_AUTH) {
-      const publicKey = typeof wire.k === 'string' ? wire.k : '';
-      const signature = typeof wire.g === 'string' ? wire.g : '';
-      if (!publicKey || !signature) {
-        this.clearRtcInboundSignal(key);
-        return true;
-      }
-      if (
-        (signal.fromPublicKey && signal.fromPublicKey !== publicKey) ||
-        (signal.signature && signal.signature !== signature)
-      ) {
-        this.clearRtcInboundSignal(key);
-        return true;
-      }
-      signal.fromPublicKey = publicKey;
-      signal.signature = signature;
-    } else if (wireType === CALL_WIRE_RTC_PART) {
-      const index = typeof wire.x === 'number' ? wire.x : NaN;
-      const part = typeof wire.p === 'string' ? wire.p : '';
-      if (
-        !Number.isSafeInteger(index) ||
-        index < 0 ||
-        index >= CALL_RTC_MAX_FRAGMENTS ||
-        part.length > CALL_RTC_FRAGMENT_CHARS ||
-        !/^[A-Za-z0-9+/]*={0,2}$/.test(part)
-      ) {
-        this.clearRtcInboundSignal(key);
-        return true;
-      }
-      if (!signal.parts.has(index)) {
-        const addedBytes = Buffer.byteLength(part, 'utf8');
-        if (
-          this.rtcInboundBufferedBytes + addedBytes >
-          CALL_RTC_MAX_BUFFERED_BYTES
-        ) {
-          this.clearRtcInboundSignal(key);
-          return true;
-        }
-        signal.parts.set(index, part);
-        signal.bufferedBytes += addedBytes;
-        this.rtcInboundBufferedBytes += addedBytes;
-      }
-    }
-
-    this.maybeCompleteRtcInboundSignal(key, selected.call);
-    return true;
-  }
-
-  private maybeCompleteRtcInboundSignal(key: string, call: CallRecord): void {
-    const signal = this.rtcInboundSignals.get(key);
-    if (!signal || signal.completed || signal.verificationStarted) return;
-    if (
-      !signal.signalType ||
-      !signal.generation ||
-      !signal.partCount ||
-      !signal.payloadHash ||
-      !signal.timestamp ||
-      !signal.fromPublicKey ||
-      !signal.signature
-    ) {
-      this.scheduleRtcRecovery(key);
-      return;
-    }
-    const missing: number[] = [];
-    for (let i = 0; i < signal.partCount; i += 1) {
-      if (!signal.parts.has(i)) missing.push(i);
-    }
-    if (missing.length > 0) {
-      this.scheduleRtcRecovery(key);
-      return;
-    }
-    signal.verificationStarted = true;
-    if (signal.recoveryTimer) {
-      clearTimeout(signal.recoveryTimer);
-      signal.recoveryTimer = undefined;
-    }
-    let payload: string;
-    try {
-      const encoded = Array.from(
-        { length: signal.partCount },
-        (_, index) => signal.parts.get(index) ?? ''
-      ).join('');
-      payload = inflateRawSync(Buffer.from(encoded, 'base64'), {
-        maxOutputLength: 64 * 1024,
-      }).toString('utf8');
-    } catch {
-      this.clearRtcInboundSignal(key);
-      return;
-    }
-    const actualHash = createHash('sha256')
-      .update(payload, 'utf8')
-      .digest('hex');
-    if (actualHash !== signal.payloadHash) {
-      this.clearRtcInboundSignal(key);
-      return;
-    }
-    const maxBytes =
-      signal.signalType === 'capability'
-        ? 512
-        : signal.signalType === 'candidate'
-          ? 8 * 1024
-          : 64 * 1024;
-    if (Buffer.byteLength(payload, 'utf8') > maxBytes) {
-      this.clearRtcInboundSignal(key);
-      return;
-    }
-    const candidateKey = `${signal.callId}|${signal.generation}`;
-    if (signal.signalType === 'candidate') {
-      const count = this.rtcCandidateCounts.get(candidateKey) ?? 0;
-      if (count >= CALL_RTC_MAX_CANDIDATES_PER_GENERATION) {
-        this.clearRtcInboundSignal(key);
-        return;
-      }
-    }
-    const signedFields = buildDirectCallRtcSignedFields({
-      callId: signal.callId,
-      generation: signal.generation,
-      signalId: signal.signalId,
-      signalType: signal.signalType,
-      payloadHash: signal.payloadHash,
-      timestamp: signal.timestamp,
-    });
-    const accountGeneration = this.localAccountGeneration;
-    void this.verifyPool
-      .verify({
-        kind: 'gc',
-        fields: signedFields,
-        signature: signal.signature,
-        fromPublicKey: signal.fromPublicKey,
-        fromAddress: call.remoteAddress,
-      })
-      .then((verified) => {
-        if (accountGeneration !== this.localAccountGeneration) return;
-        const current = this.rtcInboundSignals.get(key);
-        const active = this.activeCalls.get(signal.callId);
-        if (
-          !verified ||
-          current !== signal ||
-          active !== call ||
-          active.state !== 'active' ||
-          this.getRtcPeerDestinationHash(active) !==
-            signal.senderDestinationHash
-        ) {
-          this.clearRtcInboundSignal(key);
-          return;
-        }
-        signal.completed = true;
-        signal.parts.clear();
-        this.rtcInboundBufferedBytes = Math.max(
-          0,
-          this.rtcInboundBufferedBytes - signal.bufferedBytes
-        );
-        signal.bufferedBytes = 0;
-        if (signal.signalType === 'candidate') {
-          this.rtcCandidateCounts.set(
-            candidateKey,
-            (this.rtcCandidateCounts.get(candidateKey) ?? 0) + 1
-          );
-        }
-        if (signal.signalType !== 'candidate') {
-          loggerLog('[Call][RTC] authenticated signal received', {
-            signalType: signal.signalType,
-            call: signal.callId.slice(0, 8),
-            peer: signal.senderDestinationHash.slice(0, 8),
-          });
-        }
-        this.emit('call:rtc-signal', {
-          callId: signal.callId,
-          generation: signal.generation,
-          signalType: signal.signalType,
-          payload,
-        });
-        this.sendPinnedCallWireWhenReady(
-          signal.senderDestinationHash,
-          {
-            t: CALL_WIRE_RTC_ACK,
-            c: signal.callId,
-            i: signal.signalId,
-          },
-          0
-        );
-      })
-      .catch(() => this.clearRtcInboundSignal(key));
-  }
-
-  private scheduleRtcRecovery(key: string): void {
-    const signal = this.rtcInboundSignals.get(key);
-    if (!signal || signal.recoveryTimer || signal.completed) return;
-    signal.recoveryTimer = setTimeout(
-      () => {
-        signal.recoveryTimer = undefined;
-        const current = this.rtcInboundSignals.get(key);
-        if (!current || current.completed || current.verificationStarted)
-          return;
-        if (current.recoveryRounds >= CALL_RTC_MAX_RECOVERY_ROUNDS) {
-          return;
-        }
-        current.recoveryRounds += 1;
-        const missing: number[] = [];
-        if (current.partCount) {
-          for (let i = 0; i < current.partCount; i += 1) {
-            if (!current.parts.has(i)) missing.push(i);
-          }
-        }
-        const requests = Math.max(1, Math.ceil(missing.length / 32));
-        for (let batch = 0; batch < requests; batch += 1) {
-          const resend = {
-            t: CALL_WIRE_RTC_RESEND,
-            c: current.callId,
-            i: current.signalId,
-            q: missing.slice(batch * 32, batch * 32 + 32),
-            ...(!current.partCount ? { s: true } : {}),
-            ...(current.fromPublicKey && current.signature ? {} : { a: true }),
-          };
-          if (this.rtcDirectWireFits(resend)) {
-            this.sendPinnedCallWireWhenReady(
-              current.senderDestinationHash,
-              resend,
-              0
-            );
-          }
-        }
-        this.scheduleRtcRecovery(key);
-      },
-      Math.min(2_800, CALL_RTC_RECOVERY_WAIT_MS * 2 ** signal.recoveryRounds)
-    );
-    signal.recoveryTimer.unref?.();
   }
 
   private enqueuePendingVerifiedIncomingRequest(
@@ -1435,13 +1139,24 @@ export class CallManager extends EventEmitter {
     for (const p of pending) {
       if (now - p.receivedAt > CALL_REQUEST_TTL_MS) continue;
       try {
-        this.applyVerifiedIncomingRequest(p.env, p.ctx);
+        // U-1: hand the receipt time through so the ring floor is measured on
+        // this device's clock, not the sender's timestamp.
+        this.applyVerifiedIncomingRequest(p.env, {
+          ...p.ctx,
+          receivedAt: p.receivedAt,
+        });
       } catch (err) {
         loggerError('[Call] Error applying queued CALL_REQUEST:', err);
       }
     }
   }
 
+  /**
+   * X-4: `failureReason` is an output parameter. Callers pass an object and
+   * read `reason` / `usedLapsedPresenceFallback` back when the call returns
+   * null, so the UI can distinguish "may be asleep" from "no route" without
+   * parsing a log line. Optional, so existing callers are unaffected.
+   */
   async initiateCall(
     targetAddress: string,
     chatId: string,
@@ -1452,7 +1167,8 @@ export class CallManager extends EventEmitter {
     timestamp: number,
     cancellationSignature?: string,
     cancellationPublicKey?: string,
-    cancellationTimestamp?: number
+    cancellationTimestamp?: number,
+    failureReason?: CallInitiateFailure
   ): Promise<string | null> {
     const boundLocalDestination = getRouteBoundDestinationHash('call', callId);
     const currentLocalDestination =
@@ -1488,14 +1204,45 @@ export class CallManager extends EventEmitter {
         : [this.presence.getRouteForAddress(targetAddress)].filter(
             (route): route is PresenceRoute => route !== null
           );
-    const routes = allRoutes.filter(
+    let routes = allRoutes.filter(
       (route): route is Extract<PresenceRoute, { kind: 'reticulum' }> =>
         route.kind === 'reticulum'
     );
+    // X-4: distinguish "we tried a stale route" from "we never had one", so the
+    // UI can say "may be asleep" instead of an unreachable-account message.
+    let usedLapsedPresenceFallback = false;
+    if (routes.length === 0) {
+      // A phone whose presence lapsed while it slept can still be reached at
+      // its last known destination. Falling back here beats failing with
+      // "no route" for an account that is merely asleep.
+      const lastKnown = this.lastKnownReticulumDestinations.get(targetAddress);
+      if (
+        lastKnown &&
+        Date.now() - lastKnown.atMs <= CELL_LAST_KNOWN_ROUTE_MS
+      ) {
+        loggerLog(
+          `[Call] No live presence route to ${targetAddress}; using last known destination (${Math.round((Date.now() - lastKnown.atMs) / 60_000)}m old)`
+        );
+        usedLapsedPresenceFallback = true;
+        routes = lastKnown.destinationHashes.map(
+          (destinationHash) =>
+            ({
+              kind: 'reticulum' as const,
+              destinationHash,
+            }) satisfies PresenceRoute
+        );
+      }
+    }
     if (routes.length === 0) {
       loggerLog(`[Call] No Reticulum route to ${targetAddress}`);
+      if (failureReason) failureReason.reason = 'no_route';
       return null;
     }
+    // X-4: remember a live route so a later lapsed presence can still be called.
+    this.lastKnownReticulumDestinations.set(targetAddress, {
+      destinationHashes: routes.map((route) => route.destinationHash),
+      atMs: Date.now(),
+    });
 
     const record: CallRecord = {
       callId,
@@ -1513,12 +1260,30 @@ export class CallManager extends EventEmitter {
       direction: 'outbound',
       state: 'pending',
       startedAt: timestamp,
+      // X-4: a call placed against a lapsed-presence destination that then
+      // times out is "may be asleep", not "unreachable".
+      usedLapsedPresenceFallback,
     };
 
     record.cleanupTimer = setTimeout(() => {
       if (this.activeCalls.get(callId)?.state === 'pending') {
         loggerLog(`[Call] Request ${callId.slice(0, 8)}… timed out.`);
         this.emitDirectCallHistory(record, 'no_answer');
+        // B-2: without this the caller's UI rings forever — nothing else
+        // reaches the renderer when the timeout fires.
+        this.emit('call:hangup', {
+          callId,
+          fromAddress: record.localAddress,
+          remoteAddress: record.remoteAddress,
+          reason: record.usedLapsedPresenceFallback
+            ? 'lapsed_presence'
+            : 'timeout',
+        });
+        // B-2: tell the callee, so their incoming card stops ringing too and
+        // their other devices stop as well.
+        if (record.cancellationSignature) {
+          this.sendCallCancellation(record);
+        }
         this.activeCalls.delete(callId);
         this.clearRtcSignalsForCall(callId);
       }
@@ -1526,6 +1291,41 @@ export class CallManager extends EventEmitter {
 
     this.activeCalls.set(callId, record);
     this.sendEnvelope(targetAddress, env);
+    // P-2 / B-5: also send the signed CR directly to each known callee route,
+    // so a lost overlay flood no longer means a missed call, and relays no
+    // longer need to see who is calling whom. The pinned copy carries the same
+    // overlay fields (U and X) so 3.0.x receivers decode it and dedupe it
+    // against the flood copy. `L: 0` keeps it from being re-relayed.
+    const pinnedRequestWire = this.attachReticulumOverlayMeta(
+      encodeCallWire(env),
+      targetAddress,
+      0
+    );
+    if (this.rtcDirectWireFits(pinnedRequestWire)) {
+      for (const route of routes) {
+        this.sendPinnedCallWireWhenReady(
+          route.destinationHash,
+          pinnedRequestWire,
+          0
+        );
+      }
+    }
+    // B-5: re-flood the CR with a fresh `X` every few seconds while ringing.
+    // One lost flood previously meant a permanently unanswered call on lossy
+    // mesh paths and phones waking from Doze. Receivers dedupe by `callId`
+    // (and by `X` within the overlay), so repeats are safe.
+    record.requestRefloodTimer = setInterval(() => {
+      const current = this.activeCalls.get(callId);
+      if (!current || current.state !== 'pending') {
+        if (current?.requestRefloodTimer) {
+          clearInterval(current.requestRefloodTimer);
+          current.requestRefloodTimer = undefined;
+        }
+        return;
+      }
+      this.sendEnvelope(targetAddress, env);
+    }, CALL_REQUEST_REFLOOD_MS);
+    record.requestRefloodTimer.unref?.();
 
     loggerLog(
       `[Call] Initiated call ${callId.slice(0, 8)}… to ${targetAddress} via reticulum`
@@ -1533,11 +1333,40 @@ export class CallManager extends EventEmitter {
     return callId;
   }
 
-  acceptCall(
+  /**
+   * X-3: callee tells the caller its ringer fired. Best-effort — a failure
+   * here must never affect the call itself.
+   */
+  sendCallRinging(
     callId: string,
     signature: string,
     publicKey: string,
     timestamp: number
+  ): boolean {
+    const call = this.activeCalls.get(callId);
+    if (!call || call.direction !== 'inbound' || call.state !== 'pending') {
+      return false;
+    }
+    if (call.ringingAcknowledged) return true;
+    call.ringingAcknowledged = true;
+    const env: CallRingingEnvelope = {
+      type: 'CALL_RINGING',
+      callId,
+      fromAddress: call.localAddress,
+      fromPublicKey: publicKey,
+      signature,
+      timestamp,
+    };
+    this.sendEnvelope(call.remoteAddress, env);
+    return true;
+  }
+
+  acceptCall(
+    callId: string,
+    signature: string,
+    publicKey: string,
+    timestamp: number,
+    answeredElsewhereSignature?: string
   ): boolean {
     const call = this.activeCalls.get(callId);
     if (!call || call.direction !== 'inbound' || call.state !== 'pending') {
@@ -1571,8 +1400,66 @@ export class CallManager extends EventEmitter {
     // accepts only an invited endpoint. WebRTC SDP/ICE and media keys never use
     // this fallback and remain pinned to the authenticated direct Link.
     this.sendEnvelope(call.remoteAddress, env);
+    // U-1: tell this account's own other devices first. This is the only
+    // cancellation path that works when the caller has closed the app or lost
+    // connectivity at the moment of accept, and it reaches them without
+    // touching the caller at all.
+    if (answeredElsewhereSignature) {
+      this.sendAnsweredElsewhere(
+        call,
+        answeredElsewhereSignature,
+        publicKey,
+        timestamp
+      );
+    }
     loggerLog(`[Call] Accepted call ${callId.slice(0, 8)}…`);
     return true;
+  }
+
+  /**
+   * U-1: send the answered-elsewhere frame to this account's other devices.
+   *
+   * Target set is this account's own presence routes, minus this device's own
+   * destination — the accepting device is active by now, so it is in the set
+   * and must not be told to stop. Delivery is pinned and best-effort: a failure
+   * here never affects the call, and older builds drop the unknown type.
+   */
+  private sendAnsweredElsewhere(
+    call: CallRecord,
+    signature: string,
+    publicKey: string,
+    timestamp: number
+  ): void {
+    const selfDestination =
+      this.reticulumBridge?.getLocalDestinationHash?.()?.trim().toLowerCase() ??
+      '';
+    const targets = new Set<string>();
+    const ownRoutes: PresenceRoute[] =
+      typeof this.presence.getRoutesForAddress === 'function'
+        ? this.presence.getRoutesForAddress(call.localAddress)
+        : [this.presence.getRouteForAddress(call.localAddress)].filter(
+            (route): route is PresenceRoute => route !== null
+          );
+    for (const route of ownRoutes) {
+      if (route.kind !== 'reticulum') continue;
+      const normalized = route.destinationHash?.trim().toLowerCase();
+      if (normalized) targets.add(normalized);
+    }
+    if (selfDestination) targets.delete(selfDestination);
+    if (targets.size === 0) return;
+
+    const wire = encodeCallWire({
+      type: 'CALL_ANSWERED_ELSEWHERE',
+      callId: call.callId,
+      fromPublicKey: publicKey,
+      signature,
+      timestamp,
+    });
+    if (!wireFitsReticulum(wire)) return;
+    const deadlineAt = Date.now() + CALL_CANCEL_SEND_DEADLINE_MS;
+    for (const peer of targets) {
+      this.sendPinnedCallWireWhenReady(peer, wire, 0, deadlineAt);
+    }
   }
 
   rejectCall(
@@ -1617,6 +1504,11 @@ export class CallManager extends EventEmitter {
       });
     }
     this.sendToCall(call, legacyEnv);
+    // B-7: also flood the rejection. `sendToCall` only reaches endpoints whose
+    // Reticulum link can be admitted; if the caller's inbound limit is full the
+    // decline is never delivered and, with B-2, they ring until the timeout.
+    // The caller already only accepts a CX from an invited endpoint.
+    this.sendEnvelope(call.remoteAddress, legacyEnv);
     loggerLog(`[Call] Rejected call ${callId.slice(0, 8)}…`);
   }
 
@@ -1797,7 +1689,7 @@ export class CallManager extends EventEmitter {
 
   private applyVerifiedIncomingRequest(
     env: CallRequestEnvelope,
-    ctx: { senderDestinationHash: string }
+    ctx: { senderDestinationHash: string; receivedAt?: number }
   ): void {
     if (this.activeCalls.has(env.callId)) return;
 
@@ -1818,14 +1710,38 @@ export class CallManager extends EventEmitter {
       startedAt: Date.now(),
     };
 
+    // U-1: a request accepted near the end of its lifetime would otherwise get
+    // a second full ring window here, so the two devices ring for very
+    // different durations. Bound the ring by what is left of the request, but
+    // never below a floor: age is measured from *local receipt* (never the
+    // sender's clock), and without the floor a device whose clock is 45s fast
+    // would compute a couple of seconds of ring and record a missed call while
+    // the caller is still waiting.
+    const receivedAt = ctx.receivedAt ?? Date.now();
+    const remainingLifetimeMs = Math.max(
+      0,
+      receivedAt + CALL_REQUEST_TTL_MS - Date.now()
+    );
+    const ringMs = Math.min(
+      CALL_REQUEST_TTL_MS,
+      Math.max(MIN_INBOUND_RING_MS, remainingLifetimeMs)
+    );
+
     record.cleanupTimer = setTimeout(() => {
       if (this.activeCalls.get(env.callId)?.state === 'pending') {
         loggerLog(`[Call] Incoming call ${env.callId.slice(0, 8)}… timed out.`);
         this.emitDirectCallHistory(record, 'missed');
+        // B-2: stop the incoming-call card and ringtone in the renderer.
+        this.emit('call:hangup', {
+          callId: env.callId,
+          fromAddress: env.fromAddress,
+          remoteAddress: record.localAddress,
+          reason: 'timeout',
+        });
         this.activeCalls.delete(env.callId);
         this.clearRtcSignalsForCall(env.callId);
       }
-    }, CALL_REQUEST_TTL_MS);
+    }, ringMs);
 
     this.activeCalls.set(env.callId, record);
     this.emit('call:incoming', {
@@ -1921,9 +1837,10 @@ export class CallManager extends EventEmitter {
         }
       : null;
     if (reasonFields) {
+      // B-11: the same ±60s window every other call message type uses.
       const timestampSkew = Date.now() - env.timestamp;
-      if (timestampSkew > 30_000 || timestampSkew < -10_000) {
-        loggerLog('[Call] Dropped CALL_REJECT: invalid timestamp');
+      if (Math.abs(timestampSkew) > MAX_CALL_CLOCK_SKEW_MS) {
+        loggerLog('[Call] Dropped CALL_REJECT: clock skew exceeds window');
         return;
       }
     }
@@ -2033,6 +1950,8 @@ export class CallManager extends EventEmitter {
     const endpointReasons = [
       ...(call.rejectionReasonsByReticulumPeerHash?.values() ?? []),
     ];
+    // B-6: surface `busy` distinctly. Old Hubs map the unknown reason to
+    // "declined", so this stays wire-compatible.
     const reason =
       endpointReasons.length > 0 &&
       endpointReasons.every((item) => item === 'not_friend')
@@ -2040,7 +1959,10 @@ export class CallManager extends EventEmitter {
         : endpointReasons.length > 0 &&
             endpointReasons.every((item) => item === 'media unavailable')
           ? 'media unavailable'
-          : 'rejected';
+          : endpointReasons.length > 0 &&
+              endpointReasons.every((item) => item === 'busy')
+            ? 'busy'
+            : 'rejected';
     this.emit('call:rejected', { callId, reason });
     loggerLog(`[Call] Call ${callId.slice(0, 8)}… rejected.`);
   }
@@ -2177,6 +2099,15 @@ export class CallManager extends EventEmitter {
     }
 
     const expectedAddress = call.remoteAddress;
+    // The caller's cancellation is signed once at request time and replayed at
+    // accept, so its timestamp can legitimately fall outside the clock-skew
+    // window while this device is still ringing. Exempt it here only for a
+    // call that is still pending and was placed by the peer: that call cannot
+    // be replayed into anything else, because a call id is an unguessable
+    // per-call binding. An active call keeps the window, since a replayed
+    // hangup there would end a live call.
+    const staleCancellationExempt =
+      call.direction === 'inbound' && call.state === 'pending';
     void this.verifyPool
       .verify({
         kind: 'call_signed',
@@ -2186,6 +2117,7 @@ export class CallManager extends EventEmitter {
         signature: env.signature,
         fromPublicKey: env.fromPublicKey,
         expectedAddress,
+        ...(staleCancellationExempt ? { allowStaleTimestamp: true } : {}),
       })
       .then((ok) => {
         if (!ok) {
@@ -2194,6 +2126,30 @@ export class CallManager extends EventEmitter {
         }
         const c = this.activeCalls.get(env.callId);
         if (!c) return;
+        // The state can move while verification is in flight. Re-apply the
+        // exemption guard so a call that went active mid-verify keeps the
+        // clock-skew protection it should have.
+        if (
+          staleCancellationExempt &&
+          (c.direction !== 'inbound' || c.state !== 'pending')
+        ) {
+          const skew = Date.now() - env.timestamp;
+          if (Math.abs(skew) > MAX_CALL_CLOCK_SKEW_MS) {
+            loggerLog(
+              `[Call] Dropped CALL_HANGUP: stale for a no-longer-ringing call callId=${env.callId.slice(0, 8)}…`
+            );
+            return;
+          }
+        }
+        // U-1: a cancellation carrying the answered-elsewhere marker is the
+        // caller telling this account's *other* devices to stop. A device that
+        // already answered keeps the call.
+        if (c.state === 'active' && env.answeredElsewhere === true) {
+          loggerLog(
+            `[Call] Ignored answered-elsewhere cancellation on the answering device callId=${env.callId.slice(0, 8)}…`
+          );
+          return;
+        }
         const expectedEndpoint =
           c.direction === 'outbound'
             ? c.acceptedReticulumPeerHash
@@ -2212,14 +2168,68 @@ export class CallManager extends EventEmitter {
       });
   }
 
+  /**
+   * U-1: the account's other device answered. Authenticated by address
+   * identity: the signer must derive the address this call is ringing for,
+   * i.e. the receiver's own account. No presence lookup, route resolution or
+   * relay trust is involved, which is stronger than the caller-signed
+   * cancellation gets — and it works when the caller is offline.
+   */
+  private handleAnsweredElsewhere(env: CallAnsweredElsewhereEnvelope): void {
+    if (
+      typeof env.callId !== 'string' ||
+      typeof env.fromPublicKey !== 'string' ||
+      typeof env.signature !== 'string' ||
+      typeof env.timestamp !== 'number'
+    ) {
+      loggerLog('[Call] Dropped CALL_ANSWERED_ELSEWHERE: missing fields');
+      return;
+    }
+    const call = this.activeCalls.get(env.callId);
+    if (!call) return;
+    if (call.direction !== 'inbound' || call.state !== 'pending') return;
+
+    const accountGeneration = this.localAccountGeneration;
+    void this.verifyPool
+      .verify({
+        kind: 'call_signed',
+        wireType: env.type,
+        callId: env.callId,
+        timestamp: env.timestamp,
+        signature: env.signature,
+        fromPublicKey: env.fromPublicKey,
+        // Both sides are the callee's own account: the signer must prove it
+        // owns the address this device is ringing for.
+        expectedAddress: call.localAddress,
+      })
+      .then((ok) => {
+        if (accountGeneration !== this.localAccountGeneration) return;
+        if (!ok) {
+          loggerLog(
+            '[Call] Dropped CALL_ANSWERED_ELSEWHERE: not signed by our account'
+          );
+          return;
+        }
+        const c = this.activeCalls.get(env.callId);
+        if (!c || c.direction !== 'inbound' || c.state !== 'pending') return;
+        loggerLog(
+          `[Call] Account answered elsewhere; stopping ring callId=${env.callId.slice(0, 8)}…`
+        );
+        this.finalizeRemoteHangup(c, env.timestamp);
+      });
+  }
+
   private onReticulumCallWire(
     wire: Record<string, unknown>,
     senderDestinationHash: string,
     peerPresenceHash: string
   ): void {
-    if (this.handleRtcWire(wire, senderDestinationHash, peerPresenceHash)) {
-      return;
-    }
+    // B-14: the legacy `CallManager.sendRtcSignal`/`handleRtcWire` inbound path
+    // is dead — no renderer calls `window.call.sendRtcSignal`. DM WebRTC uses
+    // `window.groupCall.sendRtcSignal` instead, which travels as a signed
+    // GC_RTC_SIGNAL and is verified independently. Removing the inbound
+    // handler (and the `call:rtc-signal` event it fed) removes an attack
+    // surface that only an outside sender could reach.
     // `r` is the original sender's stamped call destination. Direct legacy
     // frames may omit it, in which case the authenticated link peer is the
     // only safe fallback. Never prefer the relay/link peer when `r` exists.
@@ -2230,6 +2240,30 @@ export class CallManager extends EventEmitter {
     if (!env) return;
     const overlayMeta = this.parseReticulumOverlayMeta(wire);
     const call = this.activeCalls.get(env.callId);
+
+    // U-1: an answered-elsewhere frame is authored by *our own account*, not
+    // by the caller, so the source-authority gate below has nothing useful to
+    // say about it — and it actively breaks it. That gate resolves the source
+    // from `call.remoteAddress` (the caller, on a ringing inbound call) and
+    // returns null when the caller has more than one verified route, which is
+    // exactly the two-device case this frame exists for. It authenticates by
+    // address identity in its handler instead, so route it before the gate.
+    if (env.type === 'CALL_ANSWERED_ELSEWHERE') {
+      if (overlayMeta) {
+        if (this.hasSeenReticulumOverlayId(overlayMeta.overlayId)) return;
+        this.rememberReticulumOverlayId(overlayMeta.overlayId);
+        if (overlayMeta.hopsRemaining > 0) {
+          const forwarded = {
+            ...wire,
+            L: overlayMeta.hopsRemaining - 1,
+          };
+          this.broadcastReticulumOverlayWire(forwarded, [peerPresenceHash]);
+        }
+      }
+      this.handleAnsweredElsewhere(env);
+      return;
+    }
+
     const boundCallerDestination = getRouteBoundDestinationHash(
       'call',
       env.callId
@@ -2312,6 +2346,11 @@ export class CallManager extends EventEmitter {
       if (this.hasSeenReticulumOverlayId(overlayMeta.overlayId)) return;
       this.rememberReticulumOverlayId(overlayMeta.overlayId);
       if (overlayMeta.hopsRemaining > 0) {
+        // S-3: never amplify a frame whose address does not match its key.
+        if (!this.isRelayableCallWire(wire)) {
+          loggerWarn('[Call] Dropping relay: address/key mismatch');
+          return;
+        }
         const forwarded = {
           ...wire,
           L: overlayMeta.hopsRemaining - 1,
@@ -2334,6 +2373,9 @@ export class CallManager extends EventEmitter {
     }
 
     switch (env.type) {
+      case 'CALL_RINGING':
+        this.handleRinging(env, sourceEndpoint);
+        break;
       case 'CALL_ACCEPT':
         this.handleAccept(env, sourceEndpoint);
         break;
@@ -2374,8 +2416,12 @@ export class CallManager extends EventEmitter {
       return;
     }
 
+    // U-1: one window for every call frame. This used to be the pre-B-11
+    // "10s future / 30s old" pair while the re-flood timer kept resending the
+    // original signed envelope for the full 60s TTL — so every re-flood after
+    // 30s was silently dropped, defeating the phone-waking path it exists for.
     const skew = Date.now() - env.timestamp;
-    if (skew > 30_000 || skew < -10_000) {
+    if (Math.abs(skew) > MAX_CALL_CLOCK_SKEW_MS) {
       loggerLog('[Call] Dropped CALL_REQUEST (RT): stale timestamp');
       return;
     }
@@ -2554,6 +2600,8 @@ export class CallManager extends EventEmitter {
           peerDestinationHash.trim().toLowerCase()
       );
     }
+    // B-14: the legacy RS/RH/RP/RA/RR inbound signal types are gone, so only
+    // outbound RTC fragments still need the lifecycle revalidation.
     if (
       type !== CALL_WIRE_RTC_START &&
       type !== CALL_WIRE_RTC_AUTH &&
@@ -2575,18 +2623,63 @@ export class CallManager extends EventEmitter {
       return false;
     }
     const signalKey = this.rtcSignalKey(callId, signalId);
-    if (
-      type === CALL_WIRE_RTC_START ||
-      type === CALL_WIRE_RTC_AUTH ||
-      type === CALL_WIRE_RTC_PART
-    ) {
-      return (
-        this.rtcOutboundSignals.get(signalKey)?.peerDestinationHash === peer
-      );
+    return this.rtcOutboundSignals.get(signalKey)?.peerDestinationHash === peer;
+  }
+
+  /**
+   * X-3: the callee's ringer fired. Surface it so the caller's UI can show
+   * "Ringing" instead of "Calling…".
+   *
+   * A ringing acknowledgement is proof that the callee's device is awake,
+   * decoded the CALL_REQUEST and is ringing, so further re-floods only spend
+   * overlay budget on a call that has already been delivered. Stop them here
+   * rather than waiting for the 60s ring window to expire.
+   */
+  private handleRinging(
+    env: { callId: string; fromAddress: string },
+    senderDestinationHash: string
+  ): void {
+    const call = this.activeCalls.get(env.callId);
+    if (!call || call.direction !== 'outbound' || call.state !== 'pending') {
+      return;
     }
-    return (
-      this.rtcInboundSignals.get(signalKey)?.senderDestinationHash === peer
-    );
+    if (call.ringingAcknowledged) return;
+    call.ringingAcknowledged = true;
+    if (call.requestRefloodTimer) {
+      clearInterval(call.requestRefloodTimer);
+      call.requestRefloodTimer = undefined;
+    }
+    loggerLog(`[Call] Callee ringing for ${env.callId.slice(0, 8)}…`);
+    this.emit('call:ringing', {
+      callId: env.callId,
+      fromAddress: env.fromAddress,
+      peerDestinationHash: senderDestinationHash,
+    });
+  }
+
+  /**
+   * B-2: on a request timeout, send the pre-signed cancellation so the callee
+   * stops ringing and the caller's other devices stop too.
+   */
+  private sendCallCancellation(call: CallRecord): void {
+    if (
+      !call.cancellationSignature ||
+      !call.cancellationPublicKey ||
+      !Number.isFinite(call.cancellationTimestamp)
+    ) {
+      return;
+    }
+    const wire = encodeCallWire({
+      type: 'CALL_HANGUP',
+      callId: call.callId,
+      fromPublicKey: call.cancellationPublicKey,
+      signature: call.cancellationSignature,
+      timestamp: call.cancellationTimestamp!,
+    });
+    if (!wireFitsReticulum(wire)) return;
+    for (const peer of call.invitedReticulumPeerHashes ?? []) {
+      if (peer) this.sendPinnedCallWireWhenReady(peer, wire, 0);
+    }
   }
 
   private cancelOtherRingingEndpoints(call: CallRecord): void {
@@ -2598,25 +2691,62 @@ export class CallManager extends EventEmitter {
     ) {
       return;
     }
-    const acceptedPeer = call.acceptedReticulumPeerHash;
-    const otherPeers = [...(call.invitedReticulumPeerHashes ?? [])].filter(
-      (peer) => peer && peer !== acceptedPeer
+    // B-8: the pre-signed cancellation carries the *request* timestamp. It only
+    // verifies while `now - timestamp <= MAX_CALL_CLOCK_SKEW_MS`. A receiver
+    // exempts this frame while the call is still ringing there, so a late
+    // answer is covered even once that window has closed.
+    //
+    // The invited set alone is not enough: CALL_REQUEST also travels by overlay
+    // flood, so a callee device absent from the caller's presence view at call
+    // start can be ringing and would never be cancelled. Its current presence
+    // routes are added at accept time.
+    const excluded = new Set(
+      [call.acceptedReticulumPeerHash, call.reticulumPeerPresenceHash]
+        .filter((peer): peer is string => Boolean(peer))
+        .map((peer) => peer.trim().toLowerCase())
     );
-    if (otherPeers.length === 0) return;
+    const targets = new Set<string>();
+    for (const peer of call.invitedReticulumPeerHashes ?? []) {
+      const normalized = peer?.trim().toLowerCase();
+      if (normalized) targets.add(normalized);
+    }
+    const liveRoutes: PresenceRoute[] =
+      typeof this.presence.getRoutesForAddress === 'function'
+        ? this.presence.getRoutesForAddress(call.remoteAddress)
+        : [this.presence.getRouteForAddress(call.remoteAddress)].filter(
+            (route): route is PresenceRoute => route !== null
+          );
+    for (const route of liveRoutes) {
+      if (route.kind !== 'reticulum') continue;
+      const normalized = route.destinationHash?.trim().toLowerCase();
+      if (normalized) targets.add(normalized);
+    }
+    for (const peer of excluded) targets.delete(peer);
+    if (targets.size === 0) return;
     const wire = encodeCallWire({
       type: 'CALL_HANGUP',
       callId: call.callId,
       fromPublicKey: call.cancellationPublicKey,
       signature: call.cancellationSignature,
       timestamp: call.cancellationTimestamp!,
+      // U-1: unauthenticated marker so the device that answered keeps its call.
+      // It can only suppress a hangup on an already-active call.
+      answeredElsewhere: true,
     });
     if (!wireFitsReticulum(wire)) return;
-    for (const peer of otherPeers) {
-      this.sendPinnedCallWireWhenReady(peer, wire, 0);
+    const deadlineAt = Date.now() + CALL_CANCEL_SEND_DEADLINE_MS;
+    for (const peer of targets) {
+      this.sendPinnedCallWireWhenReady(peer, wire, 0, deadlineAt);
     }
   }
 
   private clearControlRepeatTimers(call: CallRecord): void {
+    // B-5: stop re-flooding the CALL_REQUEST as soon as the call leaves the
+    // pending state (accepted, rejected, cancelled or timed out).
+    if (call.requestRefloodTimer) {
+      clearInterval(call.requestRefloodTimer);
+      call.requestRefloodTimer = undefined;
+    }
     if (!call.controlRepeatTimers) return;
     for (const timer of call.controlRepeatTimers) {
       clearTimeout(timer);
@@ -2720,7 +2850,8 @@ export class CallManager extends EventEmitter {
     return {
       overlayId: wire.X,
       targetAddress: wire.U,
-      hopsRemaining: Math.max(0, Math.trunc(wire.L)),
+      // S-3: clamp hop count to prevent amplification attack
+      hopsRemaining: Math.min(CALL_MAX_HOPS, Math.max(0, Math.trunc(wire.L))),
     };
   }
 
@@ -2733,6 +2864,13 @@ export class CallManager extends EventEmitter {
     for (const [id, expiresAt] of this.seenReticulumOverlayIds) {
       if (expiresAt <= now) this.seenReticulumOverlayIds.delete(id);
     }
+    // S-3: cap seen-id map to prevent O(n) scan DoS
+    const MAX_SEEN_IDS = 8192;
+    while (this.seenReticulumOverlayIds.size > MAX_SEEN_IDS) {
+      const first = this.seenReticulumOverlayIds.keys().next().value;
+      if (first === undefined) break;
+      this.seenReticulumOverlayIds.delete(first);
+    }
   }
 
   private hasSeenReticulumOverlayId(overlayId: string): boolean {
@@ -2744,6 +2882,27 @@ export class CallManager extends EventEmitter {
       return false;
     }
     return true;
+  }
+
+  /**
+   * S-3: a frame may only be relayed onward when the claimed address really is
+   * derived from the claimed public key. Honest frames always pass; forged
+   * ones die at the first relay node. Frames without both fields (legacy) are
+   * still relayed.
+   */
+  private isRelayableCallWire(wire: Record<string, unknown>): boolean {
+    const claimedAddress =
+      (wire.a as string | undefined) ??
+      (wire.fromAddress as string | undefined);
+    const claimedPublicKey =
+      (wire.k as string | undefined) ??
+      (wire.fromPublicKey as string | undefined);
+    if (!claimedAddress || !claimedPublicKey) return true;
+    try {
+      return deriveAddressFromPublicKey(claimedPublicKey) === claimedAddress;
+    } catch {
+      return true;
+    }
   }
 
   private broadcastReticulumOverlayWire(

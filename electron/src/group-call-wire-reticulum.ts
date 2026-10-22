@@ -135,6 +135,10 @@ export function encodeJoinWire(env: {
   /** RNS.Identity.get_public_key() as standard base64 (64 bytes). Wire key `rk`. */
   reticulumIdentityPublicKeyBase64?: string;
   joinGeneration?: number;
+  /** S-7: signed call protocol version. Wire key `pv`. */
+  protocolVersion?: number;
+  /** X-2: unsigned hint that this peer should not be elected forwarder. */
+  noForwarderHint?: boolean;
 }): Record<string, unknown> {
   const d = env.reticulumDestinationHash.trim().toLowerCase();
   const o: Record<string, unknown> = {
@@ -147,6 +151,18 @@ export function encodeJoinWire(env: {
     g: env.signature,
     d,
   };
+  if (
+    typeof env.protocolVersion === 'number' &&
+    Number.isFinite(env.protocolVersion)
+  ) {
+    o.pv = env.protocolVersion;
+  }
+  // X-2: optional "do not elect me as forwarder" hint. Unsigned on purpose —
+  // it must never enter the GC_JOIN signed field set, or old Hubs that
+  // rebuild that set would fail verification.
+  if (env.noForwarderHint === true) {
+    o.fwd = 0;
+  }
   if (
     typeof env.reticulumIdentityPublicKeyBase64 === 'string' &&
     isRnsIdentityPublicKeyBase64(env.reticulumIdentityPublicKeyBase64)
@@ -312,6 +328,7 @@ export function decodeJoinWire(raw: Record<string, unknown>): {
   reticulumIdentityPublicKeyBase64?: string;
   joinGeneration?: number;
   takeover?: boolean;
+  protocolVersion?: number;
 } | null {
   if (raw.t !== 'GJ') return null;
   const R = raw.R;
@@ -339,6 +356,7 @@ export function decodeJoinWire(raw: Record<string, unknown>): {
     }
   }
   const j = raw.j;
+  const pv = raw.pv;
   return {
     type: 'GC_JOIN',
     roomId: R,
@@ -357,6 +375,11 @@ export function decodeJoinWire(raw: Record<string, unknown>): {
     ...(typeof j === 'number' && Number.isFinite(j) && j < 0
       ? { takeover: true }
       : {}),
+    ...(typeof pv === 'number' && Number.isFinite(pv)
+      ? { protocolVersion: Math.trunc(pv) }
+      : {}),
+    // X-2: unsigned forwarder opt-out hint.
+    ...(raw.fwd === 0 ? { noForwarderHint: true } : {}),
   };
 }
 
@@ -982,6 +1005,8 @@ export function encodeTopologyWire(env: {
   fromPublicKey: string;
   signature: string;
   timestamp: number;
+  /** S-7: sha256 of the canonical cluster layout. Wire key `ch`. */
+  clustersHash?: string;
 }): Record<string, unknown>[] {
   const single: Record<string, unknown> = {
     t: 'GT',
@@ -995,6 +1020,9 @@ export function encodeTopologyWire(env: {
     m: env.timestamp,
     g: env.signature,
     c: env.clusters,
+    ...(typeof env.clustersHash === 'string' && env.clustersHash
+      ? { ch: env.clustersHash }
+      : {}),
   };
   if (
     byteLengthUtf8JsonWithBridgeSender(single) <=
@@ -1039,6 +1067,7 @@ export function decodeTopologyWireSingle(raw: Record<string, unknown>): {
   fromPublicKey: string;
   signature: string;
   timestamp: number;
+  clustersHash?: string;
 } | null {
   if (raw.t !== 'GT') return null;
   const R = raw.R;
@@ -1065,6 +1094,7 @@ export function decodeTopologyWireSingle(raw: Record<string, unknown>): {
   ) {
     return null;
   }
+  const ch = raw.ch;
   return {
     type: 'GC_TOPOLOGY',
     roomId: R,
@@ -1077,6 +1107,7 @@ export function decodeTopologyWireSingle(raw: Record<string, unknown>): {
     fromPublicKey: k,
     signature: g,
     timestamp: m,
+    ...(typeof ch === 'string' && ch ? { clustersHash: ch } : {}),
   };
 }
 

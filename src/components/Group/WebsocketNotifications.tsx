@@ -619,7 +619,7 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
           let mentionCount = Math.max(0, Number(detail?.mentionCount) || 0);
           if (
             mentionCount > 0 &&
-            (groupSettings?.notifyOnWelcomePosts ??
+            (groupStore?.notifyOnWelcomePosts ??
               globalNotifFormRef.current.notifyOnWelcomePosts) === false
           ) {
             const welcomeCount = getWelcomeUnreadCount(

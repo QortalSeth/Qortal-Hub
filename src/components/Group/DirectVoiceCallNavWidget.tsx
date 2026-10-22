@@ -96,7 +96,8 @@ export function DirectVoiceCallNavWidget() {
         .detail;
       const targetAddress = detail?.address?.trim() ?? '';
       const targetDisplayName = detail?.name?.trim() || '';
-      const targetLabel = targetDisplayName || 'This user';
+      const targetLabel =
+        targetDisplayName || t('core:voice_call.caller_this_user');
       if (!targetAddress || !myAddress || targetAddress === myAddress) return;
 
       if (!dmFriendsByAddress[targetAddress]) {
@@ -108,9 +109,7 @@ export function DirectVoiceCallNavWidget() {
         return;
       }
       if (p2pHealth !== 'good') {
-        showCallError(
-          'Voice calls are unavailable until P2P connectivity recovers.'
-        );
+        showCallError(t('core:voice_call.calls_unavailable_p2p'));
         return;
       }
 
@@ -341,14 +340,14 @@ export function DirectVoiceCallNavWidget() {
         <Tooltip
           title={
             audioMode !== 'webrtc'
-              ? 'Screen sharing requires a direct WebRTC call'
+              ? t('core:voice_call.screen_share_requires_webrtc')
               : !screenShareSupported
-                ? 'The other person does not support screen sharing'
+                ? t('core:voice_call.screen_share_peer_unsupported')
                 : screenShareState === 'viewing'
-                  ? 'View shared screen'
+                  ? t('core:voice_call.screen_share_view_remote')
                   : screenShareState === 'sharing'
-                    ? 'View your screen share'
-                    : 'Share your screen'
+                    ? t('core:voice_call.screen_share_view_local')
+                    : t('core:voice_call.screen_share_share_action')
           }
           arrow
         >
@@ -454,7 +453,7 @@ export function DirectVoiceCallNavWidget() {
           </span>
         </Tooltip>
 
-        <Tooltip title="Hang up" arrow>
+        <Tooltip title={t('core:voice_call.hang_up')} arrow>
           <IconButton
             size="small"
             onClick={hangUp}
