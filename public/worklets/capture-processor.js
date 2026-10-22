@@ -96,11 +96,18 @@ class CaptureProcessor extends AudioWorkletProcessor {
       } else if (e.data?.type === 'set-frame-port') {
         this._framePort = e.ports?.[0] || null;
         this._framePortGeneration = e.data.generation >>> 0 || 0;
+        // B-12: `instanceof SharedArrayBuffer` throws a ReferenceError on any
+        // page that is not cross-origin isolated (the global is not defined).
+        // Use the same `typeof` guard as group-playout-processor.js.
+        const hasSharedArrayBuffer =
+          typeof SharedArrayBuffer !== 'undefined';
         this._sharedSamples =
+          hasSharedArrayBuffer &&
           e.data.sharedSamples instanceof SharedArrayBuffer
             ? new Float32Array(e.data.sharedSamples)
             : null;
         this._sharedState =
+          hasSharedArrayBuffer &&
           e.data.sharedState instanceof SharedArrayBuffer
             ? new Int32Array(e.data.sharedState)
             : null;

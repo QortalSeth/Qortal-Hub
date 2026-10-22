@@ -79,11 +79,25 @@ vi.mock('../../hooks/useQortalMessageListener', async () =>
   (await import('./common')).messageListenerFactory()
 );
 
+vi.mock('../local-trade-funding', () => ({
+  localTradeCoins: { LITECOIN: 'LTC' },
+  fundLocalTrades: vi.fn(),
+}));
+vi.mock('../foreign-coin-send', () => ({
+  sendLocalForeignCoin: vi.fn(),
+}));
+import { fundLocalTrades } from '../local-trade-funding';
+import { sendLocalForeignCoin } from '../foreign-coin-send';
+
 // ── Imports (after mocks) ────────────────────────────────────────────────────
 
-import { createBuyOrder } from '../get';
+import { createBuyOrder, createSellOrder, sendCoin } from '../get';
 import { isRunningGateway } from '../qortal-requests';
-import { createEndpoint, createBuyOrderTx } from '../../background/background';
+import {
+  createEndpoint,
+  createBuyOrderTx,
+  getKeyPair,
+} from '../../background/background';
 import { simulatePermission } from './common';
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
@@ -102,6 +116,77 @@ const DEFAULT_AT_DATA = {
 // getBuyingFees divides by QORT_DECIMALS (1e8) to get the displayed amount.
 const UNLOCK_FEE_SATS = 50_000; // 0.0005 LTC
 const LOCK_FEE_SATS = 1_000; // 0.00001 LTC
+
+describe('sendCoin on public nodes', () => {
+  afterEach(() => vi.clearAllMocks());
+
+  it('routes Bitcoin-family sends to the local signer without loading the private key', async () => {
+    vi.mocked(isRunningGateway).mockResolvedValue(true);
+    vi.mocked(sendLocalForeignCoin).mockResolvedValue({ success: true } as any);
+
+    await expect(
+      sendCoin({ coin: 'BTC', amount: '0.01', recipient: 'btc-address' }, false)
+    ).resolves.toEqual({ success: true });
+    expect(sendLocalForeignCoin).toHaveBeenCalledWith(
+      expect.objectContaining({ coin: 'BTC' }),
+      expect.any(Function)
+    );
+    expect(getKeyPair).not.toHaveBeenCalled();
+  });
+
+  it('blocks Pirate Chain before loading a key or contacting a node', async () => {
+    vi.mocked(isRunningGateway).mockResolvedValue(true);
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      sendCoin(
+        { coin: 'ARRR', amount: '0.01', recipient: 'arrr-address' },
+        false
+      )
+    ).rejects.toThrow('question:message.error.gateway_pirate_local_node');
+    expect(getKeyPair).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(sendLocalForeignCoin).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+});
+
+describe('createSellOrder on public nodes', () => {
+  afterEach(() => vi.clearAllMocks());
+
+  it('blocks Bitcoin-family sell offers before accessing wallet keys', async () => {
+    vi.mocked(isRunningGateway).mockResolvedValue(true);
+
+    await expect(
+      createSellOrder(
+        {
+          qortAmount: '10',
+          foreignBlockchain: 'BITCOIN',
+          foreignAmount: '0.1',
+        },
+        false
+      )
+    ).rejects.toThrow('question:message.generic.no_action_public_node');
+    expect(getKeyPair).not.toHaveBeenCalled();
+  });
+
+  it('blocks Pirate Chain offers before accessing wallet keys', async () => {
+    vi.mocked(isRunningGateway).mockResolvedValue(true);
+
+    await expect(
+      createSellOrder(
+        {
+          qortAmount: '10',
+          foreignBlockchain: 'PIRATECHAIN',
+          foreignAmount: '0.1',
+        },
+        false
+      )
+    ).rejects.toThrow('question:message.error.gateway_pirate_local_node');
+    expect(getKeyPair).not.toHaveBeenCalled();
+  });
+});
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -150,7 +235,14 @@ describe('createBuyOrder', () => {
     vi.mocked(createEndpoint).mockImplementation(
       async (path: string) => `http://localhost${path}`
     );
-    vi.mocked(createBuyOrderTx).mockResolvedValue({ success: true });
+    vi.mocked(fundLocalTrades).mockImplementation(
+      async (_offers, _coin, approve) => {
+        const permission = await approve({});
+        if (!permission?.accepted)
+          throw new Error('question:message.generic.user_declined_request');
+        return { success: true } as any;
+      }
+    );
   });
 
   afterEach(() => {
@@ -247,22 +339,15 @@ describe('createBuyOrder', () => {
 
   // ── Fee-fetching errors ─────────────────────────────────────────────────────
 
-  describe('fee-fetching errors', () => {
-    it('propagates the error message when the fee endpoint returns non-ok', async () => {
-      vi.stubGlobal(
-        'fetch',
-        vi.fn(async (url: string) => {
-          if (url.includes('/crosschain/trade/'))
-            return { ok: true, json: async () => DEFAULT_AT_DATA };
-          // Both fee endpoints fail
-          return { ok: false };
-        })
-      );
-
-      await expect(createBuyOrder(makeInput(), false)).rejects.toThrow(
-        'question:message.error.fetch_generic'
-      );
-    });
+  it('propagates a local funding preparation failure without using the legacy sender', async () => {
+    vi.stubGlobal('fetch', makeFetch());
+    vi.mocked(fundLocalTrades).mockRejectedValueOnce(
+      new Error('local signing unavailable')
+    );
+    await expect(createBuyOrder(makeInput(), false)).rejects.toThrow(
+      'local signing unavailable'
+    );
+    expect(createBuyOrderTx).not.toHaveBeenCalled();
   });
 
   // ── Permission guard ────────────────────────────────────────────────────────
@@ -281,7 +366,7 @@ describe('createBuyOrder', () => {
   // ── Successful flow ─────────────────────────────────────────────────────────
 
   describe('successful buy order', () => {
-    it('returns the result from createBuyOrderTx', async () => {
+    it('returns the local funding result', async () => {
       vi.stubGlobal('fetch', makeFetch());
       simulatePermission(true);
 
@@ -290,32 +375,47 @@ describe('createBuyOrder', () => {
       expect(result).toEqual({ success: true });
     });
 
-    it('passes the resolved crosschainAtInfo and foreignBlockchain to createBuyOrderTx', async () => {
+    it('routes validated offers to local signing', async () => {
       vi.stubGlobal('fetch', makeFetch());
       simulatePermission(true);
 
       await createBuyOrder(makeInput(), false);
 
-      expect(createBuyOrderTx).toHaveBeenCalledOnce();
-      expect(createBuyOrderTx).toHaveBeenCalledWith(
-        expect.objectContaining({
-          crosschainAtInfo: [DEFAULT_AT_DATA],
-          foreignBlockchain: FOREIGN_BLOCKCHAIN,
-          isGateway: false,
-        })
+      expect(fundLocalTrades).toHaveBeenCalledWith(
+        [DEFAULT_AT_DATA],
+        'LTC',
+        expect.any(Function)
       );
+      expect(createBuyOrderTx).not.toHaveBeenCalled();
     });
 
-    it('passes isGateway=true to createBuyOrderTx when on a gateway node', async () => {
+    it('funds a Bitcoin-family trade on a public node using local signing', async () => {
       vi.mocked(isRunningGateway).mockResolvedValue(true);
       vi.stubGlobal('fetch', makeFetch());
       simulatePermission(true);
 
-      await createBuyOrder(makeInput(), false);
-
-      expect(createBuyOrderTx).toHaveBeenCalledWith(
-        expect.objectContaining({ isGateway: true })
+      await expect(createBuyOrder(makeInput(), false)).resolves.toEqual({
+        success: true,
+      });
+      expect(fundLocalTrades).toHaveBeenCalledWith(
+        [DEFAULT_AT_DATA],
+        'LTC',
+        expect.any(Function)
       );
+      expect(createBuyOrderTx).not.toHaveBeenCalled();
+    });
+
+    it('refuses Pirate Chain trades on a public node before fetching or signing', async () => {
+      vi.mocked(isRunningGateway).mockResolvedValue(true);
+      const fetchMock = makeFetch();
+      vi.stubGlobal('fetch', fetchMock);
+
+      await expect(
+        createBuyOrder(makeInput({ foreignBlockchain: 'PIRATECHAIN' }), false)
+      ).rejects.toThrow('question:message.error.gateway_pirate_local_node');
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(fundLocalTrades).not.toHaveBeenCalled();
+      expect(createBuyOrderTx).not.toHaveBeenCalled();
     });
 
     it('aggregates crosschainAtInfo for multiple AT addresses', async () => {
@@ -357,11 +457,9 @@ describe('createBuyOrder', () => {
         false
       );
 
-      const received = vi.mocked(createBuyOrderTx).mock.calls[0][0];
-      expect(received.crosschainAtInfo).toHaveLength(2);
-      expect(received.crosschainAtInfo).toEqual(
-        expect.arrayContaining([DEFAULT_AT_DATA, at2])
-      );
+      const received = vi.mocked(fundLocalTrades).mock.calls[0][0];
+      expect(received).toHaveLength(2);
+      expect(received).toEqual(expect.arrayContaining([DEFAULT_AT_DATA, at2]));
     });
 
     it('fetches the trade endpoint once per AT address', async () => {

@@ -15,6 +15,7 @@ import secrets
 import shutil
 import socket
 import statistics
+import struct
 import sys
 import threading
 import time
@@ -38,6 +39,7 @@ if str(os.environ.get("QORTAL_PYTHON_DIAGNOSTICS", "")).strip().lower() in {
         pass
 
 import RNS
+from RNS.Buffer import RawChannelWriter
 from RNS.vendor import umsgpack
 
 _BRIDGE_RESOURCE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -58,6 +60,17 @@ COMMUNITY_STUN_IDENTITY_FILENAME = (
 )
 COMMUNITY_STUN_IDENTITY_MAX_AGE_SECONDS = 24 * 60 * 60
 COMMUNITY_STUN_PORT = 47321
+# B-15: transport nodes default to a 3600 s announce target per destination
+# hash, so every announce of the community-STUN destination competes for one
+# budget. A query announce reuses that destination on 3.0.x, which is why the
+# coordinator's own rate limit was not enough: the bridge re-announced on every
+# request. Floor it here too, and keep queries on a separate rotating
+# destination so a contributor's queries never spend its endpoint budget.
+COMMUNITY_STUN_QUERY_ANNOUNCE_MIN_INTERVAL_SECONDS = 10 * 60
+COMMUNITY_STUN_QUERY_ASPECT = "community-stun-query"
+COMMUNITY_STUN_QUERY_REQUEST_PATH = "community-stun-endpoints"
+COMMUNITY_MASQUE_ASPECT = "community-masque-relay"
+COMMUNITY_MASQUE_VERSION = "v1"
 disable_bootstrap = False
 _developer_logs_filtered = (
     str(os.environ.get("QORTAL_FILTER_DEVELOPER_LOGS", "1")).strip().lower()
@@ -100,6 +113,21 @@ _community_stun_event_times: "deque[float]" = deque()
 _community_stun_local_hashes: "deque[bytes]" = deque(maxlen=8)
 _community_stun_local_endpoint: Optional[Dict[str, Any]] = None
 _community_stun_last_query_response_at = 0.0
+# B-15: when this installation last announced a query, and the dedicated
+# query destination that keeps queries off the endpoint announce budget.
+_community_stun_last_query_announce_at = 0.0
+_community_stun_query_identity = None
+_community_stun_query_destination = None
+# B-15 #34: contributors heard recently, kept bridge-side only.
+_community_stun_contributor_hashes: Dict[bytes, float] = {}
+_community_stun_last_targeted_request_at = 0.0
+_community_masque_identity = None
+_community_masque_destination = None
+_community_masque_announce_handler = None
+_community_masque_seen_endpoints: Dict[str, float] = {}
+_community_masque_recent_endpoints: Dict[str, Dict[str, Any]] = {}
+_community_masque_event_times: "deque[float]" = deque()
+_community_masque_local_hashes: "deque[bytes]" = deque(maxlen=8)
 _reticulum_config_dir = ""
 # A shared-instance client does not own the authoritative Transport.path_table.
 # Keep a very short cache for the uncommon local-miss/RPC-fallback path so
@@ -843,7 +871,13 @@ _AUDIO_MIN_BATCHES_PER_EXECUTOR_PASS = 2
 _AUDIO_MAX_BATCHES_PER_EXECUTOR_PASS = 16
 _AUDIO_BACKLOG_BATCH_STEP = 2
 _AUDIO_BACKLOG_CMD_TIMEOUT_SECONDS = 0.005
-_AUDIO_QUEUE_STATE_MIN_INTERVAL_SECONDS = 0.5
+# X-5: the full scheduler diagnostics payload was emitted up to twice a second
+# for as long as any audio link was busy. Emit at most every 2s; callers that
+# need a full snapshot can still pass `force=True`.
+_AUDIO_QUEUE_STATE_MIN_INTERVAL_SECONDS = 2.0
+# X-5: full scheduler/interface diagnostics are opt-in. The periodic emit is
+# slim; this flag is set by the explicit-request command and consumed once.
+_audio_full_diagnostics_requested = False
 _BRIDGE_PRESSURE_LOG_INTERVAL_SECONDS = 5.0
 _BRIDGE_PRESSURE_RNS_GAP_THRESHOLD_MS = 1000.0
 _PRESENCE_PRESSURE_LOG_INTERVAL_SECONDS = 10.0
@@ -872,6 +906,9 @@ _SCHEDULER_PRESENCE_FANOUT_SHARDS = 8
 _SCHEDULER_LAND_STATE_SHARDS = 4
 _SCHEDULER_RESOURCE_OPEN_SHARDS = 4
 _SCHEDULER_OVERLAY_MIGRATION_SHARDS = 2
+_SCHEDULER_QAPP_RPC_SHARDS = 4
+_SCHEDULER_QAPP_REALTIME_SHARDS = 4
+_SCHEDULER_QAPP_LIFECYCLE_SHARDS = 2
 _SCHEDULER_RNS_OVERLAY_CALLBACK_SHARDS = 4
 _SCHEDULER_RNS_REALTIME_CALLBACK_SHARDS = 4
 _SCHEDULER_RNS_RESOURCE_CALLBACK_SHARDS = 4
@@ -879,6 +916,8 @@ _SCHEDULER_RNS_CLASSIFY_CALLBACK_SHARDS = 2
 _SCHEDULER_SLOW_TASK_LOG_THRESHOLD_MS = 80.0
 _SCHEDULER_QUEUE_MAX_BY_LANE: Dict[str, int] = {
     "control-send": 256,
+    # X-5: dedicated lane for call signalling.
+    "call-send": 64,
     "link-management": 128,
     "overlay-control": 64,
     "overlay-io-0": 32,
@@ -903,6 +942,12 @@ for _resource_open_shard in range(_SCHEDULER_RESOURCE_OPEN_SHARDS):
     _SCHEDULER_QUEUE_MAX_BY_LANE[f"resource-open-{_resource_open_shard}"] = 32
 for _overlay_migration_shard in range(_SCHEDULER_OVERLAY_MIGRATION_SHARDS):
     _SCHEDULER_QUEUE_MAX_BY_LANE[f"overlay-migration-{_overlay_migration_shard}"] = 2
+for _qapp_rpc_shard in range(_SCHEDULER_QAPP_RPC_SHARDS):
+    _SCHEDULER_QUEUE_MAX_BY_LANE[f"qapp-rpc-{_qapp_rpc_shard}"] = 32
+for _qapp_realtime_shard in range(_SCHEDULER_QAPP_REALTIME_SHARDS):
+    _SCHEDULER_QUEUE_MAX_BY_LANE[f"qapp-realtime-{_qapp_realtime_shard}"] = 64
+for _qapp_lifecycle_shard in range(_SCHEDULER_QAPP_LIFECYCLE_SHARDS):
+    _SCHEDULER_QUEUE_MAX_BY_LANE[f"qapp-lifecycle-{_qapp_lifecycle_shard}"] = 16
 for _callback_shard in range(_SCHEDULER_RNS_OVERLAY_CALLBACK_SHARDS):
     _SCHEDULER_QUEUE_MAX_BY_LANE[f"rns-overlay-callback-{_callback_shard}"] = 1024
 for _callback_shard in range(_SCHEDULER_RNS_REALTIME_CALLBACK_SHARDS):
@@ -1127,6 +1172,9 @@ _CONTROL_PACKET_SEND_MAX_QUEUE_WAIT_SECONDS = 0.25
 _REALTIME_PACKET_SEND_WORKERS = 4
 _REALTIME_PACKET_SEND_MAX_PENDING = 128
 _REALTIME_PACKET_SEND_MAX_QUEUE_WAIT_SECONDS = 0.05
+_QAPP_CLOSE_WRITE_WORKERS = 4
+_QAPP_CLOSE_WRITE_MAX_PENDING = 64
+_QAPP_CLOSE_WRITE_MAX_QUEUE_WAIT_SECONDS = 0.25
 _control_packet_send_dispatcher = _BoundedKeyedSendDispatcher(
     "control-packet",
     _CONTROL_PACKET_SEND_WORKERS,
@@ -1138,6 +1186,18 @@ _realtime_packet_send_dispatcher = _BoundedKeyedSendDispatcher(
     _REALTIME_PACKET_SEND_WORKERS,
     _REALTIME_PACKET_SEND_MAX_PENDING,
     _REALTIME_PACKET_SEND_MAX_QUEUE_WAIT_SECONDS,
+)
+_qapp_close_write_dispatcher = _BoundedKeyedSendDispatcher(
+    "qapp-close",
+    _QAPP_CLOSE_WRITE_WORKERS,
+    _QAPP_CLOSE_WRITE_MAX_PENDING,
+    _QAPP_CLOSE_WRITE_MAX_QUEUE_WAIT_SECONDS,
+)
+_qapp_close_coordinator_slots = threading.BoundedSemaphore(
+    _QAPP_CLOSE_WRITE_MAX_PENDING
+)
+_qapp_stream_write_dispatcher = _BoundedKeyedSendDispatcher(
+    "qapp-stream", 8, 64, 0.25
 )
 _rns_overlay_callback_pending_keys: set[str] = set()
 _rns_packet_dispatcher_missing_logged = False
@@ -2209,16 +2269,21 @@ def _start_scheduler_workers() -> None:
 def _start_packet_send_dispatchers() -> None:
     _control_packet_send_dispatcher.start()
     _realtime_packet_send_dispatcher.start()
+    _qapp_close_write_dispatcher.start()
+    _qapp_stream_write_dispatcher.start()
     log(
         "[presence_bridge] target=reticulum-packet-send-dispatcher started "
         f"control_workers={_CONTROL_PACKET_SEND_WORKERS} "
-        f"realtime_workers={_REALTIME_PACKET_SEND_WORKERS}"
+        f"realtime_workers={_REALTIME_PACKET_SEND_WORKERS} "
+        f"qapp_close_workers={_QAPP_CLOSE_WRITE_WORKERS}"
     )
 
 
 def _stop_packet_send_dispatchers() -> None:
     _control_packet_send_dispatcher.stop()
     _realtime_packet_send_dispatcher.stop()
+    _qapp_close_write_dispatcher.stop()
+    _qapp_stream_write_dispatcher.stop()
 
 
 def _stop_scheduler_workers() -> None:
@@ -4249,7 +4314,9 @@ def _binary_out_queue_oldest_age_ms(now: float) -> float:
     return max(0.0, (now - queued_at) * 1000.0)
 
 
-def _emit_audio_queue_state(force: bool = False) -> None:
+def _emit_audio_queue_state(
+    force: bool = False, include_full_diagnostics: bool = False
+) -> None:
     global _audio_queue_state_dirty, _audio_queue_state_last_emit
     now = time.monotonic()
     if not force and not _audio_queue_state_dirty:
@@ -4258,9 +4325,7 @@ def _emit_audio_queue_state(force: bool = False) -> None:
         return
     _audio_queue_state_last_emit = now
     _audio_queue_state_dirty = False
-    emit_event(
-        "group_audio_queue_state",
-        {
+    payload = {
             "decodedQueueDepth": _audio_decoded_queue.qsize(),
             "decodedQueueOldestAgeMs": _decoded_queue_oldest_age_ms(now),
             "decodedQueueMax": _AUDIO_DECODED_QUEUE_MAX,
@@ -4335,8 +4400,26 @@ def _emit_audio_queue_state(force: bool = False) -> None:
             "rnsSharedFrameInterfaceWorst": _audio_rns_shared_frame_interface_worst,
             "schedulerDiagnostics": _scheduler_diagnostics(),
             "mediaRouteDiagnostics": _audio_media_route_diagnostics(),
-        },
-    )
+    }
+    # X-5: strip the heavy, investigation-only fields unless explicitly asked.
+    if not include_full_diagnostics:
+        payload = {
+            key: value
+            for key, value in payload.items()
+            if not key.endswith("Diagnostics")
+            and not key.startswith(("rns", "executor", "processBatch"))
+        }
+    emit_event("group_audio_queue_state", payload)
+
+
+def handle_get_full_audio_queue_diagnostics(req_id: str) -> None:
+    """X-5: respond with the complete payload the periodic emit omits."""
+    try:
+        payload = _audio_queue_state_payload(time.monotonic(), True)
+        emit_event("group_audio_queue_state", payload)
+        emit_resp(req_id, True, payload=payload)
+    except Exception as exc:
+        emit_resp(req_id, False, error=str(exc))
     _maybe_log_bridge_pressure(now)
 
 
@@ -4515,6 +4598,16 @@ def _filter_outbound_audio_deadline(
             received_at_wall_ms = int(frame[4])
         except Exception:
             received_at_wall_ms = 0
+        # B-10: link control (QGCCTL1) is reliable signalling, not live media.
+        # Applying the 320 ms media deadline to it silently discarded RTC
+        # offers/answers/candidates under main-process load.
+        try:
+            payload = frame[5]
+        except Exception:
+            payload = None
+        if _inspect_gcall_audio_payload(payload)[0] == "control":
+            fresh.append(frame)
+            continue
         if received_at_wall_ms > 0 and now_ms - received_at_wall_ms > deadline_ms:
             dropped += 1
             continue
@@ -5506,6 +5599,20 @@ def _resource_open_scheduler_lane(peer_hash: str) -> str:
     return f"resource-open-{shard}"
 
 
+def _qapp_scheduler_lane(prefix: str, message: Optional[Dict[str, Any]], shards: int) -> str:
+    payload = message.get("payload") if isinstance(message, dict) else None
+    route_key = "unknown"
+    if isinstance(payload, dict):
+        route_key = str(
+            payload.get("managerKey")
+            or payload.get("destination")
+            or payload.get("connectionId")
+            or "unknown"
+        )
+    digest = hashlib.blake2s(route_key.encode("utf-8"), digest_size=2).digest()
+    return f"{prefix}-{int.from_bytes(digest, 'big') % max(1, shards)}"
+
+
 def _rns_callback_lane(kind: str, link_id: str) -> str:
     normalized_kind = str(kind or "overlay").strip().lower()
     route_key = str(link_id or "unknown")
@@ -5736,6 +5843,16 @@ def _scheduler_lane_for_command(
     message: Optional[Dict[str, Any]] = None,
 ) -> str:
     action_name = str(action or "")
+    if action_name == "qapp_rns_request":
+        return _qapp_scheduler_lane("qapp-rpc", message, _SCHEDULER_QAPP_RPC_SHARDS)
+    if action_name == "qapp_rns_send":
+        return _qapp_scheduler_lane(
+            "qapp-realtime", message, _SCHEDULER_QAPP_REALTIME_SHARDS
+        )
+    if action_name in {"qapp_rns_connect", "qapp_rns_close"}:
+        return _qapp_scheduler_lane(
+            "qapp-lifecycle", message, _SCHEDULER_QAPP_LIFECYCLE_SHARDS
+        )
     if action_name in {"clear_group_audio_diagnostics"}:
         return "control-send"
     if action_name == "send_group_audio_link_control":
@@ -5755,6 +5872,16 @@ def _scheduler_lane_for_command(
         return "audio-control"
     if action_name in {"warm_group_audio_path"}:
         return "path-management"
+    # X-5: call signalling gets its own lane. It previously shared
+    # `control-send` with every Reticulum chat send, so a chat burst could
+    # delay a CALL_* frame past its 20-30s signature window.
+    if action_name in {
+        "send_call",
+        "fanout_call",
+        "send_group_call",
+        "fanout_group_call",
+    }:
+        return "call-send"
     if action_name in {
         "prepare_reticulum_resource_session",
         "accept_qchat_file_resource",
@@ -9051,9 +9178,13 @@ class CommunityStunAnnounceHandler:
     """
 
     def __init__(self, local_hash: Optional[bytes] = None):
-        self.aspect_filter = (
-            f"{APP_NAMESPACE}.{COMMUNITY_STUN_ASPECT}.{COMMUNITY_STUN_VERSION}"
-        )
+        # B-15: queries moved to their own aspect so they never spend the
+        # endpoint destination's announce budget. Listen on both, so 3.0.x
+        # contributors that still query the endpoint aspect keep working.
+        self.aspect_filter = [
+            f"{APP_NAMESPACE}.{COMMUNITY_STUN_ASPECT}.{COMMUNITY_STUN_VERSION}",
+            f"{APP_NAMESPACE}.{COMMUNITY_STUN_QUERY_ASPECT}.{COMMUNITY_STUN_VERSION}",
+        ]
         self.local_hash = local_hash
 
     def received_announce(self, destination_hash, announced_identity, app_data):
@@ -9078,14 +9209,20 @@ class CommunityStunAnnounceHandler:
                     ):
                         return
                     _community_stun_last_query_response_at = received_at
-                # Spread simultaneous contributor responses without making a
-                # new consumer wait for the periodic two-minute refresh.
-                timer = threading.Timer(
-                    secrets.randbelow(2000) / 1000.0,
-                    _announce_community_stun_endpoint,
-                )
-                timer.daemon = True
-                timer.start()
+                # B-15: answer with a packet on the query destination rather
+                # than re-announcing the *endpoint* destination. A re-announce
+                # spent the same per-destination budget the endpoint advert
+                # needs, which is why an hourly endpoint announce could still
+                # be starved by query answers. Fall back to the announce only
+                # when the packet path is unavailable, so 3.0.x receivers that
+                # only listen for announces keep working.
+                if not _send_community_stun_query_answer(destination_hash):
+                    timer = threading.Timer(
+                        secrets.randbelow(2000) / 1000.0,
+                        _announce_community_stun_endpoint,
+                    )
+                    timer.daemon = True
+                    timer.start()
                 return
             host = str(value.get("h") or "").strip()
             port = int(value.get("p") or 0)
@@ -9122,6 +9259,20 @@ class CommunityStunAnnounceHandler:
                     "port": port,
                     "expiresAt": expires_at * 1000,
                 }
+                # B-15 #34: remember *where* endpoints came from so a
+                # cache-less client can ask a known contributor for its list.
+                # The hash stays inside the bridge — it is never emitted to
+                # Electron, preserving the anonymous-discovery invariant.
+                if destination_hash:
+                    _community_stun_contributor_hashes[destination_hash] = (
+                        received_at
+                    )
+                    while len(_community_stun_contributor_hashes) > 64:
+                        oldest = min(
+                            _community_stun_contributor_hashes.items(),
+                            key=lambda item: item[1],
+                        )
+                        _community_stun_contributor_hashes.pop(oldest[0], None)
                 _community_stun_event_times.append(received_at)
                 if len(_community_stun_seen_endpoints) > 256:
                     oldest = sorted(
@@ -9139,6 +9290,103 @@ class CommunityStunAnnounceHandler:
             # Untrusted announces are expected on a public aspect. Ignore
             # malformed advertisements without creating noisy error logs.
             return
+
+
+def _load_rotating_community_stun_query_identity(config_dir: str):
+    """B-15: identity for the dedicated query destination.
+
+    Queries must not spend the endpoint destination's announce budget, and a
+    fresh return destination per query window is exactly what the MASQUE relay
+    discovery does for the same reason. Rotates on the same 24 h schedule.
+
+    The file name is derived from the aspect, so it never collides with the
+    endpoint identity.
+    """
+    identity_path = os.path.join(
+        config_dir,
+        "community-stun-query."
+        + hashlib.sha256(COMMUNITY_STUN_QUERY_ASPECT.encode("utf-8")).hexdigest()[:12]
+        + ".identity",
+    )
+    now = time.time()
+    try:
+        age = now - os.path.getmtime(identity_path)
+        if 0 <= age < COMMUNITY_STUN_IDENTITY_MAX_AGE_SECONDS:
+            loaded = RNS.Identity.from_file(identity_path)
+            if loaded is not None:
+                return loaded
+    except Exception:
+        pass
+    identity = RNS.Identity()
+    identity.to_file(identity_path)
+    try:
+        os.chmod(identity_path, 0o600)
+    except Exception:
+        pass
+    return identity
+
+
+def _ensure_community_stun_query_destination(config_dir: str):
+    """B-15: build (or reuse) the query destination and its request handler."""
+    global _community_stun_query_identity, _community_stun_query_destination
+    with _state_lock:
+        if _community_stun_query_destination is not None:
+            return _community_stun_query_destination
+    identity = _load_rotating_community_stun_query_identity(config_dir)
+    destination = RNS.Destination(
+        identity,
+        RNS.Destination.IN,
+        RNS.Destination.SINGLE,
+        APP_NAMESPACE,
+        COMMUNITY_STUN_QUERY_ASPECT,
+        COMMUNITY_STUN_VERSION,
+    )
+    destination.set_proof_strategy(RNS.Destination.PROVE_NONE)
+    try:
+        destination.register_request_handler(
+            COMMUNITY_STUN_QUERY_REQUEST_PATH,
+            response_generator=_community_stun_endpoint_list_response,
+            allow=RNS.Destination.ALLOW_ALL,
+            auto_compress=False,
+        )
+    except Exception:
+        # An older RNS without request handlers is not fatal: announces still
+        # work, and the endpoint announcement path is untouched.
+        pass
+    with _state_lock:
+        _community_stun_query_identity = identity
+        _community_stun_query_destination = destination
+    return destination
+
+
+def _community_stun_endpoint_list_response(path, request_data=None, request_id=None, link_id=None, **kwargs):
+    """B-15: answer a discovery query with this installation's endpoint list.
+
+    Answering over the query destination's link rather than re-announcing the
+    endpoint destination is the whole point of #33/#35: one announce per day
+    from a new client is enough to fetch a full list, and the answer spends no
+    announce budget.
+    """
+    try:
+        now_ms = int(time.time() * 1000)
+        with _state_lock:
+            endpoints = [
+                {
+                    "host": value.get("host"),
+                    "port": value.get("port"),
+                    "expiresAt": value.get("expiresAt"),
+                }
+                for value in list(_community_stun_recent_endpoints.values())[:128]
+                if int(value.get("expiresAt") or 0) > now_ms
+            ]
+        payload = json.dumps(
+            {"v": 1, "endpoints": endpoints}, separators=(",", ":")
+        ).encode("utf-8")
+        if len(payload) > 4096:
+            payload = payload[:4096]
+        return payload
+    except Exception:
+        return None
 
 
 def _load_rotating_community_stun_identity(config_dir: str):
@@ -9187,6 +9435,207 @@ def _ensure_community_stun_discovery(config_dir: str) -> None:
     )
     _community_stun_local_hashes.append(_community_stun_destination.hash)
     _community_stun_announce_handler.local_hash = _community_stun_destination.hash
+
+
+def _community_stun_endpoint_snapshot() -> List[Dict[str, Any]]:
+    """B-15: unexpired endpoints this installation knows about."""
+    now_ms = int(time.time() * 1000)
+    with _state_lock:
+        return [
+            {
+                "host": value.get("host"),
+                "port": value.get("port"),
+                "expiresAt": value.get("expiresAt"),
+            }
+            for value in list(_community_stun_recent_endpoints.values())[:128]
+            if int(value.get("expiresAt") or 0) > now_ms
+        ]
+
+
+def _community_stun_answer_payload() -> bytes:
+    """B-15: the packet body for a query answer."""
+    return json.dumps(
+        {"v": 1, "endpoints": _community_stun_endpoint_snapshot()},
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+
+def _accept_community_stun_endpoint(endpoint: Dict[str, Any]) -> bool:
+    """B-15: validate and store one endpoint from a trusted list answer.
+
+    Applies exactly the admission rules the announce path uses, so a targeted
+    answer can never widen what an announce could already have introduced.
+    """
+    try:
+        host = str(endpoint.get("host") or "").strip()
+        port = int(endpoint.get("port") or 0)
+        expires_at_ms = int(endpoint.get("expiresAt") or 0)
+        now = time.time()
+        address = ipaddress.ip_address(host)
+        if (
+            not isinstance(address, ipaddress.IPv4Address)
+            or not address.is_global
+            or port != COMMUNITY_STUN_PORT
+        ):
+            return False
+        if (
+            expires_at_ms <= int(now * 1000)
+            or expires_at_ms > int((now + 60 * 60) * 1000)
+        ):
+            return False
+        endpoint_key = f"{host}:{port}"
+        with _state_lock:
+            _community_stun_recent_endpoints[endpoint_key] = {
+                "host": host,
+                "port": port,
+                "expiresAt": expires_at_ms,
+            }
+            _community_stun_seen_endpoints[endpoint_key] = now
+        emit_event(
+            "community_stun_endpoint",
+            {"host": host, "port": port, "expiresAt": expires_at_ms},
+        )
+        return True
+    except Exception:
+        return False
+
+
+def _request_community_stun_endpoints_from_contributor() -> bool:
+    """B-15 #34: ask the most recently heard contributor for its full list.
+
+    Announce-driven discovery yields one endpoint per announce, so a cache-less
+    client can be left with an empty pool even though contributors are nearby.
+    This opens a link to a recently-heard contributor's query destination and
+    reads the endpoint list from its request handler, which costs one announce
+    per day instead of collecting announces one at a time.
+
+    Never raises and never blocks a call: the coordinator retries its normal
+    discovery loop if this returns False.
+    """
+    global _community_stun_last_targeted_request_at
+    now = time.time()
+    with _state_lock:
+        if (
+            now - _community_stun_last_targeted_request_at
+            < COMMUNITY_STUN_QUERY_ANNOUNCE_MIN_INTERVAL_SECONDS
+        ):
+            return False
+        candidates = [
+            key
+            for key, seen_at in _community_stun_contributor_hashes.items()
+            if now - seen_at < 2 * 60 * 60
+        ]
+        if not candidates:
+            return False
+        _community_stun_last_targeted_request_at = now
+    for destination_hash in sorted(
+        candidates,
+        key=lambda key: _community_stun_contributor_hashes.get(key, 0.0),
+        reverse=True,
+    )[:4]:
+        try:
+            requester = RNS.Destination(
+                destination_hash,
+                RNS.Destination.OUT,
+                RNS.Destination.SINGLE,
+                APP_NAMESPACE,
+                COMMUNITY_STUN_QUERY_ASPECT,
+                COMMUNITY_STUN_VERSION,
+            )
+            link = RNS.Link(requester)
+            if not link or not link.status == RNS.Link.ACTIVE:
+                continue
+            try:
+                raw = link.request(
+                    COMMUNITY_STUN_QUERY_REQUEST_PATH,
+                    data=b"{}",
+                    timeout=8.0,
+                )
+            finally:
+                try:
+                    link.teardown()
+                except Exception:
+                    pass
+            if not raw:
+                continue
+            value = json.loads(bytes(raw).decode("utf-8"))
+            endpoints = value.get("endpoints")
+            if not isinstance(endpoints, list):
+                continue
+            accepted = 0
+            for endpoint in endpoints[:128]:
+                if not isinstance(endpoint, dict):
+                    continue
+                if _accept_community_stun_endpoint(endpoint):
+                    accepted += 1
+            if accepted:
+                log(
+                    f"[presence_bridge] community_stun targeted request "
+                    f"accepted={accepted}"
+                )
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _send_community_stun_query_answer(requester_destination_hash) -> bool:
+    """B-15: answer a query with a packet on the query destination.
+
+    Returns False when the packet path is unavailable so the caller can fall
+    back to announcing, which is what 3.0.x receivers still listen for.
+    """
+    try:
+        destination = _ensure_community_stun_query_destination(
+            _reticulum_config_dir
+        )
+        if destination is None:
+            return False
+        payload = _community_stun_answer_payload()
+        if len(payload) > 4096:
+            return False
+        packet = RNS.Packet(
+            destination, payload, create_receipt=False
+        )
+        packet.send()
+        log("[presence_bridge] community_stun query answered by packet")
+        return True
+    except Exception:
+        return False
+
+
+def _announce_community_stun_query() -> bool:
+    """B-15: announce a discovery query, throttled and off-budget.
+
+    Returns False when the floor suppresses the announce. The coordinator sends
+    a query at start, on every bridge `ready`, every 4 min, and whenever the
+    ICE pool is empty — and the shared transport retries an empty list every
+    750 ms for 12 s. The coordinator's own 10 min floor was therefore not
+    sufficient on its own; throttling here is what protects the transport
+    nodes' per-destination announce budget.
+    """
+    global _community_stun_last_query_announce_at
+    now = time.time()
+    with _state_lock:
+        if (
+            now - _community_stun_last_query_announce_at
+            < COMMUNITY_STUN_QUERY_ANNOUNCE_MIN_INTERVAL_SECONDS
+        ):
+            return False
+        _community_stun_last_query_announce_at = now
+    try:
+        destination = _ensure_community_stun_query_destination(
+            _reticulum_config_dir
+        )
+    except Exception:
+        return False
+    if destination is None:
+        return False
+    query_data = json.dumps({"v": 1, "q": True}, separators=(",", ":")).encode(
+        "utf-8"
+    )
+    destination.announce(app_data=query_data)
+    return True
 
 
 def _announce_community_stun_endpoint() -> bool:
@@ -9267,17 +9716,221 @@ def handle_get_community_stun_endpoints(req_id: str) -> None:
             _community_stun_recent_endpoints.pop(key, None)
             _community_stun_seen_endpoints.pop(key, None)
         endpoints = list(_community_stun_recent_endpoints.values())[:128]
+    # B-15 #34: when announces have produced nothing, ask a contributor we have
+    # already heard from for its whole list before spending another announce.
+    if not endpoints:
+        try:
+            _request_community_stun_endpoints_from_contributor()
+        except Exception:
+            pass
+        with _state_lock:
+            endpoints = [
+                value
+                for value in _community_stun_recent_endpoints.values()
+                if int(value.get("expiresAt") or 0) > now_ms
+            ][:128]
     try:
-        _ensure_community_stun_discovery(_reticulum_config_dir)
-        query_data = json.dumps(
-            {"v": 1, "q": True}, separators=(",", ":")
-        ).encode("utf-8")
-        _community_stun_destination.announce(app_data=query_data)
+        _announce_community_stun_query()
     except Exception:
         # Cached endpoints remain useful if an on-demand discovery announce
         # cannot be sent during a transient bridge/transport transition.
         pass
     emit_resp(req_id, True, payload={"endpoints": endpoints})
+
+
+def _community_masque_host_allowed(host: str) -> bool:
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    if not isinstance(address, (ipaddress.IPv4Address, ipaddress.IPv6Address)):
+        return False
+    if address.is_global:
+        return True
+    return (
+        str(os.environ.get("QORTAL_PRIVATE_TRANSPORT_ALLOW_LOCAL_RELAY", ""))
+        .strip()
+        .lower()
+        in {"1", "true", "yes", "on"}
+        and address.is_loopback
+    )
+
+
+class CommunityMasqueRelayAnnounceHandler:
+    """Receive anonymous, short-lived MASQUE relay advertisements.
+
+    The Reticulum announce authenticates the advertised metadata as one
+    internally consistent lease. The relay's advertised TLS leaf pin then
+    authenticates the QUIC endpoint without HTTPS, DNS, or public Web PKI.
+    """
+
+    def __init__(self):
+        self.aspect_filter = (
+            f"{APP_NAMESPACE}.{COMMUNITY_MASQUE_ASPECT}.{COMMUNITY_MASQUE_VERSION}"
+        )
+
+    def received_announce(self, destination_hash, announced_identity, app_data):
+        if destination_hash in _community_masque_local_hashes:
+            return
+        self.received_payload(app_data)
+
+    def received_packet(self, data, packet):
+        self.received_payload(data)
+
+    def received_payload(self, app_data):
+        try:
+            raw = bytes(app_data or b"")
+            if not raw or len(raw) > 512:
+                return
+            if raw[0] in (2, 3):
+                from masque_discovery_codec import decode
+                value = decode(raw)
+            else:
+                value = json.loads(raw.decode("utf-8"))
+                # V2 is accepted only through the signature-verifying codec.
+                if not isinstance(value, dict) or value.get("v") != 1:
+                    return
+            if not isinstance(value, dict) or int(value.get("v") or 0) not in (1, 2, 3):
+                return
+            if value.get("q") is True:
+                return
+            host = str(value.get("h") or "").strip()
+            port = int(value.get("p") or 0)
+            server_name = str(value.get("s") or "").strip()
+            cert_sha256 = str(value.get("c") or "").strip().lower()
+            expires_at = int(value.get("x") or 0)
+            now = int(time.time())
+            if (
+                not _community_masque_host_allowed(host)
+                or port < 1
+                or port > 65535
+                or not server_name
+                or len(server_name) > 128
+                or any(ch not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-" for ch in server_name)
+                or len(cert_sha256) != 64
+                or any(ch not in "0123456789abcdef" for ch in cert_sha256)
+                or expires_at <= now
+                or expires_at > now + 60 * 60
+            ):
+                return
+            endpoint_key = f"{host}:{port}:{cert_sha256}"
+            received_at = time.time()
+            with _state_lock:
+                while (
+                    _community_masque_event_times
+                    and received_at - _community_masque_event_times[0] >= 60.0
+                ):
+                    _community_masque_event_times.popleft()
+                if len(_community_masque_event_times) >= 60:
+                    return
+                seen_at = _community_masque_seen_endpoints.get(endpoint_key, 0.0)
+                previous = _community_masque_recent_endpoints.get(endpoint_key)
+                if previous and previous.get("protocolVersion", 1) >= 2:
+                    if value.get("v", 1) < previous.get("protocolVersion") or value.get("relayIdentity") != previous.get("relayIdentity"):
+                        return
+                    if value.get("v") == previous.get("protocolVersion") and expires_at * 1000 <= previous.get("expiresAt", 0):
+                        return
+                policy_changed = previous and (
+                    previous.get("protocolVersion") != value.get("v") or
+                    previous.get("ticketKeyId") != value.get("ticketKeyId") or
+                    previous.get("accessMode") != value.get("accessMode", "public") or
+                    previous.get("allowedGroupIds") != value.get("allowedGroupIds", [])
+                )
+                if received_at - seen_at < 30.0 and not policy_changed:
+                    return
+                endpoint = {
+                    "host": host,
+                    "port": port,
+                    "serverName": server_name,
+                    "certSha256": cert_sha256,
+                    "expiresAt": expires_at * 1000,
+                    "protocolVersion": value.get("v", 1),
+                    "relayIdentity": value.get("relayIdentity"),
+                    "ticketIdentity": value.get("ticketIdentity"),
+                    "ticketKeyId": value.get("ticketKeyId"),
+                    "accessMode": value.get("accessMode", "public"),
+                    "allowedGroupIds": value.get("allowedGroupIds", []),
+                }
+                _community_masque_seen_endpoints[endpoint_key] = received_at
+                _community_masque_recent_endpoints[endpoint_key] = endpoint
+                _community_masque_event_times.append(received_at)
+                if len(_community_masque_seen_endpoints) > 256:
+                    oldest = sorted(
+                        _community_masque_seen_endpoints.items(),
+                        key=lambda item: item[1],
+                    )[:64]
+                    for key, _ in oldest:
+                        _community_masque_seen_endpoints.pop(key, None)
+                        _community_masque_recent_endpoints.pop(key, None)
+            emit_event("community_masque_relay", endpoint)
+        except Exception:
+            return
+
+
+def _replace_community_masque_destination() -> None:
+    global _community_masque_identity, _community_masque_destination
+    previous_destination = _community_masque_destination
+    identity = RNS.Identity()
+    destination = RNS.Destination(
+        identity,
+        RNS.Destination.IN,
+        RNS.Destination.SINGLE,
+        APP_NAMESPACE,
+        COMMUNITY_MASQUE_ASPECT,
+        COMMUNITY_MASQUE_VERSION,
+    )
+    destination.set_packet_callback(
+        _community_masque_announce_handler.received_packet
+    )
+    _community_masque_identity = identity
+    _community_masque_destination = destination
+    _community_masque_local_hashes.append(destination.hash)
+    if previous_destination is not None:
+        try:
+            RNS.Transport.deregister_destination(previous_destination)
+        except Exception:
+            pass
+
+
+def _ensure_community_masque_discovery(config_dir: str) -> None:
+    global _community_masque_identity, _community_masque_destination
+    global _community_masque_announce_handler
+    if _community_masque_announce_handler is None:
+        _community_masque_announce_handler = CommunityMasqueRelayAnnounceHandler()
+        RNS.Transport.register_announce_handler(_community_masque_announce_handler)
+    if _community_masque_destination is None:
+        _replace_community_masque_destination()
+
+
+def handle_get_community_masque_relays(
+    req_id: str, payload: Dict[str, Any]
+) -> None:
+    now_ms = int(time.time() * 1000)
+    with _state_lock:
+        expired = [
+            key
+            for key, value in _community_masque_recent_endpoints.items()
+            if int(value.get("expiresAt") or 0) <= now_ms
+        ]
+        for key in expired:
+            _community_masque_recent_endpoints.pop(key, None)
+            _community_masque_seen_endpoints.pop(key, None)
+        endpoints = list(_community_masque_recent_endpoints.values())[:128]
+    try:
+        _ensure_community_masque_discovery(_reticulum_config_dir)
+        if payload.get("announce") is True:
+            # Each bounded discovery operation gets one fresh anonymous return
+            # destination. Reusing a prior destination causes Reticulum nodes
+            # to suppress the query as a repeated announce.
+            _replace_community_masque_destination()
+            query_data = json.dumps(
+                {"v": 1, "q": True}, separators=(",", ":")
+            ).encode("utf-8")
+            _community_masque_destination.announce(app_data=query_data)
+            log("MASQUE relay discovery query announced")
+    except Exception:
+        pass
+    emit_resp(req_id, True, payload={"relays": endpoints})
 
 
 def handle_configure_developer_log_filter(
@@ -18466,25 +19119,45 @@ def _audio_link_pick_keep(
     link_id_b: str,
     state_b: Dict[str, Any],
 ) -> tuple[str, str]:
+    """Pick the canonical link for a peer, deterministically, from both ends.
+
+    B-9: the previous rule preferred whichever link had more local activity.
+    Each end measures its own activity, so both ends could prefer their own
+    link and disagree — control frames then arrived on the "wrong" one and were
+    dropped. The rule is now ordered by facts both ends can compute:
+
+    1. A link RNS has established outranks one that has not.
+    2. Presence hash + direction decides which side opens and which waits.
+       Both ends derive the same answer because it compares the same two hashes.
+    3. Activity is a tie-break only, for the case where both links are
+       established and same-direction (a rare race).
+    4. Creation order and finally the link id break any remaining tie, so the
+       result is total and identical on both ends.
+    """
     est_a = state_a.get("established") is True
     est_b = state_b.get("established") is True
     if est_a and not est_b:
         return link_id_a, link_id_b
     if est_b and not est_a:
         return link_id_b, link_id_a
-    activity_a = _audio_link_activity_ts(state_a)
-    activity_b = _audio_link_activity_ts(state_b)
-    if abs(activity_a - activity_b) > 0.001:
-        return (link_id_a, link_id_b) if activity_a > activity_b else (link_id_b, link_id_a)
+
     incoming_a = state_a.get("incoming") is True
     incoming_b = state_b.get("incoming") is True
     if incoming_a != incoming_b:
         local_hex = _local_presence_hash_hex()
         if local_hex and _valid_presence_destination_hash_hex(peer_key):
+            # The lower hash opens; the higher hash waits. Both sides compute
+            # the same comparison, so they agree on which link survives.
             prefer_incoming = local_hex > peer_key
             if incoming_a == prefer_incoming:
                 return link_id_a, link_id_b
             return link_id_b, link_id_a
+
+    activity_a = _audio_link_activity_ts(state_a)
+    activity_b = _audio_link_activity_ts(state_b)
+    if abs(activity_a - activity_b) > 0.001:
+        return (link_id_a, link_id_b) if activity_a > activity_b else (link_id_b, link_id_a)
+
     created_a = float(state_a.get("created_at") or 0.0)
     created_b = float(state_b.get("created_at") or 0.0)
     if created_a != created_b:
@@ -19829,6 +20502,13 @@ def emit_audio_link_established(link_id: str) -> None:
             "linkId": link_id,
             "peerPresenceHash": state.get("peerPresenceHash") or "",
             "peerDestinationHash": state.get("peerDestinationHash") or "",
+            # S-4: the identity RNS proved on the link. Once set, wire-claimed
+            # sender hashes can no longer rebind this link to another peer.
+            "authenticatedPeerHash": (
+                (state.get("peerDestinationHash") or "")
+                if state.get("link_identity_confirmed")
+                else ""
+            ),
             "incoming": state.get("incoming") is True,
             "managerState": str(state.get("manager_state") or ""),
             "generation": int(state.get("generation") or 0),
@@ -19926,6 +20606,8 @@ def on_audio_link_remote_identified(link, identity) -> None:
         with _state_lock:
             state["peerPresenceHash"] = peer_hash
             state["peerDestinationHash"] = peer_hash
+            # S-4: mark link identity as confirmed — never overwrite from wire after this
+            state["link_identity_confirmed"] = True
         _register_active_audio_for_peer(peer_hash, link_id)
     emit_audio_link_established(link_id)
 
@@ -20051,11 +20733,19 @@ def _handle_audio_link_packet(message, packet) -> None:
                 f"packet={_short_route(packet_hash_hex)}"
             )
         if sender_call_hash:
-            peer_presence_hash = _resolve_sender_peer_destination_hash(sender_call_hash)
-            with _state_lock:
-                state["peerDestinationHash"] = sender_call_hash
-                if peer_presence_hash:
-                    state["peerPresenceHash"] = peer_presence_hash
+            # S-4: once link identity is confirmed, never overwrite peer from wire
+            if state.get("link_identity_confirmed"):
+                authenticated_dest = state.get("peerDestinationHash", "")
+                if sender_call_hash != authenticated_dest:
+                    # Packet claims a different sender than the link identity — drop it
+                    return None
+                # Skip the overwrite — peer is already set correctly
+            else:
+                peer_presence_hash = _resolve_sender_peer_destination_hash(sender_call_hash)
+                with _state_lock:
+                    state["peerDestinationHash"] = sender_call_hash
+                    if peer_presence_hash:
+                        state["peerPresenceHash"] = peer_presence_hash
                 state["last_rx_at"] = time.time()
                 state["last_activity_at"] = state["last_rx_at"]
                 state["consecutive_send_timeouts"] = 0
@@ -20063,7 +20753,19 @@ def _handle_audio_link_packet(message, packet) -> None:
                 _register_active_audio_for_peer(peer_presence_hash, link_id)
                 canonical_id = _canonical_audio_link_id_for_peer(peer_presence_hash)
                 if canonical_id and canonical_id != link_id:
-                    return
+                    # B-9: control frames are reliable signalling, not media.
+                    # Both ends pick the canonical link from their own local
+                    # activity timestamps, so the two sides can disagree and
+                    # silently throw away RTC offers/answers/candidates that
+                    # RNS already acknowledged. Never drop control here — the
+                    # signature and account checks in GroupCallManager still
+                    # apply.
+                    if _inspect_gcall_audio_payload(raw_audio)[0] == "control":
+                        with _state_lock:
+                            state["last_rx_at"] = time.time()
+                            state["last_activity_at"] = state["last_rx_at"]
+                    else:
+                        return
         try:
             chunk = _encode_audio_batch_binary(
                 [
@@ -21503,6 +22205,7 @@ def ensure_started(config_dir: str):
         _announce_handler = PresenceAnnounceHandler(_destination.hash)
         RNS.Transport.register_announce_handler(_announce_handler)
         _ensure_community_stun_discovery(config_dir)
+        _ensure_community_masque_discovery(config_dir)
         ensure_transport_monitor_started()
         ensure_rns_callback_scheduler_monitor_started()
         ensure_audio_rtt_monitor_started()
@@ -26743,6 +27446,780 @@ def handle_send_group_audio_link_heartbeat(req_id: str, payload: Dict[str, Any])
         )
 
 
+_QAPP_RNS_VERSION = 1
+_QAPP_RNS_DATA = 1
+_QAPP_RNS_ACK = 2
+_QAPP_RNS_CONTROL = 3
+_QAPP_RNS_HEADER = struct.Struct(">BBQI")
+_QAPP_RNS_STREAM_ID = 7
+_QAPP_RNS_MAX_FRAME = int(os.environ.get("QORTAL_QAPP_RNS_MAX_FRAME_BYTES", 256 * 1024))
+_QAPP_RNS_MAX_QUEUE = int(os.environ.get("QORTAL_QAPP_RNS_MAX_UNACKED", 64))
+_QAPP_RNS_MAX_QUEUE_BYTES = int(os.environ.get("QORTAL_QAPP_RNS_MAX_QUEUE_BYTES", 2 * 1024 * 1024))
+_QAPP_RNS_IDLE_SECONDS = float(os.environ.get("QORTAL_QAPP_RNS_IDLE_SECONDS", 300))
+_QAPP_RNS_ACK_TIMEOUT_SECONDS = float(os.environ.get("QORTAL_QAPP_RNS_ACK_TIMEOUT_SECONDS", 120))
+_QAPP_RNS_WRITE_TIMEOUT_SECONDS = 10.0
+_QAPP_RNS_CLOSE_WRITE_TIMEOUT_SECONDS = max(
+    0.1,
+    float(os.environ.get("QORTAL_QAPP_RNS_CLOSE_WRITE_TIMEOUT_SECONDS", 10.0)),
+)
+_QAPP_RNS_KEEPALIVE_SECONDS = max(
+    15.0,
+    float(os.environ.get("QORTAL_QAPP_RNS_KEEPALIVE_SECONDS", 60)),
+)
+_qapp_rns_entries: Dict[str, Dict[str, Any]] = {}
+
+
+def _qapp_rns_error(req_id: str, code: str) -> None:
+    emit_resp(req_id, False, payload={"code": code}, error=code)
+
+
+def _qapp_rns_frame(frame_type: int, message_id: int, payload: bytes = b"") -> bytes:
+    if len(payload) > _QAPP_RNS_MAX_FRAME:
+        raise ValueError("RNS_MESSAGE_TOO_LARGE")
+    return _QAPP_RNS_HEADER.pack(_QAPP_RNS_VERSION, frame_type, message_id, len(payload)) + payload
+
+
+def _qapp_rns_write(entry: Dict[str, Any], frame: bytes, *, expected_link: Any = None) -> bool:
+    # Capture the physical stream before dispatch. A delayed old write must
+    # never acquire the writer (or lock) of a replacement Link.
+    with _state_lock:
+        writer = entry.get("writer")
+        link = entry.get("link")
+        if expected_link is not None and link is not expected_link:
+            return False
+        generation = entry.get("generation")
+        write_lock = entry.get("write_lock")
+        if writer is None or entry.get("established") is not True:
+            return False
+    cancelled = threading.Event()
+
+    def current() -> bool:
+        return (
+            not cancelled.is_set()
+            and entry.get("writer") is writer
+            and entry.get("generation") == generation
+            and entry.get("established") is True
+        )
+
+    def write() -> bool:
+        deadline = time.monotonic() + _QAPP_RNS_WRITE_TIMEOUT_SECONDS
+        if not write_lock.acquire(timeout=_QAPP_RNS_WRITE_TIMEOUT_SECONDS):
+            return False
+        try:
+            offset = 0
+            while offset < len(frame):
+                if not current() or time.monotonic() >= deadline:
+                    return False
+                written = int(writer.write(frame[offset:]) or 0)
+                if written <= 0:
+                    cancelled.wait(0.01)
+                    continue
+                offset += written
+            if not current():
+                return False
+            # RawChannelWriter has no buffered bytes: flush is a no-op. The
+            # outer deadline also bounds unexpected blocking in RNS itself.
+            writer.flush()
+            return current()
+        finally:
+            write_lock.release()
+
+    status, result, error = _qapp_stream_write_dispatcher.submit_and_wait(
+        f"{id(entry)}:{id(writer)}:{generation}",
+        _QAPP_RNS_WRITE_TIMEOUT_SECONDS,
+        write,
+    )
+    cancelled.set()
+    if status == "completed" and result is True and not error:
+        entry["last_used"] = time.time()
+        return True
+    log(
+        "[presence_bridge] target=qapp-rns stream_write_failed "
+        f"destination={entry.get('destination')} reason={status}"
+    )
+    # No bytes were attempted for a rejected queued job. Do not reset a
+    # healthy connection merely because the bounded pool is busy.
+    if status in ("completed", "exception", "send_timeout"):
+        with _state_lock:
+            if entry.get("writer") is writer and entry.get("generation") == generation:
+                if link is not None and entry.get("link") is link:
+                    _qapp_rns_closed(entry["managerKey"], generation, link)
+        if link is not None:
+            _teardown_reticulum_link_bounded(link, "target=qapp-rns stream_write_failed")
+    return False
+
+
+def _qapp_rns_teardown_failed_close(
+    entry: Dict[str, Any],
+    link: Any,
+    reason: str,
+) -> None:
+    if link is None:
+        return
+    with _state_lock:
+        if entry.get("link") is not link:
+            return
+    _teardown_reticulum_link_bounded(
+        link,
+        f"target=qapp-rns close_write_failed reason={reason}",
+    )
+
+
+def _qapp_rns_schedule_close_write(entry: Dict[str, Any], frame: bytes) -> None:
+    manager_key = str(entry.get("managerKey") or "unknown")
+    link = entry.get("link")
+    if link is None:
+        return
+    if not _qapp_close_coordinator_slots.acquire(blocking=False):
+        log(
+            "[presence_bridge] target=qapp-rns close_write_rejected "
+            f"manager={manager_key} reason=coordinator_full"
+        )
+        _qapp_rns_teardown_failed_close(entry, link, "coordinator_full")
+        return
+
+    def coordinate() -> None:
+        try:
+            status, result, error = _qapp_close_write_dispatcher.submit_and_wait(
+                manager_key,
+                _QAPP_RNS_CLOSE_WRITE_TIMEOUT_SECONDS,
+                lambda: _qapp_rns_write(entry, frame, expected_link=link),
+            )
+            if status == "completed" and result is True and not error:
+                return
+            log(
+                "[presence_bridge] target=qapp-rns close_write_failed "
+                f"manager={manager_key} reason={status} "
+                f"timeout_ms={int(_QAPP_RNS_CLOSE_WRITE_TIMEOUT_SECONDS * 1000)}"
+                f"{f' err={error}' if error else ''}"
+            )
+            _qapp_rns_teardown_failed_close(entry, link, status)
+        finally:
+            _qapp_close_coordinator_slots.release()
+
+    thread = threading.Thread(
+        target=coordinate,
+        name=f"qapp-rns-close-{manager_key[-12:]}",
+        daemon=True,
+    )
+    try:
+        thread.start()
+    except Exception:
+        _qapp_close_coordinator_slots.release()
+        _qapp_rns_teardown_failed_close(
+            entry,
+            link,
+            "coordinator_start_failed",
+        )
+
+
+def _qapp_rns_emit_state(entry: Dict[str, Any], state: str, reason: str = "") -> None:
+    for connection_id in list(entry.get("connections") or []):
+        emit_event("qapp_rns", {
+            "managerKey": entry["managerKey"],
+            "connectionId": connection_id,
+            "kind": "state",
+            "state": state,
+            **({"reason": reason} if reason else {}),
+        })
+
+
+def _qapp_rns_cancel_keepalive(entry: Dict[str, Any]) -> None:
+    with _state_lock:
+        entry["keepalive_generation"] = int(entry.get("keepalive_generation") or 0) + 1
+        timer = entry.get("keepalive_timer")
+        entry["keepalive_timer"] = None
+    if timer is not None:
+        timer.cancel()
+
+
+def _qapp_rns_schedule_keepalive(entry: Dict[str, Any]) -> None:
+    """Keep an actively-owned realtime Link alive without involving the Q-App."""
+    with _state_lock:
+        previous_timer = entry.get("keepalive_timer")
+        if previous_timer is not None:
+            previous_timer.cancel()
+        generation = int(entry.get("keepalive_generation") or 0) + 1
+        entry["keepalive_generation"] = generation
+        entry["keepalive_timer"] = None
+        if entry.get("established") is not True or not entry.get("connections"):
+            return
+
+        def keepalive() -> None:
+            with _state_lock:
+                current = _qapp_rns_entries.get(entry["managerKey"])
+                if (
+                    current is not entry
+                    or entry.get("keepalive_generation") != generation
+                    or entry.get("established") is not True
+                    or not entry.get("connections")
+                ):
+                    return
+                entry["keepalive_timer"] = None
+                message_id = int(entry["next_message_id"])
+                entry["next_message_id"] = (message_id + 1) & 0xffffffffffffffff
+            payload = json.dumps({"type": "PING"}, separators=(",", ":")).encode("utf-8")
+            _qapp_rns_write(
+                entry,
+                _qapp_rns_frame(_QAPP_RNS_CONTROL, message_id, payload),
+            )
+            # A busy pool can reject a keepalive before any bytes are sent.
+            # Retry at the next interval if the Link is still established.
+            _qapp_rns_schedule_keepalive(entry)
+
+        timer = threading.Timer(_QAPP_RNS_KEEPALIVE_SECONDS, keepalive)
+        timer.daemon = True
+        entry["keepalive_timer"] = timer
+    try:
+        timer.start()
+    except Exception as exc:
+        with _state_lock:
+            if entry.get("keepalive_timer") is timer:
+                entry["keepalive_timer"] = None
+        log(
+            "[presence_bridge] target=qapp-rns keepalive_timer_start_failed "
+            f"destination={entry.get('destination')} error={type(exc).__name__}"
+        )
+
+
+def _qapp_rns_handle_frame(entry: Dict[str, Any], frame_type: int, message_id: int, payload: bytes) -> None:
+    if frame_type == _QAPP_RNS_ACK:
+        if payload:
+            raise ValueError("ACK payload must be empty")
+        with _state_lock:
+            removed = entry["unacked"].pop(message_id, None)
+            if removed is not None:
+                timer = removed.get("timer")
+                if timer is not None:
+                    timer.cancel()
+                entry["queued_bytes"] = max(
+                    0, int(entry.get("queued_bytes") or 0) - len(removed["frame"])
+                )
+                _qapp_rns_schedule_idle(entry)
+        return
+    if frame_type == _QAPP_RNS_CONTROL:
+        control = json.loads(payload.decode("utf-8"))
+        if not isinstance(control, dict) or set(control) != {"type"}:
+            raise ValueError("invalid control frame")
+        control_type = control.get("type")
+        if control_type == "PING":
+            response = json.dumps({"type": "PONG"}, separators=(",", ":")).encode("utf-8")
+            _qapp_rns_write(entry, _qapp_rns_frame(_QAPP_RNS_CONTROL, message_id, response))
+            return
+        if control_type == "PONG":
+            return
+        raise ValueError("unsupported control frame")
+    if frame_type != _QAPP_RNS_DATA:
+        raise ValueError("unsupported frame type")
+    duplicate = False
+    with _state_lock:
+        duplicate = message_id in entry["received_set"]
+        if not duplicate:
+            if len(entry["received_ids"]) >= 512:
+                expired = entry["received_ids"].popleft()
+                entry["received_set"].discard(expired)
+            entry["received_ids"].append(message_id)
+            entry["received_set"].add(message_id)
+    _qapp_rns_write(entry, _qapp_rns_frame(_QAPP_RNS_ACK, message_id))
+    if duplicate:
+        return
+    envelope = json.loads(payload.decode("utf-8"))
+    connection_id = str(envelope.get("connectionId") or "")
+    if connection_id not in entry.get("connections", set()):
+        return
+    emit_event("qapp_rns", {
+        "managerKey": entry["managerKey"],
+        "connectionId": connection_id,
+        "kind": "message",
+        "payloadBase64": str(envelope.get("payloadBase64") or ""),
+        "encoding": "base64" if envelope.get("encoding") == "base64" else "json",
+    })
+
+
+def _qapp_rns_reader(entry: Dict[str, Any], generation: int) -> None:
+    reader = entry.get("reader")
+    link = entry.get("link")
+    buffered = bytearray()
+    try:
+        while entry.get("generation") == generation and entry.get("established") is True:
+            chunk = reader.read(64 * 1024)
+            if chunk is None:
+                time.sleep(0.01)
+                continue
+            if chunk == b"":
+                return
+            buffered.extend(chunk)
+            if len(buffered) > _QAPP_RNS_MAX_FRAME * 2:
+                raise ValueError("receive buffer exceeded")
+            while len(buffered) >= _QAPP_RNS_HEADER.size:
+                if entry.get("generation") != generation or entry.get("reader") is not reader:
+                    return
+                version, frame_type, message_id, payload_len = _QAPP_RNS_HEADER.unpack_from(buffered)
+                if (
+                    version != _QAPP_RNS_VERSION
+                    or frame_type not in (_QAPP_RNS_DATA, _QAPP_RNS_ACK, _QAPP_RNS_CONTROL)
+                    or payload_len > _QAPP_RNS_MAX_FRAME
+                ):
+                    raise ValueError("invalid frame header")
+                total = _QAPP_RNS_HEADER.size + payload_len
+                if len(buffered) < total:
+                    break
+                payload = bytes(buffered[_QAPP_RNS_HEADER.size:total])
+                del buffered[:total]
+                _qapp_rns_handle_frame(entry, frame_type, message_id, payload)
+    except Exception as exc:
+        log(f"[presence_bridge] target=qapp-rns protocol_error destination={entry.get('destination')} error={type(exc).__name__}")
+        if link is not None:
+            _teardown_reticulum_link_bounded(link, "target=qapp-rns reader_failed")
+
+
+def _qapp_rns_established(manager_key: str, generation: int, link) -> None:
+    with _state_lock:
+        entry = _qapp_rns_entries.get(manager_key)
+        if entry is None or entry.get("generation") != generation or entry.get("link") is not link:
+            try:
+                link.teardown()
+            except Exception:
+                pass
+            return
+        entry["established"] = True
+        entry["establishing"] = False
+        entry["reconnect_attempt"] = 0
+        channel = link.get_channel()
+        # BufferedWriter.flush spins indefinitely when RawChannelWriter.write
+        # returns zero for a full RNS channel window. Drive raw partial writes
+        # ourselves so congestion and failures remain bounded.
+        entry["writer"] = RawChannelWriter(_QAPP_RNS_STREAM_ID, channel)
+        entry["write_lock"] = threading.Lock()
+        entry["reader"] = RNS.Buffer.create_reader(_QAPP_RNS_STREAM_ID, channel)
+        entry["established_event"].set()
+        unacked = [value["frame"] for _, value in sorted(entry["unacked"].items())]
+    threading.Thread(target=_qapp_rns_reader, args=(entry, generation), daemon=True, name="qapp-rns-reader").start()
+    _qapp_rns_schedule_keepalive(entry)
+    for frame in unacked:
+        if not _qapp_rns_write(entry, frame, expected_link=link):
+            return
+    with _state_lock:
+        if entry.get("link") is link and entry.get("generation") == generation and entry.get("established") is True:
+            _qapp_rns_emit_state(entry, "CONNECTED")
+
+
+def _qapp_rns_schedule_reconnect(entry: Dict[str, Any]) -> None:
+    if not entry.get("connections"):
+        return
+    attempt = int(entry.get("reconnect_attempt") or 0) + 1
+    entry["reconnect_attempt"] = attempt
+    delay = min(30.0, 0.5 * (2 ** min(attempt - 1, 6))) * (0.8 + secrets.randbelow(41) / 100.0)
+
+    def reconnect() -> None:
+        with _state_lock:
+            current = _qapp_rns_entries.get(entry["managerKey"])
+            if current is not entry or not entry.get("connections") or entry.get("established") is True:
+                return
+        _qapp_rns_open_link(entry, wait=False)
+
+    timer = threading.Timer(delay, reconnect)
+    timer.daemon = True
+    entry["reconnect_timer"] = timer
+    timer.start()
+
+
+def _qapp_rns_schedule_idle(entry: Dict[str, Any]) -> None:
+    def cleanup() -> None:
+        link = None
+        with _state_lock:
+            current = _qapp_rns_entries.get(entry["managerKey"])
+            if (
+                current is not entry
+                or entry.get("idle_generation") != generation
+                or entry.get("connections")
+                or int(entry.get("active_requests") or 0) > 0
+                or entry.get("unacked")
+                or time.time() - float(entry.get("last_used") or 0) < _QAPP_RNS_IDLE_SECONDS
+            ):
+                return
+            entry["idle_timer"] = None
+            _qapp_rns_entries.pop(entry["managerKey"], None)
+            link = entry.get("link")
+            entry["generation"] = int(entry.get("generation") or 0) + 1
+        if link is not None:
+            try:
+                link.teardown()
+            except Exception:
+                pass
+        log(f"[presence_bridge] target=qapp-rns idle_teardown destination={entry.get('destination')}")
+
+    with _state_lock:
+        previous_timer = entry.get("idle_timer")
+        if previous_timer is not None:
+            previous_timer.cancel()
+        generation = int(entry.get("idle_generation") or 0) + 1
+        entry["idle_generation"] = generation
+        timer = threading.Timer(_QAPP_RNS_IDLE_SECONDS, cleanup)
+        timer.daemon = True
+        entry["idle_timer"] = timer
+        try:
+            timer.start()
+        except Exception as exc:
+            entry["idle_timer"] = None
+            log(
+                "[presence_bridge] target=qapp-rns idle_timer_start_failed "
+                f"destination={entry.get('destination')} error={type(exc).__name__}"
+            )
+
+
+def _qapp_rns_closed(manager_key: str, generation: int, link) -> None:
+    with _state_lock:
+        entry = _qapp_rns_entries.get(manager_key)
+        if entry is None or entry.get("generation") != generation or entry.get("link") is not link:
+            return
+        entry["established"] = False
+        entry["establishing"] = False
+        entry["link"] = None
+        entry["writer"] = None
+        entry["reader"] = None
+        has_connections = bool(entry.get("connections"))
+    _qapp_rns_cancel_keepalive(entry)
+    _qapp_rns_emit_state(entry, "RECONNECTING" if has_connections else "DISCONNECTED")
+    if has_connections:
+        _qapp_rns_schedule_reconnect(entry)
+
+
+def _qapp_rns_open_link(entry: Dict[str, Any], wait: bool = True) -> bool:
+    with _state_lock:
+        if entry.get("established") is True:
+            return True
+        pending = entry.get("establishing") is True or entry.get("link") is not None
+        established_event = entry["established_event"]
+        if not pending:
+            entry["establishing"] = True
+            established_event.clear()
+            entry["generation"] = int(entry.get("generation") or 0) + 1
+            generation = entry["generation"]
+    if pending:
+        return established_event.wait(20.0) if wait else False
+    destination = entry["destination"]
+    try:
+        destination_hash = bytes.fromhex(destination)
+        if not _reticulum_local_has_path(destination_hash):
+            _request_and_await_destination_path(destination_hash, 12.0, log_context=f"qapp-rns destination={destination}")
+        identity = RNS.Identity.recall(destination_hash)
+        if identity is None:
+            raise RuntimeError("identity unavailable")
+        outbound = RNS.Destination(
+            identity,
+            RNS.Destination.OUT,
+            RNS.Destination.SINGLE,
+            APP_NAMESPACE,
+            "qapp-backend",
+            "v1",
+        )
+        if destination_hash_hex(outbound.hash) != destination:
+            raise RuntimeError("destination identity mismatch")
+        link = RNS.Link(
+            outbound,
+            established_callback=lambda value: _qapp_rns_established(entry["managerKey"], generation, value),
+            closed_callback=lambda value: _qapp_rns_closed(entry["managerKey"], generation, value),
+        )
+        with _state_lock:
+            if entry.get("generation") != generation:
+                link.teardown()
+                return False
+            entry["link"] = link
+    except Exception:
+        with _state_lock:
+            entry["link"] = None
+            entry["establishing"] = False
+        if entry.get("connections"):
+            _qapp_rns_schedule_reconnect(entry)
+        return False
+    return established_event.wait(20.0) if wait else False
+
+
+def _qapp_rns_entry(manager_key: str, destination: str) -> Dict[str, Any]:
+    with _state_lock:
+        entry = _qapp_rns_entries.get(manager_key)
+        if entry is not None:
+            if entry.get("destination") != destination:
+                raise ValueError("RNS_PERMISSION_DENIED")
+            return entry
+        entry = {
+            "managerKey": manager_key,
+            "destination": destination,
+            "link": None,
+            "writer": None,
+            "reader": None,
+            "established": False,
+            "establishing": False,
+            "established_event": threading.Event(),
+            "generation": 0,
+            "connections": set(),
+            "active_requests": 0,
+            "unacked": {},
+            "queued_bytes": 0,
+            "next_message_id": secrets.randbits(63) or 1,
+            "received_ids": deque(),
+            "received_set": set(),
+            "write_lock": threading.Lock(),
+            "last_used": time.time(),
+            "reconnect_attempt": 0,
+            "idle_generation": 0,
+            "idle_timer": None,
+            "keepalive_generation": 0,
+            "keepalive_timer": None,
+        }
+        _qapp_rns_entries[manager_key] = entry
+        return entry
+
+
+def handle_qapp_rns_connect(req_id: str, payload: Dict[str, Any]) -> None:
+    try:
+        manager_key = str(payload.get("managerKey") or "")
+        destination = str(payload.get("destination") or "").lower()
+        connection_id = str(payload.get("connectionId") or "")
+        if not manager_key or not connection_id or len(destination) != 32:
+            return _qapp_rns_error(req_id, "RNS_DESTINATION_UNREACHABLE")
+        entry = _qapp_rns_entry(manager_key, destination)
+        with _state_lock:
+            entry["connections"].add(connection_id)
+        if not _qapp_rns_open_link(entry):
+            with _state_lock:
+                entry["connections"].discard(connection_id)
+            _qapp_rns_schedule_idle(entry)
+            return _qapp_rns_error(req_id, "RNS_LINK_TIMEOUT")
+        _qapp_rns_schedule_keepalive(entry)
+        emit_resp(req_id, True, payload={"state": "CONNECTED"})
+    except Exception:
+        _qapp_rns_error(req_id, "RNS_DESTINATION_UNREACHABLE")
+
+
+def handle_qapp_rns_send(req_id: str, payload: Dict[str, Any]) -> None:
+    manager_key = str(payload.get("managerKey") or "")
+    connection_id = str(payload.get("connectionId") or "")
+    with _state_lock:
+        entry = _qapp_rns_entries.get(manager_key)
+        if entry is None or connection_id not in entry.get("connections", set()):
+            return _qapp_rns_error(req_id, "RNS_INVALID_CONNECTION")
+        raw = str(payload.get("payloadBase64") or "")
+        envelope = json.dumps({
+            "connectionId": connection_id,
+            "payloadBase64": raw,
+            "encoding": "base64" if payload.get("encoding") == "base64" else "json",
+        }, separators=(",", ":")).encode("utf-8")
+        if len(envelope) > _QAPP_RNS_MAX_FRAME:
+            return _qapp_rns_error(req_id, "RNS_MESSAGE_TOO_LARGE")
+        message_id = int(entry["next_message_id"])
+        entry["next_message_id"] = (message_id + 1) & 0xffffffffffffffff
+        frame = _qapp_rns_frame(_QAPP_RNS_DATA, message_id, envelope)
+        if len(entry["unacked"]) >= _QAPP_RNS_MAX_QUEUE or entry["queued_bytes"] + len(frame) > _QAPP_RNS_MAX_QUEUE_BYTES:
+            return _qapp_rns_error(req_id, "RNS_SEND_QUEUE_FULL")
+        def expire_unacked() -> None:
+            expired = None
+            with _state_lock:
+                expired = entry["unacked"].pop(message_id, None)
+                if expired is not None:
+                    entry["queued_bytes"] = max(0, int(entry.get("queued_bytes") or 0) - len(frame))
+            if expired is not None:
+                emit_event("qapp_rns", {
+                    "managerKey": manager_key,
+                    "connectionId": connection_id,
+                    "kind": "state",
+                    "state": "ERROR",
+                    "reason": "RNS_REQUEST_TIMEOUT",
+                })
+
+        timer = threading.Timer(_QAPP_RNS_ACK_TIMEOUT_SECONDS, expire_unacked)
+        timer.daemon = True
+        entry["unacked"][message_id] = {"frame": frame, "created": time.time(), "timer": timer}
+        entry["queued_bytes"] += len(frame)
+        timer.start()
+    if not _qapp_rns_write(entry, frame):
+        with _state_lock:
+            removed = entry["unacked"].pop(message_id, None)
+            if removed is not None:
+                removed["timer"].cancel()
+                entry["queued_bytes"] = max(0, entry["queued_bytes"] - len(frame))
+        return _qapp_rns_error(req_id, "RNS_SEND_QUEUE_FULL")
+    emit_resp(req_id, True, payload={"messageId": str(message_id)})
+
+
+def handle_qapp_rns_close(req_id: str, payload: Dict[str, Any]) -> None:
+    manager_key = str(payload.get("managerKey") or "")
+    connection_id = str(payload.get("connectionId") or "")
+    entry = None
+    close_frame = None
+    with _state_lock:
+        entry = _qapp_rns_entries.get(manager_key)
+        if entry is not None and connection_id in entry.get("connections", set()):
+            message_id = int(entry["next_message_id"])
+            entry["next_message_id"] = (message_id + 1) & 0xffffffffffffffff
+            control = json.dumps({
+                "type": "CLOSE",
+                "connectionId": connection_id,
+            }, separators=(",", ":")).encode("utf-8")
+            close_frame = _qapp_rns_frame(_QAPP_RNS_CONTROL, message_id, control)
+    with _state_lock:
+        current = _qapp_rns_entries.get(manager_key)
+        if current is entry and entry is not None:
+            entry["connections"].discard(connection_id)
+            entry["last_used"] = time.time()
+            if not entry["connections"]:
+                _qapp_rns_cancel_keepalive(entry)
+            _qapp_rns_schedule_idle(entry)
+    try:
+        emit_resp(req_id, True, payload={"state": "CLOSED"})
+    finally:
+        if close_frame is not None and entry is not None:
+            # Local ownership is already closed. Deliver the remote CLOSE in a
+            # bounded worker so a wedged Reticulum stream can never hold the
+            # lifecycle scheduler. Failure tears down only the same physical
+            # Link; a replacement Link created meanwhile is left untouched.
+            _qapp_rns_schedule_close_write(entry, close_frame)
+
+
+def handle_qapp_rns_request(req_id: str, payload: Dict[str, Any]) -> None:
+    try:
+        manager_key = str(payload.get("managerKey") or "")
+        destination = str(payload.get("destination") or "").lower()
+        entry = _qapp_rns_entry(manager_key, destination)
+        logical_connection_id = str(payload.get("logicalConnectionId") or "")
+        if logical_connection_id:
+            with _state_lock:
+                if logical_connection_id not in entry.get("connections", set()):
+                    return _qapp_rns_error(req_id, "RNS_INVALID_CONNECTION")
+        if not _qapp_rns_open_link(entry):
+            return _qapp_rns_error(req_id, "RNS_LINK_TIMEOUT")
+        timeout = min(120.0, max(1.0, float(payload.get("timeoutMs") or 30000) / 1000.0))
+        max_response = min(1024 * 1024, max(1, int(payload.get("maxResponseBytes") or 1024 * 1024)))
+
+        with _state_lock:
+            if int(entry.get("active_requests") or 0) >= 16:
+                return _qapp_rns_error(req_id, "RNS_SEND_QUEUE_FULL")
+            entry["active_requests"] += 1
+
+        completion_lock = threading.Lock()
+        completed = False
+        timeout_timer: Optional[threading.Timer] = None
+
+        def finish(
+            response_payload: Optional[Dict[str, Any]] = None,
+            code: str = "",
+        ) -> None:
+            nonlocal completed
+            with completion_lock:
+                if completed:
+                    return
+                completed = True
+            if timeout_timer is not None:
+                timeout_timer.cancel()
+            with _state_lock:
+                entry["active_requests"] = max(
+                    0, int(entry.get("active_requests") or 0) - 1
+                )
+                entry["last_used"] = time.time()
+                _qapp_rns_schedule_idle(entry)
+            if response_payload is not None:
+                emit_resp(req_id, True, payload=response_payload)
+            else:
+                _qapp_rns_error(req_id, code or "RNS_REQUEST_TIMEOUT")
+
+        def response_received(receipt) -> None:
+            try:
+                value = receipt.get_response()
+                if isinstance(value, bytes):
+                    response_bytes = value
+                    encoding = "base64"
+                else:
+                    response_bytes = json.dumps(value, separators=(",", ":")).encode("utf-8")
+                    encoding = "json"
+                if len(response_bytes) > max_response:
+                    finish(code="RNS_RESPONSE_TOO_LARGE")
+                else:
+                    finish(
+                        {
+                            "payloadBase64": base64.b64encode(response_bytes).decode("ascii"),
+                            "encoding": encoding,
+                        }
+                    )
+            except Exception:
+                finish(code="RNS_PROTOCOL_ERROR")
+
+        def request_failed(_value=None) -> None:
+            finish(code="RNS_REQUEST_TIMEOUT")
+
+        request_data = {
+            "version": 1,
+            "requestId": str(payload.get("requestId") or ""),
+            "encoding": "base64" if payload.get("encoding") == "base64" else "json",
+            "payloadBase64": str(payload.get("payloadBase64") or ""),
+        }
+        if logical_connection_id:
+            request_data["logicalConnectionId"] = logical_connection_id
+        try:
+            timeout_timer = threading.Timer(timeout + 1.0, request_failed)
+            timeout_timer.daemon = True
+            timeout_timer.start()
+            receipt = entry["link"].request(
+                str(payload.get("path") or "/"),
+                data=request_data,
+                response_callback=response_received,
+                failed_callback=request_failed,
+                timeout=timeout,
+            )
+            if receipt is False:
+                request_failed()
+        except Exception:
+            finish(code="RNS_REQUEST_TIMEOUT")
+    except Exception:
+        _qapp_rns_error(req_id, "RNS_REQUEST_TIMEOUT")
+
+
+_relay_ticket_slots = threading.BoundedSemaphore(4)
+
+def handle_relay_ticket_request(req_id, payload):
+    # Dedicated bounded worker: never block QApp/media or control schedulers.
+    if not _relay_ticket_slots.acquire(blocking=False):
+        emit_resp(req_id, False, error="RELAY_BUSY")
+        return
+    def run():
+        link = None
+        try:
+            key = bytes.fromhex(str(payload.get("identity") or ""))
+            path = payload.get("path")
+            data = json.dumps(payload.get("data"), separators=(",", ":")).encode()
+            if len(key) != 64 or path not in ("/catalog", "/challenge", "/issue") or len(data) > 8192:
+                raise ValueError("RELAY_PROOF_INVALID")
+            identity = RNS.Identity(create_keys=False)
+            identity.load_public_key(key)
+            destination = RNS.Destination(identity, RNS.Destination.OUT, RNS.Destination.SINGLE, APP_NAMESPACE, COMMUNITY_MASQUE_ASPECT, COMMUNITY_MASQUE_VERSION)
+            deadline = time.monotonic() + 15
+            if not RNS.Transport.has_path(destination.hash):
+                RNS.Transport.request_path(destination.hash)
+                while not RNS.Transport.has_path(destination.hash) and time.monotonic() < deadline:
+                    time.sleep(0.05)
+            established = threading.Event()
+            link = RNS.Link(destination, established_callback=lambda _: established.set())
+            if not established.wait(max(0, deadline-time.monotonic())):
+                raise ValueError("RELAY_AUTH_UNAVAILABLE")
+            done = threading.Event()
+            result = []
+            def response(receipt):
+                result.append(receipt.get_response())
+                done.set()
+            link.request(path, data=data, response_callback=response, failed_callback=lambda _: done.set(), timeout=10, max_response_size=8192)
+            if not done.wait(11) or not result or not isinstance(result[0], dict) or len(json.dumps(result[0])) > 8192:
+                raise ValueError("RELAY_AUTH_UNAVAILABLE")
+            emit_resp(req_id, True, payload=result[0])
+        except Exception as exc:
+            code = str(exc)
+            emit_resp(req_id, False, error=code if code.startswith("RELAY_") else "RELAY_AUTH_UNAVAILABLE")
+        finally:
+            if link is not None:
+                try: link.teardown()
+                except Exception: pass
+            _relay_ticket_slots.release()
+    threading.Thread(target=run, daemon=True, name="relay-ticket").start()
+
 def handle_command(message: Dict[str, Any]) -> None:
     req_id = str(message.get("id") or "")
     action = message.get("action")
@@ -26760,6 +28237,8 @@ def handle_command(message: Dict[str, Any]) -> None:
 
     if action == "start":
         handle_start(req_id, payload)
+    elif action == "relay_ticket_request":
+        handle_relay_ticket_request(req_id, payload)
     elif action == "publish_presence":
         handle_publish_presence(req_id, payload)
     elif action == "clear_presence_cache":
@@ -26776,6 +28255,13 @@ def handle_command(message: Dict[str, Any]) -> None:
         handle_configure_community_stun(req_id, payload)
     elif action == "get_community_stun_endpoints":
         handle_get_community_stun_endpoints(req_id)
+    elif action == "get_full_audio_queue_diagnostics":
+        # X-5: explicit request for the complete diagnostics block, which the
+        # periodic emit deliberately omits. Answers with the full payload and
+        # also emits it so an open diagnostics view updates.
+        handle_get_full_audio_queue_diagnostics(req_id)
+    elif action == "get_community_masque_relays":
+        handle_get_community_masque_relays(req_id, payload)
     elif action == "configure_developer_log_filter":
         handle_configure_developer_log_filter(req_id, payload)
     elif action == "stop":
@@ -26882,6 +28368,14 @@ def handle_command(message: Dict[str, Any]) -> None:
         handle_ensure_peer_identity(req_id, payload)
     elif action == "register_peer_identity":
         handle_register_peer_identity(req_id, payload)
+    elif action == "qapp_rns_request":
+        handle_qapp_rns_request(req_id, payload)
+    elif action == "qapp_rns_connect":
+        handle_qapp_rns_connect(req_id, payload)
+    elif action == "qapp_rns_send":
+        handle_qapp_rns_send(req_id, payload)
+    elif action == "qapp_rns_close":
+        handle_qapp_rns_close(req_id, payload)
     else:
         emit_resp(req_id, False, error=f"Unknown action: {action}")
 

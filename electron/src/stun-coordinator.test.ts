@@ -74,7 +74,7 @@ describe('community STUN endpoint validation', () => {
     await coordinator.waitForStop();
   });
 
-  it('re-queries discovery when a call asks for an empty verified pool', async () => {
+  it('throttles discovery re-queries from the ICE pool to the B-15 floor', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(10_000);
     const bridge = new FakeBridge();
@@ -90,7 +90,15 @@ describe('community STUN endpoint validation', () => {
     expect(coordinator.getIceServersForRenderer()).toEqual([]);
     expect(bridge.getCommunityStunEndpoints).toHaveBeenCalledTimes(1);
 
-    await vi.advanceTimersByTimeAsync(5_000);
+    // B-15: the old 5s floor spent a contributor's whole announce budget in
+    // seconds. The floor is now ten minutes, so a call inside that window must
+    // not issue another announce.
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+    expect(coordinator.getIceServersForRenderer()).toEqual([]);
+    await Promise.resolve();
+    expect(bridge.getCommunityStunEndpoints).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
     expect(coordinator.getIceServersForRenderer()).toEqual([]);
     await Promise.resolve();
     expect(bridge.getCommunityStunEndpoints).toHaveBeenCalledTimes(2);
@@ -99,7 +107,7 @@ describe('community STUN endpoint validation', () => {
     await coordinator.waitForStop();
   });
 
-  it('refreshes anonymous discovery before verified probes can expire', async () => {
+  it('stops periodic discovery re-announces, which the B-15 floor suppresses', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(10_000);
     const bridge = new FakeBridge();
@@ -111,7 +119,13 @@ describe('community STUN endpoint validation', () => {
     await Promise.resolve();
     expect(bridge.getCommunityStunEndpoints).toHaveBeenCalledTimes(1);
 
+    // B-15: a 4-minute refresh cadence is far below the transport nodes'
+    // per-destination announce target, so it must no longer fire an announce.
     await vi.advanceTimersByTimeAsync(4 * 60_000);
+    expect(bridge.getCommunityStunEndpoints).toHaveBeenCalledTimes(1);
+
+    // Once the B-15 floor has elapsed, the next 4-minute tick gets through.
+    await vi.advanceTimersByTimeAsync(8 * 60_000);
     expect(bridge.getCommunityStunEndpoints).toHaveBeenCalledTimes(2);
 
     coordinator.stop();

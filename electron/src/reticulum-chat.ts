@@ -2609,11 +2609,21 @@ const RETICULUM_CHAT_AUTHOR_GAP_ROUTE_BACKOFF_MS = [
   3_000, 10_000, 30_000, 60_000,
 ] as const;
 const RETICULUM_CHAT_AUTHOR_GAP_ROUTE_BACKOFF_RESET_MS = 10 * 60_000;
+// A peer that answered `history_unavailable` for a group cannot serve *any* of
+// its ranges (it has no local history for the group). Exclude it from that
+// group's repair candidates for about an hour, and don't count it toward the
+// denial threshold while excluded.
+const RETICULUM_CHAT_AUTHOR_GAP_HISTORY_UNAVAILABLE_EXCLUSION_MS = 60 * 60_000;
 const RETICULUM_CHAT_AUTHOR_GAP_QUARANTINE_MS = 6 * 60 * 60_000;
 const RETICULUM_CHAT_AUTHOR_GAP_QUARANTINE_PEERS = 3;
 const RETICULUM_CHAT_AUTHOR_GAP_KNOWN_UNAVAILABLE_RECHECK_MS =
   7 * 24 * 60 * 60_000;
 const RETICULUM_CHAT_AUTHOR_GAP_KNOWN_UNAVAILABLE_MIN_ATTEMPTS = 12;
+// After a range has been independently denied by a quorum, survived a
+// restart (already marked known-unavailable), and been attempted well past
+// the durable-marker threshold, treat it as locally "gone" so the hot loop
+// converges instead of re-parking it for a 7-day recheck forever.
+const RETICULUM_CHAT_AUTHOR_GAP_GONE_MIN_ATTEMPTS = 24;
 const RETICULUM_CHAT_HISTORY_PAGE_NO_PROGRESS_TTL_MS = 10 * 60_000;
 const RETICULUM_CHAT_HISTORY_PAGE_NO_PROGRESS_MAX = 4096;
 const RETICULUM_CHAT_DIGEST_REPAIR_NO_PROGRESS_TTL_MS =
@@ -5799,6 +5809,20 @@ export function verifyReticulumDmNotify(
   );
 }
 
+function reticulumDmNotifyRejectionReason(
+  wire: ReticulumDmNotifyWire,
+  now = Date.now()
+): string {
+  const peerAddress = typeof wire?.b === 'string' ? wire.b.trim() : '';
+  const requestId = normalizeReticulumControlRequestId(wire?.q);
+  const sourcePeerHash = normalizePeerHashFromWire(wire?.sp) ?? '';
+  if (!peerAddress || !requestId || !sourcePeerHash) return 'bad_shape';
+  if (!Number.isFinite(wire.n)) return 'bad_shape';
+  if (wire.n > now + RETICULUM_CHAT_CONTROL_MAX_FUTURE_SKEW_MS) return 'future';
+  if (wire.n < now - RETICULUM_CHAT_DM_NOTIFY_TTL_MS) return 'stale';
+  return 'bad_shape';
+}
+
 function reticulumDmNotifySignatureMaterial(
   wire: ReticulumDmNotifyWire,
   now = Date.now()
@@ -7299,6 +7323,7 @@ export class ReticulumChatManager extends EventEmitter {
     string,
     ReturnType<typeof setTimeout>
   >();
+  private staleMetadataSnapshotHashes = new Map<string, number>();
   private deferredMetadataSnapshots = new Map<
     string,
     {
@@ -7345,6 +7370,11 @@ export class ReticulumChatManager extends EventEmitter {
   >();
   private authorGapControlSendsInFlight = new Map<string, number>();
   private backgroundAuthorGapGroupNextAttemptAt = new Map<number, number>();
+  // groupId:peerHash -> timestamp until which the peer is known not to hold
+  // this group's history (answered `history_unavailable`). Such peers cannot
+  // serve any range for the group, so exclude them from candidate selection
+  // for about an hour instead of asking them once per range repeatedly.
+  private authorGapHistoryUnavailableUntil = new Map<string, number>();
   private peerProtocolFeatures = new Map<
     string,
     Set<ReticulumChatProtocolFeature>
@@ -7596,10 +7626,15 @@ export class ReticulumChatManager extends EventEmitter {
   private channelMetadataProjectionQueue: string[] = [];
   private channelMetadataProjectionQueuedIds = new Set<string>();
   private channelMetadataProjectionAttemptedIds = new Set<string>();
+  // Skipped metadata events are remembered per (group, author) so they can be
+  // re-queued once that author becomes admin again (a failed admin-list fetch
+  // must not lose an admin's edits for the whole session).
+  private channelMetadataSkippedByAuthor = new Set<string>();
   private channelMetadataProjectionRetryTimers = new Map<
     string,
     ReturnType<typeof setTimeout>
   >();
+  private channelMetadataProjectionRetryAttempts = new Map<string, number>();
   private pendingPrivilegedMentionValidationEvents = new Map<
     string,
     ReticulumChatEvent
@@ -7724,6 +7759,8 @@ export class ReticulumChatManager extends EventEmitter {
   private localNotifyWatcher: fs.FSWatcher | null = null;
   private localNotifyTimer: ReturnType<typeof setTimeout> | null = null;
   private localNotifyScanInterval: ReturnType<typeof setInterval> | null = null;
+  private localNotifyCleanupInterval: ReturnType<typeof setInterval> | null =
+    null;
   private seenLocalNotifyFiles = new Set<string>();
   private readonly localNotifyManagerStartedAt = Date.now();
   private localNotifyWatcherHasStarted = false;
@@ -8806,6 +8843,7 @@ export class ReticulumChatManager extends EventEmitter {
     this.channelMetadataProjectionQueue = [];
     this.channelMetadataProjectionQueuedIds.clear();
     this.channelMetadataProjectionAttemptedIds.clear();
+    this.channelMetadataSkippedByAuthor.clear();
     this.channelMetadataProjectionRepairGroups.clear();
     if (this.membershipInitializationTimer) {
       clearTimeout(this.membershipInitializationTimer);
@@ -12265,6 +12303,10 @@ export class ReticulumChatManager extends EventEmitter {
         error: 'Invalid event',
       };
     }
+    // Emit the own post to the UI directly instead of waiting for the local
+    // notify-file round trip (which would flag the file as seen anyway). The
+    // notify file is still written for other managers sharing the database.
+    this.emitGroupEventIfVisible(event);
     const fanoutResult = await this.fanoutPublishedEvent(event, channelId);
     if (!fanoutResult.ok) {
       const failed = fanoutResult as Exclude<ReticulumSendResult, { ok: true }>;
@@ -20466,8 +20508,9 @@ export class ReticulumChatManager extends EventEmitter {
     const now = this.now();
     const signatureMaterial = reticulumDmNotifySignatureMaterial(notify, now);
     if (!signatureMaterial) {
+      const reason = reticulumDmNotifyRejectionReason(notify, now);
       loggerWarn(
-        `[ReticulumChat] dm_notify_rejected peer=${String(peerHash || '').slice(0, 16)} reason=bad_signature_or_shape`
+        `[ReticulumChat] dm_notify_rejected peer=${String(peerHash || '').slice(0, 16)} reason=${reason}`
       );
       return;
     }
@@ -23525,10 +23568,62 @@ export class ReticulumChatManager extends EventEmitter {
     // well-tried range. Route failures and timeouts never qualify. This keeps
     // one stale or hostile provider from suppressing valid history while
     // allowing genuinely unavailable legacy holes to leave the hot loop.
+    const alreadyParked = this.db.getMissingRangeKnownUnavailable(
+      groupId,
+      normalized.a,
+      normalized.s,
+      normalized.from,
+      normalized.to
+    );
     const shouldMarkKnownUnavailable =
       unavailablePeers.length >= RETICULUM_CHAT_AUTHOR_GAP_QUARANTINE_PEERS &&
       (persistedRange?.attempts ?? 0) >=
         RETICULUM_CHAT_AUTHOR_GAP_KNOWN_UNAVAILABLE_MIN_ATTEMPTS;
+    // The loop must converge: a range that keeps failing across peers, survives
+    // restarts, and is already marked known-unavailable is locally "gone". Drop
+    // the missing range from the hot loop entirely (gap discovery skips gone
+    // ranges) instead of re-parking it for another 7-day recheck forever. A
+    // late event inside the range still clears the marker and re-imports.
+    const shouldMarkGone =
+      shouldMarkKnownUnavailable &&
+      alreadyParked !== null &&
+      (persistedRange?.attempts ?? 0) >=
+        RETICULUM_CHAT_AUTHOR_GAP_GONE_MIN_ATTEMPTS;
+    if (shouldMarkGone) {
+      this.db.markRangeGone(
+        groupId,
+        normalized.a,
+        normalized.s,
+        normalized.from,
+        normalized.to,
+        this.now()
+      );
+      this.db.deleteMissingRange(
+        groupId,
+        normalized.a,
+        normalized.s,
+        normalized.from,
+        normalized.to
+      );
+      this.db.clearMissingRangeKnownUnavailable(
+        groupId,
+        normalized.a,
+        normalized.s,
+        normalized.from,
+        normalized.to
+      );
+      this.db.clearMissingRangePeerUnavailable(
+        groupId,
+        normalized.a,
+        normalized.s,
+        normalized.from,
+        normalized.to
+      );
+      loggerLog(
+        `[ReticulumChat] author_gap_marked_gone group=${groupId} author=${normalized.a} from=${normalized.from} to=${normalized.to} unavailable_peers=${unavailablePeerCount} attempts=${persistedRange?.attempts ?? 0}`
+      );
+      return;
+    }
     const knownUnavailableMarker = shouldMarkKnownUnavailable
       ? this.db.markMissingRangeKnownUnavailable(
           groupId,
@@ -23941,6 +24036,55 @@ export class ReticulumChatManager extends EventEmitter {
     return RETICULUM_CHAT_AUTHOR_GAP_BACKOFF_MS[
       Math.min(safeAttempt - 1, RETICULUM_CHAT_AUTHOR_GAP_BACKOFF_MS.length - 1)
     ];
+  }
+
+  private authorGapHistoryUnavailableKey(
+    groupId: number,
+    peerHash: string
+  ): string {
+    return `${groupId}:${peerHash.trim().toLowerCase()}`;
+  }
+
+  private noteGroupHistoryUnavailable(
+    groupId: number,
+    peerHash: string,
+    now = this.now()
+  ): void {
+    const key = this.authorGapHistoryUnavailableKey(groupId, peerHash);
+    this.authorGapHistoryUnavailableUntil.set(
+      key,
+      now + RETICULUM_CHAT_AUTHOR_GAP_HISTORY_UNAVAILABLE_EXCLUSION_MS
+    );
+    if (this.authorGapHistoryUnavailableUntil.size > 4_096) {
+      for (const [staleKey, until] of this.authorGapHistoryUnavailableUntil) {
+        if (until <= now)
+          this.authorGapHistoryUnavailableUntil.delete(staleKey);
+      }
+      while (this.authorGapHistoryUnavailableUntil.size > 4_096) {
+        const oldest = this.authorGapHistoryUnavailableUntil.keys().next()
+          .value as string | undefined;
+        if (!oldest) break;
+        this.authorGapHistoryUnavailableUntil.delete(oldest);
+      }
+    }
+  }
+
+  private isGroupHistoryUnavailablePeer(
+    groupId: number,
+    peerHash: string,
+    now = this.now()
+  ): boolean {
+    const until = this.authorGapHistoryUnavailableUntil.get(
+      this.authorGapHistoryUnavailableKey(groupId, peerHash)
+    );
+    if (until === undefined) return false;
+    if (until <= now) {
+      this.authorGapHistoryUnavailableUntil.delete(
+        this.authorGapHistoryUnavailableKey(groupId, peerHash)
+      );
+      return false;
+    }
+    return true;
   }
 
   private authorGapRouteKey(groupId: number, peerHash: string): string {
@@ -24780,6 +24924,7 @@ export class ReticulumChatManager extends EventEmitter {
       if (
         peer === local ||
         peer === excluded ||
+        this.isGroupHistoryUnavailablePeer(groupId, peer) ||
         this.isAuthorGapRouteBackedOff(groupId, peer) ||
         this.db.hasMissingRangePeerUnavailable(
           groupId,
@@ -24843,7 +24988,10 @@ export class ReticulumChatManager extends EventEmitter {
       ...subscribedPeers,
     ];
     const local = this.localPeerHash() ?? '';
-    return [...new Set(candidates)].filter((peer) => peer !== local);
+    return [...new Set(candidates)].filter(
+      (peer) =>
+        peer !== local && !this.isGroupHistoryUnavailablePeer(groupId, peer)
+    );
   }
 
   private countUnavailableAuthorGapCandidates(
@@ -27282,9 +27430,21 @@ export class ReticulumChatManager extends EventEmitter {
     if (!CHANNEL_METADATA_EVENT_TYPES.has(event.eventType)) return;
     if (this.channelMetadataProjectionAttemptedIds.has(event.eventId)) return;
     if (this.channelMetadataProjectionQueuedIds.has(event.eventId)) return;
+    // A channel_create import provides the base that deferred events for the
+    // channel were waiting on; wake the group's deferred retries immediately.
+    if (event.eventType === 'channel_create') {
+      this.wakeChannelMetadataProjectionRetries(event.groupId);
+    }
     this.channelMetadataProjectionQueuedIds.add(event.eventId);
     this.channelMetadataProjectionQueue.push(event.eventId);
     void this.processChannelMetadataProjectionQueue();
+  }
+
+  private channelMetadataSkippedKey(
+    groupId: number,
+    authorAddress: string
+  ): string {
+    return `${groupId}:${authorAddress}`;
   }
 
   private queueChannelMetadataProjectionRepair(
@@ -27296,6 +27456,16 @@ export class ReticulumChatManager extends EventEmitter {
     if (this.channelMetadataProjectionRepairGroups.has(groupId)) return;
     this.channelMetadataProjectionRepairGroups.add(groupId);
     try {
+      // Re-queue metadata events whose author is now admin. They were skipped
+      // (and remembered) while the admin list was wrong/unavailable; once the
+      // author's admin status recovers, the edit should apply, not stay lost
+      // until a Hub restart. The Core check is async, but re-queuing can happen
+      // on the next membership re-init, so fire-and-forget is acceptable.
+      if (this.localGroupAdminIds.has(groupId)) {
+        void this.requeueSkippedMetadataForAdmins(groupId).catch(
+          () => undefined
+        );
+      }
       for (const event of this.db.getUnprojectedChannelCreateEvents(
         groupId,
         limit
@@ -27308,6 +27478,30 @@ export class ReticulumChatManager extends EventEmitter {
       }
     } finally {
       this.channelMetadataProjectionRepairGroups.delete(groupId);
+    }
+  }
+
+  private async requeueSkippedMetadataForAdmins(
+    groupId: number
+  ): Promise<void> {
+    for (const key of [...this.channelMetadataSkippedByAuthor]) {
+      if (this.isClosed) return;
+      const separator = key.indexOf(':');
+      const keyGroupId = Number(key.slice(0, separator));
+      const authorAddress = key.slice(separator + 1);
+      if (keyGroupId !== groupId) continue;
+      const authorIsAdmin = await this.getValidatedGroupAdminStatus(
+        groupId,
+        authorAddress
+      );
+      if (authorIsAdmin === 'admin') {
+        this.channelMetadataSkippedByAuthor.delete(key);
+        for (const event of this.db.getChannelMetadataEvents(groupId, 500)) {
+          if (event.authorAddress !== authorAddress) continue;
+          this.channelMetadataProjectionAttemptedIds.delete(event.eventId);
+          this.queueChannelMetadataProjection(event);
+        }
+      }
     }
   }
 
@@ -27382,11 +27576,25 @@ export class ReticulumChatManager extends EventEmitter {
     }
   }
 
+  private metadataProjectionRetryBackoffMs(attempt: number): number {
+    // 30 s → 1 min → 5 min → 30 min → 1 h. Most deferred projections cannot be
+    // fixed by time alone (missing create, former-admin creator); a fixed 30 s
+    // forever is pure background load with a fresh Core check each time.
+    const ladder = [30_000, 60_000, 5 * 60_000, 30 * 60_000, 60 * 60_000];
+    return ladder[
+      Math.min(Math.max(1, Math.floor(attempt)) - 1, ladder.length - 1)
+    ];
+  }
+
   private scheduleChannelMetadataProjectionRetry(eventId: string): void {
     if (this.isClosed || !eventId) return;
+    const attempts =
+      (this.channelMetadataProjectionRetryAttempts.get(eventId) ?? 0) + 1;
+    this.channelMetadataProjectionRetryAttempts.set(eventId, attempts);
+    const delayMs = this.metadataProjectionRetryBackoffMs(attempts);
     if (this.channelMetadataProjectionRetryTimers.has(eventId)) return;
     loggerLog(
-      `[ReticulumChat] channel_metadata_projection_retry_scheduled event=${eventId} retryMs=${RETICULUM_CHAT_METADATA_PROJECTION_RETRY_MS}`
+      `[ReticulumChat] channel_metadata_projection_retry_scheduled event=${eventId} attempt=${attempts} retryMs=${delayMs}`
     );
     const timer = setTimeout(() => {
       this.channelMetadataProjectionRetryTimers.delete(eventId);
@@ -27394,11 +27602,34 @@ export class ReticulumChatManager extends EventEmitter {
       const event = this.db.getEvent(eventId);
       if (!event || !CHANNEL_METADATA_EVENT_TYPES.has(event.eventType)) return;
       loggerLog(
-        `[ReticulumChat] channel_metadata_projection_retry event=${eventId} group=${event.groupId} type=${event.eventType}`
+        `[ReticulumChat] channel_metadata_projection_retry event=${eventId} group=${event.groupId} type=${event.eventType} attempt=${attempts}`
       );
       this.queueChannelMetadataProjection(event);
-    }, RETICULUM_CHAT_METADATA_PROJECTION_RETRY_MS);
+    }, delayMs);
     this.channelMetadataProjectionRetryTimers.set(eventId, timer);
+  }
+
+  private wakeChannelMetadataProjectionRetries(
+    groupId: number,
+    eventId?: string
+  ): void {
+    if (eventId) {
+      this.channelMetadataProjectionRetryAttempts.delete(eventId);
+      const timer = this.channelMetadataProjectionRetryTimers.get(eventId);
+      if (timer) clearTimeout(timer);
+      this.channelMetadataProjectionRetryTimers.delete(eventId);
+      return;
+    }
+    for (const [retryEventId, timer] of this
+      .channelMetadataProjectionRetryTimers) {
+      const event = this.db.getEvent(retryEventId);
+      if (event && event.groupId === groupId) {
+        this.channelMetadataProjectionRetryAttempts.delete(retryEventId);
+        clearTimeout(timer);
+        this.channelMetadataProjectionRetryTimers.delete(retryEventId);
+        this.queueChannelMetadataProjection(event);
+      }
+    }
   }
 
   private metadataEntityKey(
@@ -27541,14 +27772,34 @@ export class ReticulumChatManager extends EventEmitter {
       if (adminStatus === 'unknown') return 'deferred';
       if (adminStatus !== 'admin') {
         this.channelMetadataProjectionAttemptedIds.add(event.eventId);
+        // Remember (group, author) so a later admin-status recovery can re-queue
+        // this event instead of leaving the admin's edit lost for the session.
+        this.channelMetadataSkippedByAuthor.add(
+          this.channelMetadataSkippedKey(event.groupId, event.authorAddress)
+        );
         continue;
       }
       if (
         !channel &&
         event.eventType !== 'channel_create' &&
-        event.eventType !== 'channel_update'
+        event.eventType !== 'channel_update' &&
+        // Option A (former-admin channels): a channel exists once a current
+        // admin vouches for it. If a verified snapshot already stores the
+        // channel (e.g. created by a former admin who later lost the role), a
+        // current admin's reorder/category edit adopts it — start the rebuild
+        // from the stored row instead of ending `deferred` forever.
+        !previousChannel
       )
         continue;
+      if (!channel && previousChannel && event.eventType !== 'channel_update') {
+        channel = previousChannel;
+        revision =
+          this.db.getMetadataEntityRevisionRecord(
+            groupId,
+            'channel',
+            normalizedChannelId
+          )?.revision ?? null;
+      }
       const nextChannel = this.channelFromMetadataPayload(
         event,
         payload,
@@ -28133,6 +28384,16 @@ export class ReticulumChatManager extends EventEmitter {
       }, 2_000);
       this.localNotifyScanInterval.unref?.();
     }
+    if (!this.localNotifyCleanupInterval) {
+      // Notify files only need to wake a second manager sharing the DB; once a
+      // minute, delete files older than 10 min so the notify dir does not grow
+      // with uptime. Dropping removed names from the seen set keeps the scan
+      // working for a file written later with the same name.
+      this.localNotifyCleanupInterval = setInterval(() => {
+        this.cleanupOldLocalNotifications();
+      }, 60_000);
+      this.localNotifyCleanupInterval.unref?.();
+    }
     try {
       this.localNotifyWatcher = fs.watch(this.localNotifyDir, () => {
         this.scheduleLocalNotificationScan();
@@ -28155,6 +28416,10 @@ export class ReticulumChatManager extends EventEmitter {
     if (this.localNotifyScanInterval) {
       clearInterval(this.localNotifyScanInterval);
       this.localNotifyScanInterval = null;
+    }
+    if (this.localNotifyCleanupInterval) {
+      clearInterval(this.localNotifyCleanupInterval);
+      this.localNotifyCleanupInterval = null;
     }
     if (!this.localNotifyWatcher) return;
     this.localNotifyWatcher.close();
@@ -28269,6 +28534,11 @@ export class ReticulumChatManager extends EventEmitter {
         }),
         'utf8'
       );
+      // This manager's import path already emitted the event to the UI (and own
+      // posts are emitted directly from publishEvent). The file only needs to
+      // wake other managers sharing the database, so mark it seen to avoid a
+      // duplicate emit through the 2-second notify scan.
+      this.seenLocalNotifyFiles.add(fileName);
     } catch (err) {
       loggerWarn(
         '[ReticulumChat] Failed to write local event notification:',
@@ -28302,12 +28572,19 @@ export class ReticulumChatManager extends EventEmitter {
   private cleanupOldLocalNotifications(): void {
     try {
       const cutoff = this.now() - 10 * 60 * 1000;
+      const removed = new Set<string>();
       for (const file of fs.readdirSync(this.localNotifyDir)) {
         if (!file.endsWith('.json')) continue;
         const filePath = path.join(this.localNotifyDir, file);
         const stat = fs.statSync(filePath);
-        if (stat.mtimeMs < cutoff) fs.rmSync(filePath, { force: true });
+        if (stat.mtimeMs < cutoff) {
+          fs.rmSync(filePath, { force: true });
+          removed.add(file);
+        }
       }
+      // Drop the removed names from the seen set too, so a file written later
+      // with the same name (fs notifier events) is still processed.
+      for (const file of removed) this.seenLocalNotifyFiles.delete(file);
     } catch (err) {
       loggerWarn(
         '[ReticulumChat] Failed to clean local event notifications:',
@@ -29764,6 +30041,9 @@ export class ReticulumChatManager extends EventEmitter {
     if (this.db.getMetadataSnapshotByHash(offer.groupId, offer.snapshotHash)) {
       return;
     }
+    if (this.isStaleMetadataSnapshot(offer.groupId, offer.snapshotHash)) {
+      return;
+    }
     const peerHash = (
       offer.senderReticulumDestinationHash ||
       offer.sourcePeerHash ||
@@ -30182,7 +30462,11 @@ export class ReticulumChatManager extends EventEmitter {
         groupId,
         snapshot.snapshotHash
       );
-      this.notePeerViolation(peerHash, 'metadata_snapshot_non_admin');
+      // Valid signature whose signer is merely no longer admin: NOT a protocol
+      // violation. The relaying peer is not at fault (the snapshot was valid
+      // when signed). Remember the hash so the digest/queue path skips it for
+      // a while instead of re-fetching and re-rejecting it.
+      this.rememberStaleMetadataSnapshot(groupId, snapshot.snapshotHash);
       return;
     }
     const isNewSnapshot = this.shouldApplyMetadataSnapshot(snapshot);
@@ -30201,6 +30485,13 @@ export class ReticulumChatManager extends EventEmitter {
         groupId,
         snapshot.snapshotHash
       );
+      // (6.4) Once a full snapshot is applied for a group, drop all deferred
+      // public snapshot entries for that group so an admin stops re-requesting
+      // a full snapshot it has already applied.
+      this.clearDeferredMetadataSnapshotsForGroup(groupId);
+      // (7.2) A snapshot usually provides the missing channel_create that was
+      // deferring projection; wake the deferred retries for the group now.
+      this.wakeChannelMetadataProjectionRetries(groupId);
       this.setMetadataSnapshotState(
         groupId,
         'snapshot_current',
@@ -31150,6 +31441,44 @@ export class ReticulumChatManager extends EventEmitter {
     }
   }
 
+  private rememberStaleMetadataSnapshot(
+    groupId: number,
+    snapshotHash: string
+  ): void {
+    const now = this.now();
+    const key = `${groupId}:${snapshotHash.toLowerCase()}`;
+    this.staleMetadataSnapshotHashes.set(key, now + 10 * 60_000);
+    if (this.staleMetadataSnapshotHashes.size > 4_096) {
+      for (const [staleKey, expiresAt] of this.staleMetadataSnapshotHashes) {
+        if (expiresAt <= now) this.staleMetadataSnapshotHashes.delete(staleKey);
+      }
+      while (this.staleMetadataSnapshotHashes.size > 4_096) {
+        const oldest = this.staleMetadataSnapshotHashes.keys().next().value as
+          | string
+          | undefined;
+        if (!oldest) break;
+        this.staleMetadataSnapshotHashes.delete(oldest);
+      }
+    }
+  }
+
+  private isStaleMetadataSnapshot(
+    groupId: number,
+    snapshotHash: string
+  ): boolean {
+    const expiresAt = this.staleMetadataSnapshotHashes.get(
+      `${groupId}:${snapshotHash.toLowerCase()}`
+    );
+    if (expiresAt === undefined) return false;
+    if (expiresAt <= this.now()) {
+      this.staleMetadataSnapshotHashes.delete(
+        `${groupId}:${snapshotHash.toLowerCase()}`
+      );
+      return false;
+    }
+    return true;
+  }
+
   private deferMetadataSnapshot(
     peerHash: string,
     snapshot: ReticulumChatMetadataSnapshotRecord,
@@ -31164,6 +31493,15 @@ export class ReticulumChatManager extends EventEmitter {
     );
     const existing = this.deferredMetadataSnapshots.get(key);
     const attempts = existing ? existing.attempts + 1 : 1;
+    // Cap deferral retries: a public offer that cannot be upgraded to a full
+    // snapshot should not retry forever. The next digest hint can start over.
+    if (attempts > 4) {
+      const existingTimer = this.metadataSnapshotRetryTimers.get(key);
+      if (existingTimer) clearTimeout(existingTimer);
+      this.metadataSnapshotRetryTimers.delete(key);
+      this.deferredMetadataSnapshots.delete(key);
+      return;
+    }
     this.deferredMetadataSnapshots.set(key, {
       peerHash: peer,
       snapshot,
@@ -31220,6 +31558,14 @@ export class ReticulumChatManager extends EventEmitter {
     )
       return;
     const normalizedHash = snapshotHash.trim().toLowerCase();
+    // (6.5) An admin re-requesting a full snapshot it already stored forever
+    // wastes both sides. Skip hashes we already have.
+    if (
+      normalizedHash &&
+      this.db.getMetadataSnapshotByHash(groupId, normalizedHash)
+    ) {
+      return;
+    }
     const key = `${peer}:${groupId}:${normalizedHash || 'latest'}`;
     const now = this.now();
     if (this.recentMetadataSnapshotRequests.size > 1_000) {
@@ -38782,9 +39128,12 @@ export class ReticulumChatManager extends EventEmitter {
           offer.groupId,
           snapshot.snapshotHash
         );
-        this.notePeerViolation(
-          offer.sourcePeerHash || '',
-          'metadata_snapshot_non_admin'
+        // Not a violation: the snapshot has a valid signature; the signer is
+        // merely no longer admin. Remember the hash so the digest/queue path
+        // skips it for a while instead of re-fetching and re-rejecting it.
+        this.rememberStaleMetadataSnapshot(
+          offer.groupId,
+          snapshot.snapshotHash
         );
         return;
       }
@@ -39785,6 +40134,17 @@ export class ReticulumChatManager extends EventEmitter {
     ) {
       const peer = offer.sourcePeerHash.trim().toLowerCase();
       const range = normalizeReticulumChatAuthorRange(offer.repairRange);
+      if (
+        reason === 'history_unavailable' &&
+        Number.isInteger(offer.groupId) &&
+        offer.groupId > 0 &&
+        peer
+      ) {
+        // The peer holds no history for this group, so it can never serve any
+        // range for it. Exclude it from candidate selection for ~1 hour and
+        // don't count it toward the denial threshold during that window.
+        this.noteGroupHistoryUnavailable(offer.groupId, peer);
+      }
       if (peer && range?.s) {
         const routeRetryAt = this.noteAuthorGapRouteFailure(
           offer.groupId,

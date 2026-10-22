@@ -24,6 +24,7 @@ import CallRoundedIcon from '@mui/icons-material/CallRounded';
 import GroupsRoundedIcon from '@mui/icons-material/GroupsRounded';
 import { useVoiceCallContext } from '../context/VoiceCallContext';
 import { useGroupCallContext } from './GroupCallContext';
+import { useTranslation } from 'react-i18next';
 
 export type CallSwitchTarget =
   | { type: 'direct'; chatId: string }
@@ -85,6 +86,7 @@ function waitForCondition(
 }
 
 export function CallSwitchGuardProvider({ children }: { children: ReactNode }) {
+  const { t } = useTranslation(['core']);
   const directCall = useVoiceCallContext();
   const groupCall = useGroupCallContext();
   const theme = useTheme();
@@ -274,7 +276,9 @@ export function CallSwitchGuardProvider({ children }: { children: ReactNode }) {
               '&:hover': { bgcolor: '#dc2626' },
             }}
           >
-            {switching ? 'Dropping call...' : 'Drop and continue'}
+            {switching
+              ? t('core:voice_call.dropping_call')
+              : t('core:voice_call.drop_and_continue')}
           </Button>
         </DialogActions>
       </Dialog>

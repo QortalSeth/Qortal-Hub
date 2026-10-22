@@ -78,6 +78,7 @@ import {
 } from './utils/events';
 import { stopSharedEarbumpPlayback } from './components/Group/earbumpSharedAudio';
 import { Settings } from './components/Group/Settings';
+import { QAppScreenCapturePermission } from './components/Apps/QAppScreenCapturePermission';
 import { useRetrieveDataLocalStorage } from './hooks/useRetrieveDataLocalStorage.tsx';
 import { useQortalGetSaveSettings } from './hooks/useQortalGetSaveSettings.tsx';
 import {
@@ -140,12 +141,17 @@ import type { AuthUnlockTransitionSnapshot } from './types/authTransition';
 import { openQWalletsTab } from './utils/openQWalletsTab';
 import { clearLastAuthenticatedWalletAddress } from './utils/lastAuthenticatedWallet';
 import { appLockedAtom, isIdleAtom } from './atoms/presence';
+import { reconcilePendingLocalForeignCoinSends } from './qortal/foreign-coin-send';
 import {
   DEFAULT_AUTO_LOCK_TIMEOUT_MINUTES,
   isAutoLockDue,
   resolveAutoLockTimeoutMinutes,
   type AutoLockTimeoutMinutes,
 } from './lib/autoLock';
+import {
+  setCallDontForward,
+  setCallReticulumOnly,
+} from './lib/call/callNetworkPreference';
 
 const MINTING_LOCAL_DEBUG_STORAGE_KEY = 'hub.mintingLocalDebug';
 const LOCAL_CORE_READY_SYNC_PERCENT = 99.95;
@@ -295,8 +301,14 @@ function App() {
       disableAutoLockOnIdle?: boolean;
       reticulumEnabled?: boolean;
       reticulumChatEnabled?: boolean;
+      callReticulumOnly?: boolean;
+      callDontForward?: boolean;
     }) => {
       if (cancelled) return;
+      // P-4: keep the runtime call-network preference in sync with settings.
+      setCallReticulumOnly(settings?.callReticulumOnly === true);
+      // X-2: mirror the forwarder preference for the audio-surface runtime.
+      setCallDontForward(settings?.callDontForward === true);
       setReticulumEnabled(settings?.reticulumEnabled !== false);
       setReticulumChatEnabled(settings?.reticulumChatEnabled !== false);
       setAutoLockTimeoutMinutes(
@@ -475,6 +487,24 @@ function App() {
       setIsAppLocked(false);
     }
   }, [extState, setIsAppLocked, setIsIdle]);
+
+  useEffect(() => {
+    if (extState !== 'authenticated' || !isMainWindow || isAppLocked) return;
+    const controller = new AbortController();
+    const reconcile = () => {
+      void reconcilePendingLocalForeignCoinSends(controller.signal).catch(
+        () => undefined
+      );
+    };
+    reconcile();
+    const intervalId = window.setInterval(reconcile, 60_000);
+    window.addEventListener('focus', reconcile);
+    return () => {
+      controller.abort();
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', reconcile);
+    };
+  }, [extState, isAppLocked, selectedNode?.apikey, selectedNode?.url]);
 
   useEffect(() => {
     if (
@@ -2064,6 +2094,7 @@ function App() {
       }}
     >
       <CustomTitleBar rightNav={titleBarRightNav} />
+      <QAppScreenCapturePermission active={extState === 'authenticated' && isMainWindow} />
       {extState === 'authenticated' && isMainWindow && (
         <GlobalQortalNavBar
           desktopViewMode={desktopViewMode}

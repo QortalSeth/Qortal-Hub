@@ -2943,6 +2943,43 @@ describe('reticulum chat database', () => {
     ).toBeNull();
   });
 
+  it('drops gap discovery for ranges marked locally gone and clears the marker on a late event', () => {
+    const db = new ReticulumChatDatabase(tempDbPath());
+    dbs.push(db);
+    const groupId = 880;
+    const event = signedEvent({
+      eventId: 'event-gone-range-author',
+      groupId,
+      authorSeq: 1,
+      timestamp: Date.now() - 1_000,
+    });
+    // Simulate a quorum of providers confirming sequences 2..3 are gone.
+    expect(
+      db.markRangeGone(groupId, event.authorAddress, event.authorStreamId, 2, 3)
+    ).toBe(true);
+    expect(
+      db.isRangeGone(groupId, event.authorAddress, event.authorStreamId, 2, 3)
+    ).toBe(true);
+    // A gap of 2..3 from sequence 1 is not reported once marked gone.
+    db.insertEvent(event, true);
+    expect(
+      db.getAuthorSequenceGaps(groupId, 10).some((gap) => gap.fromSeq === 2)
+    ).toBe(false);
+    // A late event INSIDE the gone range, from the SAME author, clears the
+    // marker and imports.
+    const lateEvent = signedEvent({
+      eventId: 'event-gone-range-late',
+      groupId,
+      authorAddress: event.authorAddress,
+      authorSeq: event.authorSeq + 1,
+      timestamp: Date.now(),
+    });
+    expect(db.insertEvent(lateEvent, true)).toBe(true);
+    expect(
+      db.isRangeGone(groupId, event.authorAddress, event.authorStreamId, 2, 3)
+    ).toBe(false);
+  });
+
   it('expires peer-unavailable observations before retrying a missing range', () => {
     const db = new ReticulumChatDatabase(tempDbPath());
     dbs.push(db);
@@ -5254,6 +5291,130 @@ describe('reticulum chat database', () => {
     expect(db.searchEvents('deleted', { groupIds: [263] })).toEqual([]);
   });
 
+  it('keeps search index upsert/delete round trips working with rowid-keyed statements', () => {
+    const db = new ReticulumChatDatabase(tempDbPath());
+    dbs.push(db);
+    const event = signedEvent({
+      eventId: 'event-fts-rowid',
+      groupId: 63,
+      encryptedPayload: JSON.stringify({
+        messageText: 'fts rowid keyed phrase',
+      }),
+    });
+    db.insertEvent(event, true);
+
+    // Replacing search text goes through the mirror upsert (rowid preserved).
+    expect(db.indexSearchText(event.eventId, 'replacement rowid phrase')).toBe(
+      true
+    );
+    expect(db.searchEvents('original', { groupIds: [63] })).toEqual([]);
+    expect(
+      db.searchEvents('replacement', { groupIds: [63] })[0]?.event.eventId
+    ).toBe(event.eventId);
+
+    // Deleting by keyed rowid removes exactly this event's search entry.
+    expect(db.deleteSearchText(event.eventId)).toBe(true);
+    expect(db.searchEvents('replacement', { groupIds: [63] })).toEqual([]);
+  });
+
+  it('search index survives a reopen (one-time FTS rebuild is idempotent)', () => {
+    const dbPath = tempDbPath();
+    const first = new ReticulumChatDatabase(dbPath);
+    dbs.push(first);
+    const event = signedEvent({
+      eventId: 'event-fts-legacy-rebuild',
+      groupId: 64,
+      encryptedPayload: JSON.stringify({ messageText: 'legacy fts phrase' }),
+    });
+    first.insertEvent(event, true);
+    // The migration guard makes the rebuild idempotent across opens; it must
+    // not throw or lose the stored event on reopen (real SQLite rebuilds the
+    // FTS rows from the mirror; the test mock lacks FTS so we assert storage).
+    first.close();
+
+    const reopened = new ReticulumChatDatabase(dbPath);
+    dbs.push(reopened);
+    expect(reopened.hasEvent(event.eventId)).toBe(true);
+    expect(reopened.getEvent(event.eventId)?.eventId).toBe(event.eventId);
+    reopened.close();
+
+    const reopened2 = new ReticulumChatDatabase(dbPath);
+    dbs.push(reopened2);
+    expect(reopened2.hasEvent(event.eventId)).toBe(true);
+    expect(reopened2.getEvent(event.eventId)?.eventId).toBe(event.eventId);
+  });
+
+  it('indexes brand-new messages without relying on a pre-existing search row', () => {
+    const db = new ReticulumChatDatabase(tempDbPath());
+    dbs.push(db);
+    const event = signedEvent({
+      eventId: 'event-fts-new-message',
+      groupId: 65,
+      encryptedPayload: JSON.stringify({ messageText: 'brand new fts phrase' }),
+    });
+    // A brand-new event has no mirror row before insert, so this exercises the
+    // new-message path skipping the FTS delete (no full-table scan).
+    expect(db.insertEvent(event, true)).toBe(true);
+    expect(db.searchEvents('brand', { groupIds: [65] })[0]?.event.eventId).toBe(
+      event.eventId
+    );
+    const event2 = signedEvent({
+      eventId: 'event-fts-new-message-2',
+      groupId: 65,
+      encryptedPayload: JSON.stringify({ messageText: 'second brand new' }),
+    });
+    expect(db.insertEvent(event2, true)).toBe(true);
+    expect(
+      db.searchEvents('second', { groupIds: [65] })[0]?.event.eventId
+    ).toBe(event2.eventId);
+  });
+
+  it('prunes expired messages and their search rows in one batch per pass', () => {
+    const db = new ReticulumChatDatabase(tempDbPath());
+    dbs.push(db);
+    const now = Date.now();
+    const events = [1, 2, 3].map((seq) =>
+      signedEvent({
+        eventId: `event-fts-expire-${seq}`,
+        groupId: 66,
+        authorSeq: seq,
+        timestamp: now - 5_000,
+        encryptedPayload: JSON.stringify({
+          messageText: `expiring phrase ${seq}`,
+          expiryDurationMs: 60_000,
+        }),
+      })
+    );
+    for (const event of events) {
+      expect(db.insertEvent(event, true)).toBe(true);
+    }
+    expect(db.searchEvents('expiring', { groupIds: [66] })).toHaveLength(3);
+
+    // After expiry, one prune pass removes all expired events and their search
+    // rows (the batch delete path runs once per pass, not once per event).
+    // 5s after insert, expires_at (insert + 60s) is now exceeded.
+    const pruned = db.pruneExpiredMessages(now + 56_000);
+    expect(pruned).toBe(3);
+    expect(db.searchEvents('expiring', { groupIds: [66] })).toEqual([]);
+  });
+
+  it('serves committed events from SQL after in-memory eviction (bounded cache)', () => {
+    const db = new ReticulumChatDatabase(tempDbPath());
+    dbs.push(db);
+    const event = signedEvent({
+      eventId: 'event-cache-evict',
+      groupId: 67,
+      encryptedPayload: JSON.stringify({ messageText: 'cache evict phrase' }),
+    });
+    db.insertEvent(event, true);
+    // Simulate eviction of the in-memory supplement; SQL remains authoritative.
+    (
+      db as unknown as { memoryEvents: Map<string, unknown> }
+    ).memoryEvents.clear();
+    expect(db.getEvent(event.eventId)?.eventId).toBe(event.eventId);
+    expect(db.hasEvent(event.eventId)).toBe(true);
+  });
+
   it('tracks unread mentions by mentioned address', () => {
     const db = new ReticulumChatDatabase(tempDbPath());
     dbs.push(db);
@@ -6763,6 +6924,81 @@ describe('reticulum chat manager', () => {
 
     expect(first).not.toBeNull();
     expect(second).toBe(first);
+    manager.close();
+  });
+
+  it('delivers an own published event to the UI exactly once and marks its notify file seen', async () => {
+    const bridge = {
+      on: () => undefined,
+      off: () => undefined,
+      fanoutReticulumChatDetailed: async () => ({ ok: true as const }),
+    };
+    const dbPath = tempDbPath();
+    const event = signedEvent({ groupId: 9 });
+    const manager = new ReticulumChatManager({
+      dbPath,
+      bridge: bridge as any,
+      validateGroupMember: async (_groupId, address) =>
+        // Core validates the own author, matching the existing publish test.
+        address === event.authorAddress,
+    });
+    const emitted: any[] = [];
+    manager.on('event', (payload: any) => emitted.push(payload));
+    // Own publish reaches the UI directly (no notify-file round trip needed).
+    const result = await manager.publishEvent(event);
+    expect(result.ok).toBe(true);
+    expect(emitted.length).toBe(1);
+    expect(emitted[0]?.event?.eventId).toBe(event.eventId);
+    // The notify file was written for other managers, but the writer marked it
+    // seen so the 2-second scan (started by subscribing) will not re-emit it.
+    manager.setLocalGroupMemberships([{ groupId: 9 }]);
+    manager.subscribeGroup(9);
+    const notifyDir = path.join(path.dirname(dbPath), 'reticulum-chat-notify');
+    const files = fs.readdirSync(notifyDir).filter((f) => f.endsWith('.json'));
+    expect(files.length).toBeGreaterThan(0);
+    // Wait past the scan interval; no duplicate event is emitted.
+    await new Promise((resolve) => setTimeout(resolve, 2_200));
+    expect(emitted.length).toBe(1);
+    manager.close();
+  });
+
+  it('still reads notify files written by other managers sharing the database', async () => {
+    const bridge = {
+      on: () => undefined,
+      off: () => undefined,
+      getLocalDestinationHash: () => 'a'.repeat(32),
+      fanoutReticulumChatDetailed: async () => ({ ok: true as const }),
+    };
+    const dbPath = tempDbPath();
+    const manager = new ReticulumChatManager({
+      dbPath,
+      bridge: bridge as any,
+      signLocalFields: createReticulumChatTestSigner(),
+      validateGroupMember: async () => true,
+    });
+    manager.setLocalGroupMemberships([{ groupId: 9 }]);
+    manager.subscribeGroup(9);
+    const emitted: any[] = [];
+    manager.on('event', (payload: any) => emitted.push(payload));
+    const event = signedEvent({ groupId: 9, timestamp: 100_000 });
+    // Store the event so the notify-file handler can find it, as a second
+    // manager instance sharing the DB would have done.
+    (manager as any).storeValidatedEvent(event, false, {}, 0);
+    const notifyDir = path.join(path.dirname(dbPath), 'reticulum-chat-notify');
+    fs.mkdirSync(notifyDir, { recursive: true });
+    const fileName = `${event.groupId}-${event.timestamp}-external.json`;
+    fs.writeFileSync(
+      path.join(notifyDir, fileName),
+      JSON.stringify({
+        eventId: event.eventId,
+        groupId: 9,
+        timestamp: event.timestamp,
+      }),
+      'utf8'
+    );
+    const countBefore = emitted.length;
+    await waitForEvent(manager);
+    expect(emitted.length).toBeGreaterThan(countBefore);
     manager.close();
   });
 

@@ -14,6 +14,8 @@ import ScreenShareRoundedIcon from '@mui/icons-material/ScreenShareRounded';
 import StopScreenShareRoundedIcon from '@mui/icons-material/StopScreenShareRounded';
 import FullscreenRoundedIcon from '@mui/icons-material/FullscreenRounded';
 
+import { useTranslation } from 'react-i18next';
+
 import { useVoiceCallContext } from '../../context/VoiceCallContext';
 
 export function DirectVoiceScreenShareOverlay({
@@ -21,6 +23,7 @@ export function DirectVoiceScreenShareOverlay({
 }: {
   isAppLocked?: boolean;
 }) {
+  const { t } = useTranslation(['core']);
   const {
     screenShareState,
     screenShareSources,
@@ -140,25 +143,25 @@ export function DirectVoiceScreenShareOverlay({
         <Box sx={{ minWidth: 0 }}>
           <Typography sx={{ fontSize: 17, fontWeight: 800 }}>
             {choosing
-              ? 'Choose what to share'
+              ? t('core:voice_call.screen_share_choose_source')
               : sharing
-                ? 'You are sharing your screen'
+                ? t('core:voice_call.screen_share_sharing')
                 : viewing
-                  ? 'Screen share'
-                  : 'Starting screen share…'}
+                  ? t('core:voice_call.screen_share_title')
+                  : t('core:voice_call.screen_share_starting')}
           </Typography>
           <Typography color="text.secondary" sx={{ fontSize: 12.5 }}>
             {choosing
-              ? 'Select a screen or application window.'
+              ? t('core:voice_call.screen_share_select_source')
               : sharing
-                ? 'Only the selected screen or window is visible to the other person.'
+                ? t('core:voice_call.screen_share_only_selected')
                 : viewing
-                  ? 'Shared directly through the encrypted WebRTC call.'
-                  : 'Establishing the encrypted video connection.'}
+                  ? t('core:voice_call.screen_share_encrypted')
+                  : t('core:voice_call.screen_share_establishing')}
           </Typography>
         </Box>
         <IconButton
-          aria-label="Close screen share window"
+          aria-label={t('core:voice_call.screen_share_close')}
           onClick={closeViewer}
           sx={{ position: 'absolute', right: 16, top: 14 }}
         >
@@ -166,7 +169,7 @@ export function DirectVoiceScreenShareOverlay({
         </IconButton>
         {screenShareStream && !choosing ? (
           <IconButton
-            aria-label="View screen share fullscreen"
+            aria-label={t('core:voice_call.screen_share_fullscreen')}
             onClick={openFullscreen}
             sx={{ position: 'absolute', right: 54, top: 14 }}
           >
@@ -328,7 +331,9 @@ export function DirectVoiceScreenShareOverlay({
       {choosing || sharing || starting ? (
         <DialogActions sx={{ px: 2.5, py: 1.5 }}>
           {choosing ? (
-            <Button onClick={cancelScreenSharePicker}>Cancel</Button>
+            <Button onClick={cancelScreenSharePicker}>
+              {t('core:voice_call.screen_share_cancel')}
+            </Button>
           ) : (
             <Button
               color="error"
@@ -336,7 +341,9 @@ export function DirectVoiceScreenShareOverlay({
               startIcon={<StopScreenShareRoundedIcon />}
               onClick={() => void stopScreenShare()}
             >
-              {starting ? 'Cancel screen share' : 'Stop sharing'}
+              {starting
+                ? t('core:voice_call.screen_share_cancel_short')
+                : t('core:voice_call.screen_share_stop')}
             </Button>
           )}
         </DialogActions>

@@ -110,6 +110,22 @@ export function hashReticulumResourceFile(filePath: string): string {
   return hash.digest('hex');
 }
 
+export function readAndHashReticulumResourceFile(filePath: string): {
+  bytes: Uint8Array;
+  hash: string;
+} {
+  const fileBytes = fs.readFileSync(filePath);
+  // Node 24 marks buffers returned by fs.readFileSync() as non-transferable.
+  // Copy into a plain ArrayBuffer-backed view before using a worker transfer
+  // list so Electron 44 can hand the bytes back to the main process.
+  const bytes = new Uint8Array(fileBytes.length);
+  bytes.set(fileBytes);
+  return {
+    bytes,
+    hash: nodeCrypto.createHash('sha256').update(fileBytes).digest('hex'),
+  };
+}
+
 export function finalizeReticulumResource(
   task: Extract<ReticulumResourceWorkerTask, { kind: 'finalize_resource' }>
 ): string {
@@ -211,16 +227,21 @@ parentPort?.on('message', (task: ReticulumResourceWorkerTask) => {
       return;
     }
     if (task.kind === 'read_and_hash_file') {
-      const bytes = fs.readFileSync(task.path);
+      const { bytes, hash } = readAndHashReticulumResourceFile(task.path);
+      // Own the exact ArrayBuffer sent to the parent. Node Buffers may expose
+      // ArrayBufferLike (including pooled/shared backing), which is not a safe
+      // transferable and also fails Electron's Transferable contract.
+      const transferableBytes = new Uint8Array(bytes.byteLength);
+      transferableBytes.set(bytes);
       const result = {
         id: task.id,
         kind: task.kind,
         ok: true,
-        bytes,
-        hash: nodeCrypto.createHash('sha256').update(bytes).digest('hex'),
+        bytes: transferableBytes,
+        hash,
         durationMs: Date.now() - startedAt,
       } satisfies ReticulumResourceWorkerResult;
-      parentPort?.postMessage(result, [bytes.buffer as ArrayBuffer]);
+      parentPort?.postMessage(result, [transferableBytes.buffer]);
       return;
     }
     if (task.kind === 'write_range_file') {

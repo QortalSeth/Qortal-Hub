@@ -294,12 +294,13 @@ const getReticulumGroupMembershipsFromGroupLikeList = (
   groups: unknown,
   groupsProperties: Record<string, unknown>,
   localAddress: string | undefined,
-  adminGroupIds: ReadonlySet<number>
+  adminGroupIds: ReadonlySet<number>,
+  adminStatusAuthoritative = true
 ): Array<{
   groupId: number;
   isPrivate: boolean;
   isAdmin: boolean;
-  adminStatusAuthoritative: true;
+  adminStatusAuthoritative: boolean;
   joinedAt?: number;
   localAddress?: string;
 }> => {
@@ -341,7 +342,7 @@ const getReticulumGroupMembershipsFromGroupLikeList = (
     groupId,
     isPrivate,
     isAdmin: adminGroupIds.has(groupId),
-    adminStatusAuthoritative: true,
+    adminStatusAuthoritative,
     ...(joinedAt ? { joinedAt } : {}),
     ...(normalizedLocalAddress ? { localAddress: normalizedLocalAddress } : {}),
   }));
@@ -1726,13 +1727,19 @@ export const Group = ({
         memberGroupsForReticulum,
         groupsProperties,
         myAddress,
-        reticulumAdminGroupIds
+        reticulumAdminGroupIds,
+        // The admin list is only authoritative once the membership fetch has
+        // succeeded for this address. Before the first success (or after a
+        // failed fetch), the engine must ask Core instead of trusting an empty
+        // or stale "admin nowhere" list.
+        reticulumAdminGroupsLoadedAddress === myAddress
       ),
     [
       groupsProperties,
       memberGroupsForReticulum,
       myAddress,
       reticulumAdminGroupIds,
+      reticulumAdminGroupsLoadedAddress,
     ]
   );
   const reticulumMembershipsKey = useMemo(
@@ -3056,18 +3063,23 @@ export const Group = ({
         return;
       }
 
-      await window.reticulumChat?.indexSearchText?.(targetEventId, text);
-      const mentionMap = await getReticulumMentionNameMap(groupId);
-      const mentionedAddresses = [
-        ...new Set([
-          ...reticulumMentionedAddressesFromPayload(payload),
-          ...resolveReticulumMentionAddressesFromPayload(payload, mentionMap),
-        ]),
-      ];
-      await window.reticulumChat?.replaceMentions?.(
-        targetEventId,
-        mentionedAddresses
-      );
+      // The engine already indexes search text and mentions on insert, so skip
+      // the re-index round trips for a duplicate (already-processed) event. The
+      // mention/reply notification recording below still runs for duplicates.
+      if (!alreadyProcessed) {
+        await window.reticulumChat?.indexSearchText?.(targetEventId, text);
+        const mentionMap = await getReticulumMentionNameMap(groupId);
+        const mentionedAddresses = [
+          ...new Set([
+            ...reticulumMentionedAddressesFromPayload(payload),
+            ...resolveReticulumMentionAddressesFromPayload(payload, mentionMap),
+          ]),
+        ];
+        await window.reticulumChat?.replaceMentions?.(
+          targetEventId,
+          mentionedAddresses
+        );
+      }
       if (isWelcomePost && event.eventId) {
         unreadWelcomeEventIdsRef.current((prev) =>
           addWelcomeUnreadEventId(prev, groupId, event.eventId)
@@ -3435,9 +3447,19 @@ export const Group = ({
       if (!myAddress) return false;
       const requestedAddress = myAddress;
       try {
-        const response = await fetch(
-          `${getBaseApiReact()}/groups/member/${requestedAddress}?adminOnly=true`
-        );
+        // Bound the fetch so a hanging Core/gateway cannot leave the admin list
+        // permanently non-authoritative; the next periodic retry will succeed.
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 10_000);
+        let response: Response;
+        try {
+          response = await fetch(
+            `${getBaseApiReact()}/groups/member/${requestedAddress}?adminOnly=true`,
+            { signal: controller.signal }
+          );
+        } finally {
+          clearTimeout(timeout);
+        }
         if (!response.ok) {
           throw new Error(`Unable to load group admins: ${response.status}`);
         }
@@ -3459,9 +3481,12 @@ export const Group = ({
           '[ReticulumChat] Failed to load admin-group metadata required by membership sync:',
           error
         );
+        // Keep the last good admin list for this address: a transient failure
+        // (restart, syncing, brief unreachability) must not be treated as
+        // "admin nowhere". Do NOT mark the list loaded, so the engine keeps the
+        // admin status non-authoritative and asks Core instead of skipping.
         if (myAddressRef.current === requestedAddress) {
-          setMyGroupsWhereIAmAdmin([]);
-          setReticulumAdminGroupsLoadedAddress(requestedAddress);
+          setReticulumAdminGroupsLoadedAddress('');
         }
         return false;
       }
@@ -4071,7 +4096,6 @@ export const Group = ({
     setIsLoadingThreadKey(false);
     setFirstSecretKeyInCreation(false);
     setMountedLandGroupId(null);
-    setReticulumMountedGroupSections({});
     setNotificationReticulumChannelId('');
     setNotificationReticulumMessageId('');
     setGroupSection('home');

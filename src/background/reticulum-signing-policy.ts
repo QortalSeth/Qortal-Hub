@@ -157,24 +157,17 @@ const presenceSchemas: Readonly<Record<string, SigningSchema>> = {
     'fromPublicKey',
     'timestamp',
   ]),
+  // X-3: optional ringing acknowledgement. Old peers never send it and simply
+  // ignore it on the wire.
+  CALL_RINGING: schema(['type', 'callId', 'timestamp']),
   CALL_ACCEPT: schema(['type', 'callId', 'timestamp']),
   // `reason` is optional so current clients can authenticate a specific
   // rejection while retaining the legacy reason-less signature for older
   // callers.
   CALL_REJECT: schema(['type', 'callId', 'timestamp'], ['reason']),
   CALL_HANGUP: schema(['type', 'callId', 'timestamp']),
-  // WebRTC SDP/ICE payloads are transported separately. The wallet signs
-  // only this bounded digest envelope so negotiation remains authenticated
-  // without exposing the payload to the signing policy.
-  CALL_RTC_SIGNAL: schema([
-    'type',
-    'callId',
-    'generation',
-    'signalId',
-    'signalType',
-    'payloadHash',
-    'timestamp',
-  ]),
+  // B-14: CALL_RTC_SIGNAL was removed when the dead legacy `handleRtcWire`
+  // inbound path was deleted. DM WebRTC signalling is signed as GC_RTC_SIGNAL.
   QCHAT_FILE_LINK_AUTH: schema([
     'type',
     'transferId',
@@ -911,29 +904,6 @@ export function assertAllowedPresenceSigningPayload(
   ) {
     throw new Error('Call rejection reason is invalid');
   }
-  if (payload.type === 'CALL_RTC_SIGNAL') {
-    const now = Date.now();
-    if (
-      typeof payload.callId !== 'string' ||
-      payload.callId.length < 1 ||
-      payload.callId.length > 64 ||
-      typeof payload.generation !== 'string' ||
-      !/^[A-Za-z0-9_-]{8,64}$/u.test(payload.generation) ||
-      typeof payload.signalId !== 'string' ||
-      !/^[A-Za-z0-9_-]{8,24}$/u.test(payload.signalId) ||
-      !['capability', 'offer', 'answer', 'candidate'].includes(
-        String(payload.signalType)
-      ) ||
-      typeof payload.payloadHash !== 'string' ||
-      !/^[0-9a-f]{64}$/iu.test(payload.payloadHash) ||
-      typeof payload.timestamp !== 'number' ||
-      !Number.isSafeInteger(payload.timestamp) ||
-      now - payload.timestamp > 30_000 ||
-      now - payload.timestamp < -10_000
-    ) {
-      throw new Error('WebRTC signal signing envelope is invalid');
-    }
-  }
   if (
     typeof payload.type === 'string' &&
     payload.type.startsWith('QORTAL_LAND_GAME_') &&
@@ -946,6 +916,27 @@ export function assertAllowedPresenceSigningPayload(
 export function assertAllowedReticulumSigningPayload(
   payload: unknown
 ): asserts payload is Record<string, unknown> {
+  if (
+    payload &&
+    typeof payload === 'object' &&
+    (payload as Record<string, unknown>).type === 'masque-ticket-issue-v1'
+  ) {
+    const p = payload as Record<string, unknown>;
+    if (
+      Object.keys(p).sort().join(',') !==
+        'binding,expiresAt,nonce,policy,relayPin,type' ||
+      ['binding', 'nonce', 'policy', 'relayPin'].some(
+        (key) =>
+          typeof p[key] !== 'string' || !/^[a-f0-9]{64}$/.test(p[key] as string)
+      ) ||
+      !Number.isSafeInteger(p.expiresAt) ||
+      Number(p.expiresAt) <= Date.now() ||
+      Number(p.expiresAt) > Date.now() + 65_000
+    ) {
+      throw new Error('Invalid relay authorization proof');
+    }
+    return;
+  }
   assertPayload(
     payload,
     rchatSchemas,

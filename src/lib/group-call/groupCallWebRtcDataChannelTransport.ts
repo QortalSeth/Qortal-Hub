@@ -1,3 +1,8 @@
+import {
+  blankPrivateDefaultAddress,
+  filterIceCandidate,
+} from '../call/candidateFilter';
+
 export type GroupCallRtcSignal =
   | { type: 'capability'; version: 1 }
   | { type: 'reconnect'; generation?: string }
@@ -21,6 +26,8 @@ export interface GroupCallWebRtcDataChannelTransportOptions {
   peerAddress: string;
   offerer: boolean;
   iceServers: RTCIceServer[];
+  /** P-5: `'relay'` when the user forces all media through TURN. */
+  iceTransportPolicy?: RTCIceTransportPolicy;
   onSignal: (signal: GroupCallRtcSignal) => void | Promise<void>;
   onPacket: (packet: ArrayBuffer) => void;
   onState: (state: RTCPeerConnectionState | 'open' | 'closed') => void;
@@ -156,7 +163,12 @@ export class GroupCallWebRtcDataChannelTransport {
   send(packet: Uint8Array): boolean {
     const channel = this.channel;
     if (!channel || channel.readyState !== 'open') return false;
-    if (channel.bufferedAmount > 256 * 1024) return false;
+    // B-4: a DataChannel stays `open` while ICE is disconnected, and SCTP then
+    // queues silently. Report failure so the router falls back to Reticulum.
+    if (this.pc?.connectionState !== 'connected') return false;
+    // B-4: keep the buffer under ~0.5s of Opus audio so a dead path is detected
+    // promptly instead of after tens of seconds of queued media.
+    if (channel.bufferedAmount > 32 * 1024) return false;
     try {
       channel.send(packet as Uint8Array<ArrayBuffer>);
       return true;
@@ -325,15 +337,19 @@ export class GroupCallWebRtcDataChannelTransport {
   private createPeerConnection(): RTCPeerConnection {
     if (this.closed) throw new Error('WebRTC group transport is closed');
     if (this.pc) return this.pc;
-    const pc = new RTCPeerConnection({ iceServers: this.iceServers });
+    const pc = new RTCPeerConnection({
+      iceServers: this.iceServers,
+      iceTransportPolicy: this.options.iceTransportPolicy ?? 'all',
+    });
     this.pc = pc;
     pc.onicecandidate = (event) => {
-      const candidate = event.candidate?.toJSON();
-      if (candidate) {
-        this.queueLocalCandidate(this.generation, candidate);
-      } else {
+      if (!event.candidate) {
         this.flushLocalCandidateBatch();
+        return;
       }
+      // P-1: drop host candidates and scrub raddr/rport before signalling.
+      const candidate = filterIceCandidate(event.candidate);
+      if (candidate) this.queueLocalCandidate(this.generation, candidate);
     };
     pc.ondatachannel = (event) => this.attachChannel(event.channel);
     pc.onconnectionstatechange = () => {
@@ -424,10 +440,13 @@ export class GroupCallWebRtcDataChannelTransport {
         return;
       }
       if (type === 'offer') this.lastOfferAt = Date.now();
+      // P-1: scrub private default addresses before the SDP is signed.
       await this.sendSignal({
         type,
         generation,
-        description: pc.localDescription ?? description,
+        description:
+          blankPrivateDefaultAddress(pc.localDescription ?? description) ??
+          description,
       });
       this.signaledLocalDescriptionGeneration = generation;
       descriptionSignaled = true;

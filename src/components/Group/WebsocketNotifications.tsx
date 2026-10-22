@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { getBaseApiReact, getBaseApiReactSocket } from '../../App';
 import { subscribeToEvent, unsubscribeFromEvent } from '../../utils/events';
 import i18n, { supportedLanguages } from '../../i18n/i18n';
@@ -44,22 +44,20 @@ import {
   getReticulumNotificationChannelLabel,
   getChannelVisibilitySymbol,
 } from '../../utils/reticulumNotificationChannel';
+import {
+  computeQChatVisible,
+  shouldSuppressForViewedChannel,
+  type QChatViewContext,
+} from '../../utils/qChatViewContextSuppression';
 import { MAX_NOTIFICATION_PREVIEW_CHARS } from '../../constants/notificationConstants';
 import qortPng from '../../assets/qort.png';
 
 const shouldSuppressForCurrentView = (
-  viewRef: React.MutableRefObject<{
-    groupId: number;
-    channelId: string;
-    isAtBottom: boolean;
-  }>,
+  viewRef: React.MutableRefObject<QChatViewContext>,
   groupId: number,
   channelId: string
-): boolean => {
-  const ctx = viewRef.current;
-  if (ctx.groupId < 0 || !ctx.isAtBottom) return false;
-  return ctx.groupId === groupId && ctx.channelId === channelId;
-};
+): boolean =>
+  shouldSuppressForViewedChannel(viewRef.current, groupId, channelId);
 
 const isQChatMentionNotification = (notification: any) =>
   notification?.appName === QCHAT_MENTION_NOTIFICATION_APP_NAME &&
@@ -177,27 +175,49 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
   const qChatMessageOsNotifiedEventIdsRef = useRef<Set<string>>(new Set());
   const qChatReactionOsNotifiedEventIdsRef = useRef<Set<string>>(new Set());
   const reticulumDmOsNotifiedEventIdsRef = useRef<Set<string>>(new Set());
-  const currentViewContextRef = useRef<{
-    groupId: number;
-    channelId: string;
-    isAtBottom: boolean;
-  }>({ groupId: -1, channelId: '', isAtBottom: false });
+  const currentViewContextRef = useRef<QChatViewContext>({
+    groupId: -1,
+    channelId: '',
+    visible: false,
+  });
+
+  // Publish the channel on screen to the main process. Notifications are shown
+  // from a queue with a multi-second delay, so the submit-time check above can
+  // be stale by the time a notification is actually presented. Main re-checks
+  // this context at show time and drops notifications for the viewed channel.
+  const publishViewContext = useCallback(() => {
+    const context: QChatViewContext = {
+      ...currentViewContextRef.current,
+      visible: computeQChatVisible(),
+    };
+    currentViewContextRef.current = context;
+    void window.reticulumChat
+      ?.setViewContext?.(context)
+      .catch?.(() => undefined);
+  }, []);
 
   useEffect(() => {
-    const onScrollState = (e: CustomEvent) => {
-      currentViewContextRef.current = {
-        ...currentViewContextRef.current,
-        isAtBottom: e.detail?.isAtBottom === true,
-      };
-    };
     const onOpenGroup = (e: CustomEvent) => {
       const gid = Number(e.detail?.from);
       if (Number.isFinite(gid)) {
         currentViewContextRef.current = {
           groupId: gid,
           channelId: String(e.detail?.channelId || ''),
-          isAtBottom: currentViewContextRef.current.isAtBottom,
+          visible: computeQChatVisible(),
         };
+        publishViewContext();
+      }
+    };
+    const onViewChannel = (e: CustomEvent) => {
+      const gid = Number(e.detail?.groupId);
+      const channelId = String(e.detail?.channelId || '');
+      if (Number.isFinite(gid) && channelId) {
+        currentViewContextRef.current = {
+          groupId: gid,
+          channelId,
+          visible: computeQChatVisible(),
+        };
+        publishViewContext();
       }
     };
     const onDeleteNotification = (e: CustomEvent) => {
@@ -206,15 +226,32 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
         window.reticulumChat?.dismissNotification?.(String(evId));
       }
     };
-    subscribeToEvent('chat-scroll-state', onScrollState);
+    const onVisibilityChange = () => publishViewContext();
     subscribeToEvent('openGroupMessage', onOpenGroup);
+    subscribeToEvent('qchat-view-channel', onViewChannel);
     subscribeToEvent('q-chat-delete-notification', onDeleteNotification);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('focus', onVisibilityChange);
+    window.addEventListener('blur', onVisibilityChange);
+    publishViewContext();
     return () => {
-      unsubscribeFromEvent('chat-scroll-state', onScrollState);
       unsubscribeFromEvent('openGroupMessage', onOpenGroup);
+      unsubscribeFromEvent('qchat-view-channel', onViewChannel);
       unsubscribeFromEvent('q-chat-delete-notification', onDeleteNotification);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('focus', onVisibilityChange);
+      window.removeEventListener('blur', onVisibilityChange);
+      // Never leave a suppressing context behind for a torn-down renderer.
+      currentViewContextRef.current = {
+        groupId: -1,
+        channelId: '',
+        visible: false,
+      };
+      void window.reticulumChat
+        ?.setViewContext?.(currentViewContextRef.current)
+        .catch?.(() => undefined);
     };
-  }, []);
+  }, [publishViewContext]);
 
   useEffect(() => {
     if (!reticulumChatEnabled || !myAddress) return;
@@ -619,7 +656,7 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
           let mentionCount = Math.max(0, Number(detail?.mentionCount) || 0);
           if (
             mentionCount > 0 &&
-            (groupSettings?.notifyOnWelcomePosts ??
+            (groupStore?.notifyOnWelcomePosts ??
               globalNotifFormRef.current.notifyOnWelcomePosts) === false
           ) {
             const welcomeCount = getWelcomeUnreadCount(

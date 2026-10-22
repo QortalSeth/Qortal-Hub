@@ -13,6 +13,7 @@ import {
   DM_VOICE_ROOM_PREFIX,
 } from './dmVoiceWire';
 import { buildMediaKeyCommitmentHex } from '../group-call/mediaKeyCommitment';
+import { CALL_PROTOCOL_VERSION } from '../group-call/callProtocolVersion';
 
 export { DM_VOICE_ROOM_PREFIX };
 
@@ -200,6 +201,7 @@ export async function signGcJoin(params: {
     fromPublicKey: params.fromPublicKey,
     timestamp: params.timestamp,
     reticulumDestinationHash: params.reticulumDestinationHash,
+    protocolVersion: CALL_PROTOCOL_VERSION,
     ...(typeof jg === 'number' && Number.isFinite(jg)
       ? { joinGeneration: jg }
       : {}),
@@ -219,6 +221,7 @@ export async function signGcJoin(params: {
     fromPublicKey: params.fromPublicKey,
     timestamp: params.timestamp,
     reticulumDestinationHash: params.reticulumDestinationHash,
+    protocolVersion: CALL_PROTOCOL_VERSION,
     reticulumIdentityPublicKeyBase64: rkForSign,
     ...(typeof jg === 'number' && Number.isFinite(jg)
       ? { joinGeneration: jg }
