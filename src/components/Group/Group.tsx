@@ -4096,7 +4096,6 @@ export const Group = ({
     setIsLoadingThreadKey(false);
     setFirstSecretKeyInCreation(false);
     setMountedLandGroupId(null);
-    setReticulumMountedGroupSections({});
     setNotificationReticulumChannelId('');
     setNotificationReticulumMessageId('');
     setGroupSection('home');

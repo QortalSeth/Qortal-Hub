@@ -2905,12 +2905,10 @@ export const ChatGroup = ({
     return projectReticulumReactionReferences(
       reticulumChatEvents.filter(
         (event: any) =>
-          !isChatSenderBlocked({ sender: event?.authorAddress }) &&
           !isReticulumHiddenAuthor(event?.authorAddress)
       )
     );
   }, [
-    isChatSenderBlocked,
     isReticulumHiddenAuthor,
     reticulumChatEnabled,
     reticulumChatEvents,
@@ -3907,13 +3905,14 @@ export const ChatGroup = ({
 
   const updateChatMessagesWithBlocksFunc = useCallback(
     (e) => {
-      if (e.detail) {
+      // Core block lists apply only to legacy Q-Chat. Reticulum uses silences.
+      if (e.detail && !reticulumChatEnabled) {
         setMessages((prev) =>
           prev?.filter((item) => !isChatSenderBlocked(item))
         );
       }
     },
-    [isChatSenderBlocked]
+    [isChatSenderBlocked, reticulumChatEnabled]
   );
 
   useEffect(() => {
@@ -4792,12 +4791,7 @@ export const ChatGroup = ({
 
   const applyReticulumChatItem = useCallback(
     (item) => {
-      if (
-        !item ||
-        isChatSenderBlocked(item) ||
-        isReticulumHiddenAuthor(item?.sender)
-      )
-        return;
+      if (!item || isReticulumHiddenAuthor(item?.sender)) return;
       const targetReference = item.chatReference;
       const itemType =
         item?.eventType || item?.decryptedData?.type || item?.type;
@@ -4852,11 +4846,7 @@ export const ChatGroup = ({
         ? processWithNewMessages([item], reticulumChatQueueId)
         : [item];
       const nextItem = processed?.[0] || item;
-      if (
-        isChatSenderBlocked(nextItem) ||
-        isReticulumHiddenAuthor(nextItem?.sender)
-      )
-        return;
+      if (isReticulumHiddenAuthor(nextItem?.sender)) return;
 
       if (
         targetReference &&
@@ -4944,12 +4934,7 @@ export const ChatGroup = ({
         return [...prev, nextItem];
       });
     },
-    [
-      isChatSenderBlocked,
-      isReticulumHiddenAuthor,
-      processWithNewMessages,
-      reticulumChatQueueId,
-    ]
+    [isReticulumHiddenAuthor, processWithNewMessages, reticulumChatQueueId]
   );
 
   const convertReticulumEventToChatItem = useCallback(
@@ -5824,7 +5809,6 @@ export const ChatGroup = ({
           conversionResults.map((result) => result.item),
           {
             shouldExclude: (item) =>
-              isChatSenderBlocked(item) ||
               isReticulumHiddenAuthor(item?.sender),
             reconcileItem: (item) => {
               const specialId = reticulumHistoryItemSpecialId(item);
@@ -5928,7 +5912,7 @@ export const ChatGroup = ({
           initialMessages: messages,
           initialChatReferences: chatReferences,
           shouldExclude: (item) =>
-            isChatSenderBlocked(item) || isReticulumHiddenAuthor(item?.sender),
+            isReticulumHiddenAuthor(item?.sender),
           reconcileItem: (item) => {
             const specialId = reticulumHistoryItemSpecialId(item);
             const hasPendingOptimisticMatch = Boolean(
@@ -5982,7 +5966,6 @@ export const ChatGroup = ({
   }, [
     chatReferences,
     convertReticulumEventToChatItem,
-    isChatSenderBlocked,
     isReticulumHiddenAuthor,
     messages,
     processWithNewMessages,

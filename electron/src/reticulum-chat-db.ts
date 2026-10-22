@@ -13960,7 +13960,7 @@ export class ReticulumChatDatabase {
         now + 1,
         1_000
       );
-      occurrence = recent.at(-1) ?? null;
+      occurrence = recent[recent.length - 1] ?? null;
     }
     if (!occurrence) return null;
     const creation = this.db
