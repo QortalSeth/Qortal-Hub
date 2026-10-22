@@ -2688,6 +2688,14 @@ try {
           groupId,
           channelId,
         }) as Promise<{ success: boolean }>,
+      setViewContext: (context: {
+        groupId: number;
+        channelId: string;
+        visible: boolean;
+      }) =>
+        ipcRenderer.invoke('reticulumChat:setViewContext', context) as Promise<{
+          success: boolean;
+        }>,
       dismissNotification: (eventId: string) =>
         ipcRenderer.invoke('reticulumChat:dismissNotification', {
           eventId,
@@ -3800,6 +3808,14 @@ try {
           groupId,
           channelId,
         }) as Promise<{ success: boolean }>,
+      setViewContext: (context: {
+        groupId: number;
+        channelId: string;
+        visible: boolean;
+      }) =>
+        ipcRenderer.invoke('reticulumChat:setViewContext', context) as Promise<{
+          success: boolean;
+        }>,
       dismissNotification: (eventId: string) =>
         ipcRenderer.invoke('reticulumChat:dismissNotification', {
           eventId,

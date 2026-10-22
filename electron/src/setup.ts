@@ -3,6 +3,7 @@ import {
   NotificationRegistry,
   type NotificationEntry,
 } from './notification-registry';
+import { QChatViewContextStore } from './qchat-view-context';
 import {
   CapElectronEventEmitter,
   CapacitorSplashScreen,
@@ -1151,8 +1152,15 @@ export class ElectronCapacitorApp {
       }
     });
 
+    // A view context published by a window that is no longer visible must not
+    // keep suppressing notifications. Main also clears on renderer unmount;
+    // these cover the window-lifecycle cases the renderer cannot observe.
+    this.MainWindow.on('blur', clearQChatViewContext);
+    this.MainWindow.on('hide', clearQChatViewContext);
+
     // If we close the main window with the splashscreen enabled we need to destroy the ref.
     this.MainWindow.on('closed', () => {
+      clearQChatViewContext();
       stopPresenceMainHeartbeatScheduler();
       if (
         this.SplashScreen?.getSplashWindow() &&
@@ -6129,6 +6137,19 @@ ipcMain.handle(
 
 const activeNotifications = new NotificationRegistry();
 
+/**
+ * The Q-Chat channel the renderer currently has on screen, published over
+ * `reticulumChat:setViewContext`. Consulted at notification *show* time, not
+ * submit time: notifications drain from a queue with a multi-second delay, so
+ * the renderer's state when a notification was submitted can be stale by the
+ * time it is presented.
+ */
+const qChatViewContext = new QChatViewContextStore();
+
+function clearQChatViewContext(): void {
+  qChatViewContext.clear();
+}
+
 ipcMain.handle(
   'reticulumChat:showNotification',
   async (
@@ -6147,6 +6168,20 @@ ipcMain.handle(
       const mainWindow = myCapacitorApp.getMainWindow();
       const nid = payload.notificationId || String(Date.now());
       const now = Date.now();
+
+      // Show-time gate. A notification submitted while the user was elsewhere
+      // can be presented seconds later by the queue; if the target channel is
+      // now on screen, drop it before creating a Notification or registering an
+      // entry — an entry that is never shown must not consume a cap slot, and
+      // must not be able to survive as an orphan after an OS-initiated close.
+      if (
+        qChatViewContext.shouldSuppress(
+          payload.groupContext?.groupId,
+          payload.groupContext?.channelId
+        )
+      ) {
+        return { success: true, suppressed: true };
+      }
 
       // The registry enforces the max-concurrent cap by evicting the OLDEST
       // logical entry (smallest createdAt) before registering a new one —
@@ -6225,6 +6260,14 @@ ipcMain.handle(
   'reticulumChat:dismissNotifications',
   async (_event, params: { groupId: number; channelId?: string }) => {
     activeNotifications.dismissByContext(params.groupId, params.channelId);
+    return { success: true };
+  }
+);
+
+ipcMain.handle(
+  'reticulumChat:setViewContext',
+  async (_event, context: unknown) => {
+    qChatViewContext.set(context);
     return { success: true };
   }
 );

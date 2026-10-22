@@ -1264,6 +1264,14 @@ declare global {
         notificationId?: string;
         data?: Record<string, unknown>;
       }) => Promise<{ success: boolean }>;
+      /** Publish the channel currently on screen so the main process can
+       *  suppress notifications for it at show time. A negative groupId
+       *  means "not viewing Q-Chat". */
+      setViewContext: (context: {
+        groupId: number;
+        channelId: string;
+        visible: boolean;
+      }) => Promise<{ success: boolean }>;
       onNotificationClicked: (
         cb: (notificationId: string, data?: Record<string, unknown>) => void
       ) => () => void;

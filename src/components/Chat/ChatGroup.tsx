@@ -184,6 +184,7 @@ import {
 import EmojiPicker, { EmojiStyle, Theme } from 'emoji-picker-react';
 import { ReticulumMessageExpiryButton } from './ReticulumMessageExpiryButton';
 import { applyReticulumJoinUnreadBaseline } from './reticulumJoinUnreadBaseline';
+import { getReticulumChannelDismissalTarget } from './reticulumChannelDismissal';
 import {
   cleanupReticulumSelfWelcomeMarkersOnce,
   RETICULUM_SELF_WELCOME_RECENT_JOIN_MS,
@@ -5997,6 +5998,34 @@ export const ChatGroup = ({
     selectedReticulumChannelId,
   ]);
 
+  // Dismiss OS notifications for the channel currently on screen.
+  //
+  // This is deliberately separate from the read effect below. Dismissal has no
+  // timestamp, unread-count, or loaded-event precondition, whereas the read
+  // effect gates `markRead` behind a deferral so the unread divider survives
+  // scroll restoration. Keeping them together meant the dismissal sat
+  // downstream of early returns and was skipped whenever the selected channel
+  // was already the stored channel — no state transition, so no later pass to
+  // consume the deferral (the General Chat bug).
+  useEffect(() => {
+    const target = getReticulumChannelDismissalTarget({
+      reticulumChatEnabled,
+      isActive,
+      selectedGroup,
+      selectedChannelId: selectedReticulumChannelId,
+    });
+    if (!target) return;
+    window.reticulumChat?.dismissNotifications?.(
+      target.groupId,
+      target.channelId
+    );
+  }, [
+    isActive,
+    reticulumChatEnabled,
+    selectedGroup,
+    selectedReticulumChannelId,
+  ]);
+
   useEffect(() => {
     if (!reticulumChatEnabled || !isActive || !selectedGroup) {
       if (!isActive) {
@@ -6096,10 +6125,6 @@ export const ChatGroup = ({
           lastReticulumMarkedReadRef.current = null;
         }
       });
-    window.reticulumChat?.dismissNotifications?.(
-      groupId,
-      selectedReticulumChannelId
-    );
   }, [
     isActive,
     myAddress,
@@ -6110,6 +6135,25 @@ export const ChatGroup = ({
     selectedGroup,
     selectedReticulumChannelId,
     reticulumChannelStateGroupId,
+  ]);
+
+  // Tell the notification layer which channel is on screen so it can suppress
+  // OS notifications for it at show time. Separate from the effect above: that
+  // one dismisses existing entries, this one prevents new ones.
+  useEffect(() => {
+    const target = getReticulumChannelDismissalTarget({
+      reticulumChatEnabled,
+      isActive,
+      selectedGroup,
+      selectedChannelId: selectedReticulumChannelId,
+    });
+    if (!target) return;
+    executeEvent('qchat-view-channel', target);
+  }, [
+    isActive,
+    reticulumChatEnabled,
+    selectedGroup,
+    selectedReticulumChannelId,
   ]);
 
   const acknowledgeReticulumUnreadMessages = useCallback(() => {
