@@ -184,7 +184,10 @@ import {
 import EmojiPicker, { EmojiStyle, Theme } from 'emoji-picker-react';
 import { ReticulumMessageExpiryButton } from './ReticulumMessageExpiryButton';
 import { applyReticulumJoinUnreadBaseline } from './reticulumJoinUnreadBaseline';
-import { getReticulumChannelDismissalTarget } from './reticulumChannelDismissal';
+import {
+  getReticulumChannelDismissalTarget,
+  getReticulumViewChannelPayload,
+} from './reticulumChannelDismissal';
 import {
   cleanupReticulumSelfWelcomeMarkersOnce,
   RETICULUM_SELF_WELCOME_RECENT_JOIN_MS,
@@ -6123,15 +6126,21 @@ export const ChatGroup = ({
   // Tell the notification layer which channel is on screen so it can suppress
   // OS notifications for it at show time. Separate from the effect above: that
   // one dismisses existing entries, this one prevents new ones.
+  //
+  // This publishes on EVERY run, including when the view is inactive. ChatGroup
+  // stays mounted inside PersistentSectionLayer, so an early return here would
+  // leave the main process holding the last channel forever while the window is
+  // still focused — permanently suppressing that channel's notifications.
   useEffect(() => {
-    const target = getReticulumChannelDismissalTarget({
-      reticulumChatEnabled,
-      isActive,
-      selectedGroup,
-      selectedChannelId: selectedReticulumChannelId,
-    });
-    if (!target) return;
-    executeEvent('qchat-view-channel', target);
+    executeEvent(
+      'qchat-view-channel',
+      getReticulumViewChannelPayload({
+        reticulumChatEnabled,
+        isActive,
+        selectedGroup,
+        selectedChannelId: selectedReticulumChannelId,
+      })
+    );
   }, [
     isActive,
     reticulumChatEnabled,

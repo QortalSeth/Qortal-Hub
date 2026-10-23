@@ -410,17 +410,33 @@ export async function applyNotificationSettingsToAllGroups(
 }
 
 /**
- * Deletes the `channels` map from every provided group's store so all
- * channels inherit global defaults. Used when global defaults change.
+ * Clears the per-channel *diff* overrides in every provided group's store so
+ * all channels inherit the new global defaults. Used when global defaults
+ * change.
+ *
+ * Mute state is NOT a diff against the global defaults — it is explicit user
+ * intent for one channel — so it survives. `pruneChannelOverride`'s
+ * `stripMuteOnly` mode keeps `mutedUntil` and drops `pushLevel`,
+ * `suppressEveryoneHere`, `notifyOnReplies` and `notifyOnReactions`, which are
+ * exactly the fields that are now redundant with the new defaults.
+ *
+ * Previously this assigned `store.channels = {}`, silently unmuting every
+ * channel whenever the global notification settings were changed.
  */
 export async function wipeAllChannelOverrides(
   groupIds: Array<string | number>
 ): Promise<void> {
+  const global = await getGlobalNotificationSettings();
   await Promise.all(
     groupIds.map(async (groupId) => {
       const store = await getGroupNotificationStore(groupId);
-      if (Object.keys(store.channels).length === 0) return;
-      store.channels = {};
+      const nextChannels: GroupNotificationStore['channels'] = {};
+      for (const [chId, override] of Object.entries(store.channels ?? {})) {
+        const pruned = pruneChannelOverride(override ?? {}, global, true);
+        if (pruned) nextChannels[chId] = pruned;
+      }
+      store.channels = nextChannels;
+      store.globalVersion = global.version;
       await setGroupNotificationStore(groupId, store);
     })
   );

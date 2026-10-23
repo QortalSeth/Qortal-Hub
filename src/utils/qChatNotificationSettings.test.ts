@@ -456,19 +456,86 @@ describe('applyNotificationSettingsToAllGroups', () => {
 });
 
 describe('wipeAllChannelOverrides', () => {
-  it('clears channels maps for the given groups', async () => {
+  const storedChannels = (): GroupNotificationStore[] =>
+    (window.sendMessage as any).mock.calls
+      .filter((c: any[]) => c[0] === 'addUserSettings')
+      .map((c: any[]) => c[1].keyValue.value as GroupNotificationStore);
+
+  it('clears diff overrides for the given groups', async () => {
     mockSendMessage({
       'q-chat-notif-1': { channels: { general: { pushLevel: 'none' } } },
-      'q-chat-notif-2': { channels: { random: { mutedUntil: null } } },
+      'q-chat-notif-2': { channels: { random: { pushLevel: 'mentions' } } },
     });
     await wipeAllChannelOverrides([1, 2]);
-    const calls = (window.sendMessage as any).mock.calls.filter(
-      (c: any[]) => c[0] === 'addUserSettings'
-    );
-    for (const c of calls) {
-      const stored = c[1].keyValue.value as GroupNotificationStore;
+    for (const stored of storedChannels()) {
       expect(Object.keys(stored.channels).length).toBe(0);
     }
+  });
+
+  it('preserves channel mutes when global settings change', async () => {
+    // Regression: changing global notification settings unmuted every channel
+    // because the implementation cleared the whole `channels` map. Mute is
+    // explicit user intent for one channel, not a diff against the defaults.
+    const mutedUntil = Date.now() + 60 * 60 * 1000;
+    mockSendMessage({
+      'q-chat-notif-1': {
+        channels: {
+          general: { mutedUntil },
+          random: { mutedUntil: null },
+        },
+      },
+    });
+    await wipeAllChannelOverrides([1]);
+
+    const [stored] = storedChannels();
+    expect(stored.channels.general?.mutedUntil).toBe(mutedUntil);
+    expect(stored.channels.random?.mutedUntil).toBeNull();
+  });
+
+  it('drops diff fields but keeps the mute on the same channel', async () => {
+    const mutedUntil = Date.now() + 60 * 60 * 1000;
+    mockSendMessage({
+      'q-chat-notif-1': {
+        channels: {
+          general: {
+            mutedUntil,
+            pushLevel: 'none',
+            notifyOnReplies: false,
+            notifyOnReactions: false,
+            suppressEveryoneHere: true,
+          },
+        },
+      },
+    });
+    await wipeAllChannelOverrides([1]);
+
+    const [stored] = storedChannels();
+    expect(stored.channels.general).toEqual({ mutedUntil });
+  });
+
+  it('drops an explicit unmute marker of 0', async () => {
+    mockSendMessage({
+      'q-chat-notif-1': { channels: { general: { mutedUntil: 0 } } },
+    });
+    await wipeAllChannelOverrides([1]);
+    const [stored] = storedChannels();
+    expect(stored.channels.general).toBeUndefined();
+  });
+
+  it('records the new global version after clearing', async () => {
+    mockSendMessage({
+      [GLOBAL_SETTINGS_KEY]: {
+        pushLevel: 'all',
+        suppressEveryoneHere: false,
+        notifyOnReplies: true,
+        notifyOnReactions: true,
+        version: 7,
+      },
+      'q-chat-notif-1': { channels: { general: { pushLevel: 'none' } } },
+    });
+    await wipeAllChannelOverrides([1]);
+    const [stored] = storedChannels();
+    expect(stored.globalVersion).toBe(7);
   });
 });
 

@@ -241,15 +241,11 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
       document.removeEventListener('visibilitychange', onVisibilityChange);
       window.removeEventListener('focus', onVisibilityChange);
       window.removeEventListener('blur', onVisibilityChange);
-      // Never leave a suppressing context behind for a torn-down renderer.
-      currentViewContextRef.current = {
-        groupId: -1,
-        channelId: '',
-        visible: false,
-      };
-      void window.reticulumChat
-        ?.setViewContext?.(currentViewContextRef.current)
-        .catch?.(() => undefined);
+      // No view-context reset here: this component mounts once for the app's
+      // lifetime and never unmounts, so a cleanup would never run. Stale
+      // contexts are prevented at the source instead — ChatGroup publishes an
+      // explicit not-viewing sentinel whenever it is inactive — and the main
+      // process clears on window blur/hide/closed.
     };
   }, [publishViewContext]);
 
