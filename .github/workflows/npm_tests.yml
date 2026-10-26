@@ -19,13 +19,16 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
+          # Node 22 is active LTS and matches engines.node in electron/package.json.
+          # The Node 20 deprecation notice refers to the actions' own runner
+          # runtime, not this input.
           node-version: '22'
           cache: 'npm'
 
@@ -33,4 +36,7 @@ jobs:
         run: npm ci
 
       - name: Run tests
-        run: npm test
+        # `npm test` is Vitest watch mode; it only exits in CI because Vitest
+        # implicitly detects CI=true. Run explicitly so the behaviour does not
+        # depend on that detection.
+        run: npx vitest run
