@@ -48,16 +48,28 @@ import {
   computeQChatVisible,
   shouldSuppressForViewedChannel,
   type QChatViewContext,
+  isViewingChannel,
+  setPublishedViewChannel,
 } from '../../utils/qChatViewContextSuppression';
 import { MAX_NOTIFICATION_PREVIEW_CHARS } from '../../constants/notificationConstants';
 import qortPng from '../../assets/qort.png';
 
+/**
+ * Suppression decision for a notification about (groupId, channelId).
+ *
+ * Reads BOTH the component ref and the shared module store. The ref alone is
+ * not reliable: `qchat-view-channel` is a synchronous DOM event, so a payload
+ * published before this component subscribed is lost and the ref keeps its
+ * initial not-viewing sentinel. The store is written at the source, so it
+ * holds the channel even when the event was missed.
+ */
 const shouldSuppressForCurrentView = (
   viewRef: React.MutableRefObject<QChatViewContext>,
   groupId: number,
   channelId: string
 ): boolean =>
-  shouldSuppressForViewedChannel(viewRef.current, groupId, channelId);
+  shouldSuppressForViewedChannel(viewRef.current, groupId, channelId) ||
+  isViewingChannel(groupId, channelId);
 
 const isQChatMentionNotification = (notification: any) =>
   notification?.appName === QCHAT_MENTION_NOTIFICATION_APP_NAME &&
@@ -211,14 +223,20 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
     const onViewChannel = (e: CustomEvent) => {
       const gid = Number(e.detail?.groupId);
       const channelId = String(e.detail?.channelId || '');
-      if (Number.isFinite(gid) && channelId) {
-        currentViewContextRef.current = {
-          groupId: gid,
-          channelId,
-          visible: computeQChatVisible(),
-        };
-        publishViewContext();
-      }
+      // Accept the not-viewing sentinel (negative group id, empty channel).
+      // Rejecting it left the ref holding the previously viewed channel with
+      // `visible: true`, so notifications for a channel the user had navigated
+      // away from were suppressed indefinitely.
+      if (!Number.isFinite(gid)) return;
+      // Also record it in the shared store, so a payload published before this
+      // subscriber attached is still honoured.
+      setPublishedViewChannel({ groupId: gid, channelId });
+      currentViewContextRef.current = {
+        groupId: gid,
+        channelId,
+        visible: computeQChatVisible(),
+      };
+      publishViewContext();
     };
     const onDeleteNotification = (e: CustomEvent) => {
       const evId = e.detail?.eventId;
@@ -1064,10 +1082,6 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
         // The stable ID remains a useful fallback while metadata is syncing.
       }
 
-      if (
-        shouldSuppressForCurrentView(currentViewContextRef, groupId, channelId)
-      )
-        return;
       const msgSender = detail.senderName || 'Someone';
       const msgText = detail.messageText || '';
       const previewText = truncatePreview(

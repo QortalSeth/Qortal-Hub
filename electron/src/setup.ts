@@ -13,6 +13,11 @@ import {
   NotificationRegistry,
   type NotificationEntry,
 } from './notification-registry';
+import {
+  LinuxNotificationManager,
+  defaultHelperScriptPath,
+  handleToCloser,
+} from './linux-notifications';
 import { QChatViewContextStore } from './qchat-view-context';
 import {
   CapElectronEventEmitter,
@@ -6861,6 +6866,85 @@ ipcMain.handle(
 const activeNotifications = new NotificationRegistry();
 
 /**
+ * Linux notifications are sent by an untracked helper process rather than by
+ * `new Notification()`. Cinnamon destroys an app's notifications when that app
+ * gains focus, keyed on the PID of the D-Bus sender; Electron sends from the
+ * process that owns the Hub window, so the notification is withdrawn the
+ * instant Hub is focused. A sender with no window is not resolvable to an app,
+ * so the focus loop skips it and the notification survives.
+ *
+ * See `electron/src/linux-notifications.ts` and `docs/linux-notifications.md`.
+ * When the helper is unavailable the Electron path is used unchanged.
+ */
+const linuxNotifications =
+  process.platform === 'linux'
+    ? new LinuxNotificationManager({
+        scriptPath: defaultHelperScriptPath(
+          app.isPackaged
+            ? process.resourcesPath
+            : join(__dirname, '..', '..', 'resources')
+        ),
+        onEvent: handleLinuxNotifyEvent,
+        onUnavailable: (reason) => {
+          console.error(
+            '[linux-notify] falling back to Electron notifications:',
+            reason
+          );
+        },
+      })
+    : null;
+
+/** Payloads retained so a helper click can forward `data` to the renderer. */
+const linuxNotificationPayloadById = new Map<string, unknown>();
+
+/**
+ * Routes helper events back into the registry. A `closed` the helper did not
+ * request is a desktop-initiated close (expiry or shade collapse), which the
+ * registry records without terminating the entry's logical life.
+ */
+function handleLinuxNotifyEvent(event: {
+  event: string;
+  id?: string | null;
+  dbusId?: number;
+  reason?: number;
+  selfClosed?: boolean;
+  unknown?: boolean;
+}): void {
+  if (!linuxNotifications) return;
+  if (event.event === 'closed') {
+    const dbusId = Number(event.dbusId ?? 0);
+    const rendererId =
+      (event.id && String(event.id)) ||
+      (dbusId > 0 ? linuxNotifications.rendererIdFor(dbusId) : undefined);
+    // The notification is gone either way, so its payload is no longer needed.
+    // Without this the map grows for the life of the process.
+    if (rendererId) linuxNotificationPayloadById.delete(rendererId);
+    if (event.selfClosed) return; // our own close; entry already removed
+    if (rendererId && activeNotifications.has(rendererId)) {
+      activeNotifications.markOsClosed(rendererId);
+    }
+    return;
+  }
+  if (event.event === 'action') {
+    const rendererId = event.id ? String(event.id) : '';
+    if (!rendererId) return;
+    const mainWindow = myCapacitorApp.getMainWindow();
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.focus();
+      mainWindow.webContents.send(
+        'reticulumChat:notificationClicked',
+        rendererId,
+        linuxNotificationPayloadById.get(rendererId)
+      );
+    }
+  }
+}
+
+app.on('before-quit', () => {
+  linuxNotifications?.dispose();
+});
+
+/**
  * The Q-Chat channel the renderer currently has on screen, published over
  * `reticulumChat:setViewContext`. Consulted at notification *show* time, not
  * submit time: notifications drain from a queue with a multi-second delay, so
@@ -6951,6 +7035,30 @@ ipcMain.handle(
       // OS or user closes it — GC-finalizing a wrapper closes the OS notification
       // on Linux. Entries are removed by app-initiated close; DE-initiated
       // 'close' marks osClosedBySystem and retains (D1/E1).
+      // Linux: send through the untracked helper so the desktop's focus
+      // handler cannot attribute the notification to the Hub window.
+      if (linuxNotifications?.available) {
+        if (payload.data) linuxNotificationPayloadById.set(nid, payload.data);
+        const handle = await linuxNotifications.notify({
+          id: nid,
+          summary: payload.title,
+          body: payload.body,
+          icon: typeof payload.icon === 'string' ? payload.icon : undefined,
+        });
+        if (handle) {
+          activeNotifications.set(nid, {
+            notification: null,
+            close: handleToCloser(handle),
+            groupContext: payload.groupContext,
+            eventId: payload.eventId,
+            createdAt: now,
+            osClosedBySystem: false,
+          });
+          return { success: true };
+        }
+        // Helper failed for this one notification; fall through to Electron.
+      }
+
       notification.on('click', () => {
         if (mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.focus();

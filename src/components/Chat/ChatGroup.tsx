@@ -188,6 +188,7 @@ import {
   getReticulumChannelDismissalTarget,
   getReticulumViewChannelPayload,
 } from './reticulumChannelDismissal';
+import { setPublishedViewChannel } from '../../utils/qChatViewContextSuppression';
 import {
   cleanupReticulumSelfWelcomeMarkersOnce,
   RETICULUM_SELF_WELCOME_RECENT_JOIN_MS,
@@ -5999,6 +6000,10 @@ export const ChatGroup = ({
       isActive,
       selectedGroup,
       selectedChannelId: selectedReticulumChannelId,
+      // Gate on the selected group's channel list being loaded. Group switch
+      // retains the previous group's channel id until then, and dismissing on
+      // that mismatched pair cleared the wrong channel's notifications.
+      channelStateGroupId: reticulumChannelStateGroupId,
     });
     if (!target) return;
     window.reticulumChat?.dismissNotifications?.(
@@ -6007,6 +6012,7 @@ export const ChatGroup = ({
     );
   }, [
     isActive,
+    reticulumChannelStateGroupId,
     reticulumChatEnabled,
     selectedGroup,
     selectedReticulumChannelId,
@@ -6132,17 +6138,26 @@ export const ChatGroup = ({
   // leave the main process holding the last channel forever while the window is
   // still focused — permanently suppressing that channel's notifications.
   useEffect(() => {
-    executeEvent(
-      'qchat-view-channel',
-      getReticulumViewChannelPayload({
-        reticulumChatEnabled,
-        isActive,
-        selectedGroup,
-        selectedChannelId: selectedReticulumChannelId,
-      })
-    );
+    const payload = getReticulumViewChannelPayload({
+      reticulumChatEnabled,
+      isActive,
+      selectedGroup,
+      selectedChannelId: selectedReticulumChannelId,
+      // Publish the sentinel until the selected group's channels have loaded.
+      // Group switch retains the previous group's channel id briefly, and
+      // publishing that pair told main the reader was on a channel they were
+      // not, which both suppressed the wrong channel and un-suppressed the
+      // right one.
+      channelStateGroupId: reticulumChannelStateGroupId,
+    });
+    // Write the shared store first. The DOM event below is synchronous and may
+    // land before the subscriber is attached, and the subscriber is what used
+    // to hold the only copy.
+    setPublishedViewChannel(payload);
+    executeEvent('qchat-view-channel', payload);
   }, [
     isActive,
+    reticulumChannelStateGroupId,
     reticulumChatEnabled,
     selectedGroup,
     selectedReticulumChannelId,

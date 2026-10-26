@@ -73,6 +73,69 @@ describe('NotificationRegistry', () => {
     });
   });
 
+  describe('transport-agnostic close', () => {
+    it('uses the close callback when the entry has no Electron handle', () => {
+      const closer = vi.fn();
+      const registry = new NotificationRegistry();
+      registry.set('n', makeEntry(1, { notification: null, close: closer }));
+      registry.closeAppInitiated('n');
+      expect(closer).toHaveBeenCalledTimes(1);
+      expect(registry.get('n')).toBeUndefined();
+    });
+
+    it('prefers the close callback over the Electron handle', () => {
+      const closer = vi.fn();
+      const handleClose = vi.fn();
+      const registry = new NotificationRegistry();
+      registry.set(
+        'n',
+        makeEntry(1, {
+          notification: { close: handleClose } as never,
+          close: closer,
+        })
+      );
+      registry.closeAppInitiated('n');
+      expect(closer).toHaveBeenCalledTimes(1);
+      expect(handleClose).not.toHaveBeenCalled();
+    });
+
+    it('markOsClosed drops the closer so a later app close is not re-sent', () => {
+      const closer = vi.fn();
+      const registry = new NotificationRegistry();
+      registry.set('n', makeEntry(1, { notification: null, close: closer }));
+      registry.markOsClosed('n');
+      expect(registry.get('n')?.close).toBeUndefined();
+      registry.closeAppInitiated('n');
+      expect(closer).not.toHaveBeenCalled();
+    });
+
+    it('cap eviction closes the transport of the evicted entry', () => {
+      const older = vi.fn();
+      const newer = vi.fn();
+      const registry = new NotificationRegistry(1);
+      registry.set('old', makeEntry(1, { notification: null, close: older }));
+      registry.set('new', makeEntry(2, { notification: null, close: newer }));
+      expect(older).toHaveBeenCalledTimes(1);
+      expect(registry.get('old')).toBeUndefined();
+      expect(registry.get('new')).toBeDefined();
+    });
+
+    it('a throwing closer does not prevent entry removal', () => {
+      const registry = new NotificationRegistry();
+      registry.set(
+        'n',
+        makeEntry(1, {
+          notification: null,
+          close: () => {
+            throw new Error('helper gone');
+          },
+        })
+      );
+      expect(() => registry.closeAppInitiated('n')).not.toThrow();
+      expect(registry.get('n')).toBeUndefined();
+    });
+  });
+
   describe('OS-initiated vs app-initiated close (4.2)', () => {
     it('markOsClosed retains the entry and releases the native handle', () => {
       const registry = new NotificationRegistry();

@@ -8,14 +8,29 @@
  * shade collapse when clicking another notification) does NOT terminate the
  * entry's logical life — it is marked OS-closed and retained.
  *
+ * Entries close through an abstraction rather than an Electron
+ * `Notification` handle, because Linux notifications are delivered by the
+ * helper process in `electron/resources/linux_notify.py` and have no handle.
+ * `notification` is retained for the Electron path on Windows and macOS.
+ *
  * See openspec change `fix-qchat-os-notification-eviction` (D1/E1 decisions).
  */
 
 import type { Notification } from 'electron';
 
+/**
+ * Closes the physical notification for an entry, by whatever transport
+ * created it. Idempotent and non-throwing: failures are not fatal.
+ */
+export type NotificationCloser = () => void;
+
 export interface NotificationEntry {
+  /** Electron handle, when the notification was created in-process
+   *  (Windows/macOS, or Linux if the helper is unavailable). */
   notification: Notification | null;
-  groupContext?: { groupId: number; channelId: string };
+  /** Transport-agnostic close. When absent, `notification?.close()` is used. */
+  close?: NotificationCloser;
+  groupContext?: { groupId: number; channelId?: string };
   eventId?: string;
   createdAt: number;
   /** True when the OS (not the app) closed the physical notification. The
@@ -35,13 +50,22 @@ export const MAX_ACTIVE_NOTIFICATIONS = 50;
  */
 export type CloseHandler = (entry: NotificationEntry) => void;
 
+/** Default close: prefer the transport closer, else the Electron handle. */
+export function defaultCloseEntry(entry: NotificationEntry): void {
+  if (entry.close) {
+    entry.close();
+    return;
+  }
+  entry.notification?.close();
+}
+
 export class NotificationRegistry {
   private readonly entries = new Map<string, NotificationEntry>();
 
   constructor(
     private readonly max = MAX_ACTIVE_NOTIFICATIONS,
     private readonly onAppClose: CloseHandler = (entry) =>
-      entry.notification?.close()
+      defaultCloseEntry(entry)
   ) {}
 
   get size(): number {
@@ -76,12 +100,16 @@ export class NotificationRegistry {
   /**
    * DE-initiated close: retain the entry, release the native handle, mark
    * osClosedBySystem. No-op if the id is unknown (already app-closed).
+   *
+   * The transport closer is also dropped: the notification is gone, so a later
+   * app-initiated close must not try to close it again.
    */
   markOsClosed(nid: string): void {
     const entry = this.entries.get(nid);
     if (!entry) return;
     entry.osClosedBySystem = true;
     entry.notification = null;
+    entry.close = undefined;
   }
 
   /**

@@ -43,6 +43,23 @@ export function getReticulumChannelDismissalTarget(params: {
   isActive: boolean;
   selectedGroup: string | number | null | undefined;
   selectedChannelId: string | null | undefined;
+  /**
+   * `groupId` whose channel list is currently loaded, from
+   * `reticulumChannelStateGroupId`.
+   *
+   * Group switch deliberately retains the *previous* group's channel id while
+   * the new group's metadata loads (see the group-change effect in ChatGroup),
+   * so between those two moments `selectedGroup` is the new group while
+   * `selectedChannelId` still belongs to the old one. Acting on that pair
+   * dismisses notifications for `(newGroup, oldChannel)` — a channel the reader
+   * is not viewing — and publishes it as the view context, which both clears
+   * the wrong channel's notifications and stops the right one from being
+   * suppressed.
+   *
+   * When provided, the target is withheld unless it matches the loaded group.
+   * Omit it only where no such state exists.
+   */
+  channelStateGroupId?: string | null | undefined;
 }): DismissalTarget | null {
   if (!params.reticulumChatEnabled) return null;
   if (!params.isActive) return null;
@@ -54,6 +71,15 @@ export function getReticulumChannelDismissalTarget(params: {
   if (!Number.isInteger(groupId) || groupId <= 0) return null;
   const channelId = params.selectedChannelId;
   if (typeof channelId !== 'string' || channelId.length === 0) return null;
+  // Reject a channel that has not been resolved for the group now selected.
+  // An empty/mismatched state group id means the channel list for this group
+  // has not loaded yet, so the retained channel id is not trustworthy.
+  if (
+    params.channelStateGroupId !== undefined &&
+    String(params.channelStateGroupId ?? '') !== String(groupId)
+  ) {
+    return null;
+  }
   return { groupId, channelId };
 }
 

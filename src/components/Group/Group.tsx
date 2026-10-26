@@ -125,6 +125,8 @@ import {
   removeWelcomeUnreadEventId,
   clearWelcomeUnreadForGroup,
 } from '../../utils/qChatNotificationSettings';
+import { resolveChannelReadWatermarkFromSummaries } from '../../utils/qChatReadWatermark';
+import { planReticulumNotifications } from './reticulumNotificationPlan';
 import { WalletsAppWrapper } from './WalletsAppWrapper';
 import { useTranslation } from 'react-i18next';
 import { GroupList } from './GroupList';
@@ -1013,6 +1015,9 @@ export const Group = ({
     groupChatTimestampsAtom
   );
   const setReticulumChatSummaries = useSetAtom(reticulumChatSummariesAtom);
+  const reticulumChatSummaries = useAtomValue(reticulumChatSummariesAtom);
+  const reticulumChatSummariesRef = useRef(reticulumChatSummaries);
+  reticulumChatSummariesRef.current = reticulumChatSummaries;
   const setUnreadWelcomeEventIds = useSetAtom(unreadWelcomeEventIdsAtom);
   const unreadWelcomeEventIdsRef = useRef(setUnreadWelcomeEventIds);
   unreadWelcomeEventIdsRef.current = setUnreadWelcomeEventIds;
@@ -3085,111 +3090,101 @@ export const Group = ({
           addWelcomeUnreadEventId(prev, groupId, event.eventId)
         );
       }
-      let suppressMention = false;
-      let authorizedBroadcast = false;
-      let directMention = false;
-
-      let replyNotificationEmitted = false;
-      if (
-        event.eventType === 'message' &&
-        event.authorAddress !== myAddressRef.current &&
-        myAddressRef.current &&
-        !options.skipReplyNotification
-      ) {
-        const repliedTo =
-          (payload as any)?.repliedTo || (payload as any)?.replyToEventId;
-        if (repliedTo) {
-          const channelId = String(event.channelId || 'general');
-          try {
+      // Exactly one notification per post, most specific kind wins:
+      // reply > mention > message.
+      //
+      // The decision itself lives in `reticulumNotificationPlan.ts` so it can be
+      // tested. It was inline here and broke three times without any test being
+      // able to reach it: duplicate notifications, then no notification for
+      // plain posts, then a `ReferenceError` from a declaration deleted during a
+      // comment rewrite.
+      const notificationPlan = await planReticulumNotifications(
+        {
+          isMessage: event.eventType === 'message',
+          isFromOther: event.authorAddress !== myAddressRef.current,
+          hasMyAddress: Boolean(myAddressRef.current),
+          replyLookupAllowed: !options.skipReplyNotification,
+          repliedToEventId:
+            (payload as any)?.repliedTo ||
+            (payload as any)?.replyToEventId ||
+            undefined,
+          recordMentionNotification: options.recordMentionNotification === true,
+          isWelcomePost,
+          notifyOnWelcomePosts:
+            (await getGroupNotificationStore(groupId)
+              .then(
+                (store) =>
+                  store?.notifyOnWelcomePosts ??
+                  globalNotifFormRef.current.notifyOnWelcomePosts
+              )
+              .catch(() => globalNotifFormRef.current.notifyOnWelcomePosts)) !==
+            false,
+        },
+        {
+          myAddress: myAddressRef.current || '',
+          lookupReplyParentAuthor: async (repliedToEventId) => {
+            const channelId = String(event.channelId || 'general');
             const parentEvents =
               await window.reticulumChat?.getMessageWindowAroundEvent?.(
                 groupId,
                 channelId,
-                String(repliedTo),
+                repliedToEventId,
                 { afterLimit: 1, beforeLimit: 0 }
               );
             const parentEvent = Array.isArray(parentEvents)
               ? (parentEvents[0] as any)
               : null;
-            if (parentEvent?.authorAddress === myAddressRef.current) {
-              const effectiveSettings = await getEffectiveNotificationSettings(
-                groupId,
-                undefined,
-                channelId,
-                globalNotifFormRef.current
-              ).catch(() => null);
-              if (effectiveSettings?.notifyOnReplies && groupName) {
-                const replyGroupStore = await getGroupNotificationStore(
-                  groupId
-                ).catch(() => null);
-                const replyMuted = replyGroupStore
-                  ? isScopeMuted(replyGroupStore, undefined, channelId)
-                  : false;
-                if (!replyMuted) {
-                  executeEvent('q-chat-reply-notification', {
-                    channelId,
-                    eventId: String(event.eventId || ''),
-                    groupId,
-                    groupName,
-                    messageText: text,
-                    senderName,
-                    timestamp: Number(event.timestamp || Date.now()),
-                  });
-                }
-                replyNotificationEmitted = true;
-              }
-            }
-          } catch {
-            // Parent message lookup failed — skip reply notification
-          }
+            return parentEvent?.authorAddress ?? null;
+          },
+          getNotifyOnReplies: async () => {
+            const channelId = String(event.channelId || 'general');
+            const effectiveSettings = await getEffectiveNotificationSettings(
+              groupId,
+              undefined,
+              channelId,
+              globalNotifFormRef.current
+            ).catch(() => null);
+            return effectiveSettings?.notifyOnReplies === true;
+          },
+          isChannelMuted: async () => {
+            const channelId = String(event.channelId || 'general');
+            const store = await getGroupNotificationStore(groupId).catch(
+              () => null
+            );
+            return store ? isScopeMuted(store, undefined, channelId) : false;
+          },
+          isAuthorizedBroadcast: () => authorizedReticulumBroadcastApplies(event),
+          isDirectMention: () => event.directMentionAuthorized === true,
         }
+      );
+
+      const channelId = String(event.channelId || 'general');
+      if (notificationPlan.reply && groupName) {
+        executeEvent('q-chat-reply-notification', {
+          channelId,
+          eventId: String(event.eventId || ''),
+          groupId,
+          groupName,
+          messageText: text,
+          senderName,
+          timestamp: Number(event.timestamp || Date.now()),
+        });
       }
 
-      if (
-        options.recordMentionNotification === true &&
-        !replyNotificationEmitted
-      ) {
-        if (isWelcomePost) {
-          const groupStore = await getGroupNotificationStore(groupId).catch(
-            () => null
-          );
-          if (
-            (groupStore?.notifyOnWelcomePosts ??
-              globalNotifFormRef.current.notifyOnWelcomePosts) === false
-          ) {
-            suppressMention = true;
-          }
-        }
-        if (!suppressMention) {
-          const localAddress = myAddressRef.current || '';
-          authorizedBroadcast = authorizedReticulumBroadcastApplies(event);
-          directMention = event.directMentionAuthorized === true;
-          const notificationMentionedAddresses =
-            localAddress && (authorizedBroadcast || directMention)
-              ? [localAddress]
-              : [];
-          recordReticulumMentionNotification(
-            event,
-            groupId,
-            groupName,
-            notificationMentionedAddresses,
-            authorizedBroadcast,
-            text,
-            senderName
-          );
-        }
+      if (notificationPlan.mention) {
+        const localAddress = myAddressRef.current || '';
+        recordReticulumMentionNotification(
+          event,
+          groupId,
+          groupName,
+          [localAddress],
+          notificationPlan.authorizedBroadcast,
+          text,
+          senderName
+        );
       }
 
-      if (
-        !replyNotificationEmitted &&
-        options.recordMentionNotification === true &&
-        !suppressMention &&
-        event.eventType === 'message' &&
-        event.authorAddress !== myAddressRef.current &&
-        myAddressRef.current &&
-        !authorizedBroadcast &&
-        !directMention
-      ) {
+      if (notificationPlan.message) {
         recordReticulumMessageNotification(
           event,
           groupId,
@@ -3957,18 +3952,32 @@ export const Group = ({
       ) {
         return;
       }
-      try {
-        const result = await window.reticulumChat.markRead(
-          numericGroupId,
-          String(channelId),
-          Date.now(),
-          myAddress
-        );
-        if (result?.success !== true) {
-          throw new Error('Reticulum chat markRead failed');
+      // Anchor to the newest known event, never the local clock: event
+      // timestamps come from the sender, so a wall-clock watermark can sit
+      // ahead of messages from a sender whose clock runs fast and strand them
+      // as permanently unread. See src/utils/qChatReadWatermark.ts.
+      const readWatermark = resolveChannelReadWatermarkFromSummaries(
+        reticulumChatSummariesRef.current,
+        numericGroupId,
+        String(channelId)
+      );
+      if (readWatermark !== null) {
+        try {
+          const result = await window.reticulumChat.markRead(
+            numericGroupId,
+            String(channelId),
+            readWatermark,
+            myAddress
+          );
+          if (result?.success !== true) {
+            throw new Error('Reticulum chat markRead failed');
+          }
+        } catch (error) {
+          console.error(
+            '[ReticulumChat] Failed to mark channel as read:',
+            error
+          );
         }
-      } catch (error) {
-        console.error('[ReticulumChat] Failed to mark channel as read:', error);
       }
       window.reticulumChat?.dismissNotifications?.(
         numericGroupId,
@@ -3999,21 +4008,30 @@ export const Group = ({
         return;
       }
       for (const channelId of channelIds) {
-        try {
-          const result = await window.reticulumChat.markRead(
-            numericGroupId,
-            String(channelId),
-            Date.now(),
-            myAddress
-          );
-          if (result?.success !== true) {
-            throw new Error('Reticulum chat markRead failed');
+        // Same rule as handleMarkChannelRead: never send the local clock as a
+        // read watermark. See src/utils/qChatReadWatermark.ts.
+        const readWatermark = resolveChannelReadWatermarkFromSummaries(
+          reticulumChatSummariesRef.current,
+          numericGroupId,
+          String(channelId)
+        );
+        if (readWatermark !== null) {
+          try {
+            const result = await window.reticulumChat.markRead(
+              numericGroupId,
+              String(channelId),
+              readWatermark,
+              myAddress
+            );
+            if (result?.success !== true) {
+              throw new Error('Reticulum chat markRead failed');
+            }
+          } catch (error) {
+            console.error(
+              '[ReticulumChat] Failed to mark channel as read:',
+              error
+            );
           }
-        } catch (error) {
-          console.error(
-            '[ReticulumChat] Failed to mark channel as read:',
-            error
-          );
         }
         window.reticulumChat?.dismissNotifications?.(
           numericGroupId,

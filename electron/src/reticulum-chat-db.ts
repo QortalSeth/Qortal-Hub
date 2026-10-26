@@ -1675,6 +1675,7 @@ export class ReticulumChatDatabase {
   private stmtGetPrivilegedMentionStatus: Statement;
   private stmtUpdatePrivilegedMentionStatus: Statement;
   private stmtGetWatermark: Statement;
+  private stmtGetNewestEventTimestamp: Statement;
   private stmtGetDirectWatermark: Statement;
   private stmtUpsertWatermark: Statement;
   private stmtUpsertMention: Statement;
@@ -1864,6 +1865,12 @@ export class ReticulumChatDatabase {
         LIMIT ?
       )
       ORDER BY created_at ASC, root_event_id ASC
+    `);
+    // Newest visible event timestamp per channel. Bounds read watermarks so one
+    // can never sit ahead of the messages it is meant to cover.
+    this.stmtGetNewestEventTimestamp = this.db.prepare(`
+      SELECT MAX(timestamp) AS timestamp FROM reticulum_chat_events
+      WHERE group_id = ? AND channel_id = ?
     `);
     this.stmtGetRecentMessageEventsAllChannels = this.db.prepare(`
       SELECT * FROM (
@@ -12055,6 +12062,31 @@ export class ReticulumChatDatabase {
     }
     if (normalizedTargets.size === 0) return 0;
 
+    // A read watermark is compared against `event.timestamp`, which is stamped
+    // by the *sender's* clock. A caller passing the local wall clock can
+    // therefore place the watermark ahead of messages from a sender whose clock
+    // runs fast; those messages satisfy `timestamp > watermark` forever and are
+    // stranded as permanently unread. Clamp every request to the newest event
+    // actually stored for the channel, and drop requests that have no event to
+    // anchor to. See src/utils/qChatReadWatermark.ts for the renderer side.
+    for (const [key, target] of normalizedTargets) {
+      const newestKnownEventTimestamp = this.getNewestEventTimestamp(
+        target.groupId,
+        target.channelId
+      );
+      if (newestKnownEventTimestamp <= 0) {
+        normalizedTargets.delete(key);
+        continue;
+      }
+      if (target.timestamp > newestKnownEventTimestamp) {
+        normalizedTargets.set(key, {
+          ...target,
+          timestamp: newestKnownEventTimestamp,
+        });
+      }
+    }
+    if (normalizedTargets.size === 0) return 0;
+
     const readAt = Date.now();
     const watermarkUpdates = [...normalizedTargets.values()].filter(
       ({ groupId, channelId, timestamp }) =>
@@ -12149,6 +12181,39 @@ export class ReticulumChatDatabase {
     address: string
   ): string {
     return `${groupId}:${normalizeReticulumChatChannelId(channelId)}:${address}`;
+  }
+
+  /**
+   * Newest event timestamp actually stored for a channel.
+   *
+   * Used to bound read watermarks: a watermark above this value would sit ahead
+   * of every message it is meant to cover, stranding them as unread forever
+   * because their sender-stamped timestamps can never exceed it. Returns 0 when
+   * the channel has no stored events.
+   */
+  getNewestEventTimestamp(groupId: number, channelId: string): number {
+    if (!Number.isInteger(groupId) || groupId <= 0) return 0;
+    const normalizedChannelId = normalizeReticulumChatChannelId(channelId);
+    const row = this.stmtGetNewestEventTimestamp.get(
+      groupId,
+      normalizedChannelId
+    ) as { timestamp?: number } | undefined;
+    const stored =
+      typeof row?.timestamp === 'number' && Number.isFinite(row.timestamp)
+        ? row.timestamp
+        : 0;
+    let newest = stored;
+    for (const event of this.memoryEvents.values()) {
+      if (event.groupId !== groupId) continue;
+      if (
+        normalizeReticulumChatChannelId(event.channelId) !== normalizedChannelId
+      ) {
+        continue;
+      }
+      const timestamp = Number(event.timestamp);
+      if (Number.isFinite(timestamp) && timestamp > newest) newest = timestamp;
+    }
+    return newest;
   }
 
   getMissingEvents(

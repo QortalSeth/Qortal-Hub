@@ -10,6 +10,7 @@ import { useDropzone } from 'react-dropzone';
 import { Box, ButtonBase, Typography, useTheme } from '@mui/material';
 import { AnimatePresence } from 'framer-motion';
 import { decryptStoredWallet } from './utils/decryptWallet';
+import { resetPublishedViewChannel } from './utils/qChatViewContextSuppression';
 import {
   getWalletErrorMessage,
   getWalletFieldLabel,
@@ -1178,6 +1179,9 @@ function App() {
       await cleanupAudioSurfaceBeforeLogout();
       await sendOfflineBeforeLogout();
       await cleanupReticulumAccountBeforeLogout();
+      // Drop the published view channel so a later account on the same page
+      // session cannot inherit it and have its notifications suppressed.
+      resetPublishedViewChannel();
       const response = await window.sendMessage('logout', {});
       if (response) {
         clearLastAuthenticatedWalletAddress();

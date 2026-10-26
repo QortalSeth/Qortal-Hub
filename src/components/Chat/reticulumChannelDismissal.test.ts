@@ -135,4 +135,63 @@ describe('getReticulumViewChannelPayload', () => {
       false
     );
   });
+
+  describe('channel state group gate', () => {
+    // Regression: group switch retains the previous group's channel id while
+    // the new group's metadata loads. Acting on that pair dismissed and
+    // published (newGroup, oldChannel), which cleared the wrong channel's
+    // notifications and stopped the right one being suppressed. Introduced by
+    // restoring the last-viewed channel instead of always starting on general.
+
+    it('withholds the target while the group channels are still loading', () => {
+      expect(
+        getReticulumChannelDismissalTarget({
+          ...base,
+          selectedGroup: '9',
+          // Still the previous group's loaded state.
+          channelStateGroupId: '7',
+        })
+      ).toBeNull();
+    });
+
+    it('withholds the target when no group channels have loaded', () => {
+      expect(
+        getReticulumChannelDismissalTarget({
+          ...base,
+          channelStateGroupId: '',
+        })
+      ).toBeNull();
+    });
+
+    it('targets normally once the selected group channels are loaded', () => {
+      expect(
+        getReticulumChannelDismissalTarget({
+          ...base,
+          channelStateGroupId: '7',
+        })
+      ).toEqual({ groupId: 7, channelId: 'general' });
+    });
+
+    it('publishes the not-viewing sentinel while channels are loading', () => {
+      const payload = getReticulumViewChannelPayload({
+        ...base,
+        selectedGroup: '9',
+        channelStateGroupId: '7',
+      });
+      expect(payload).toEqual(NOT_VIEWING_VIEW_CONTEXT);
+      const context = { ...payload, visible: true };
+      // Nothing suppressed for the new group, and crucially nothing suppressed
+      // for the channel retained from the previous group either.
+      expect(shouldSuppressForViewedChannel(context, 9, 'general')).toBe(false);
+      expect(shouldSuppressForViewedChannel(context, 7, 'general')).toBe(false);
+    });
+
+    it('omitting the gate keeps the previous behaviour', () => {
+      // Callers with no channel-load state must not be affected.
+      expect(getReticulumChannelDismissalTarget(base)).toEqual({
+        groupId: 7,
+        channelId: 'general',
+      });
+    });
+  });
 });

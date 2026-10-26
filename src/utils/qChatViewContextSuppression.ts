@@ -48,6 +48,66 @@ export function shouldSuppressForViewedChannel(
 }
 
 /**
+ * The channel currently on screen, held in a module-level store rather than
+ * only carried by the `qchat-view-channel` DOM event.
+ *
+ * `executeEvent` is synchronous: if `ChatGroup` publishes on mount before
+ * `WebsocketNotifications` has subscribed, the payload is dropped and the
+ * subscriber keeps its initial not-viewing sentinel. Suppression then does not
+ * apply until the user happens to switch channels — which is exactly the
+ * "notification fires for the channel I am looking at" symptom.
+ *
+ * A store that both sides read and write removes that ordering dependency.
+ * Only the *location* is stored. Visibility is evaluated live at check time by
+ * `computeQChatVisible()`, because a window can lose focus between publish and
+ * check.
+ */
+let publishedLocation: { groupId: number; channelId: string } = {
+  groupId: DEFAULT_NOT_VIEWING_GROUP_ID,
+  channelId: '',
+};
+
+/** Record the channel on screen. Called by ChatGroup whenever it changes. */
+export function setPublishedViewChannel(payload: {
+  groupId: number;
+  channelId: string;
+}): void {
+  const groupId = Number(payload?.groupId);
+  publishedLocation = {
+    groupId: Number.isFinite(groupId) ? groupId : DEFAULT_NOT_VIEWING_GROUP_ID,
+    channelId: typeof payload?.channelId === 'string' ? payload.channelId : '',
+  };
+}
+
+/** The channel on screen, combined with live window visibility. */
+export function getPublishedViewContext(): QChatViewContext {
+  return {
+    ...publishedLocation,
+    visible: computeQChatVisible(),
+  };
+}
+
+/** Clear the published channel. Used on logout and by tests. */
+export function resetPublishedViewChannel(): void {
+  publishedLocation = {
+    groupId: DEFAULT_NOT_VIEWING_GROUP_ID,
+    channelId: '',
+  };
+}
+
+/**
+ * The authoritative suppression check: is the user looking at this exact
+ * group and channel right now?
+ */
+export function isViewingChannel(groupId: number, channelId: string): boolean {
+  return shouldSuppressForViewedChannel(
+    getPublishedViewContext(),
+    groupId,
+    channelId
+  );
+}
+
+/**
  * `visible` is true only when the document is visible AND the window has focus.
  * `document.visibilityState` alone is insufficient: a focused-but-minimised
  * Electron window on Linux and Windows can still report `visible`.
