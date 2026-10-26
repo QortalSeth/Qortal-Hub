@@ -1,13 +1,36 @@
 import { createStore } from 'jotai';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   effectivePresenceStatusAtomFamily,
   onlineAddressesAtom,
+  onlineUserCountAtom,
   statusMapAtom,
   type UserStatus,
 } from './presence';
 
 const address = 'Q-test-presence-address';
+
+describe('onlineUserCountAtom', () => {
+  it('only notifies subscribers when the number of online users changes', () => {
+    const store = createStore();
+    const listener = vi.fn();
+    const unsubscribe = store.sub(onlineUserCountAtom, listener);
+
+    store.set(onlineAddressesAtom, new Set([address]));
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    store.set(onlineAddressesAtom, new Set(['Q-another-online-address']));
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    store.set(
+      onlineAddressesAtom,
+      new Set([address, 'Q-another-online-address'])
+    );
+    expect(listener).toHaveBeenCalledTimes(2);
+
+    unsubscribe();
+  });
+});
 
 describe('effectivePresenceStatusAtomFamily', () => {
   it('uses the homepage online set as the authoritative liveness source', () => {
