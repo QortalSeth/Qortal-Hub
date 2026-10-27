@@ -35,14 +35,23 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build Electron main process
-        # The reticulum tests spawn real worker threads that load
-        # electron/build/src/reticulum-resource.worker.js by absolute path.
-        # electron/build is gitignored, so without this compile the workers die
-        # with "Cannot find module" and any test touching resource work fails
-        # with "Resource worker unavailable". Keep this before the test step.
-        run: npx tsc
-        working-directory: electron
+      - name: Build test worker threads
+        # Several suites spawn real worker_threads that load
+        # electron/build/src/<name>.worker.js by absolute path. That directory is
+        # produced by a compile and is gitignored, so a bare checkout has no
+        # worker: every task fails with "Cannot find module", surfacing as
+        # "Resource worker unavailable" and intermittent failures across
+        # reticulum-chat / -resource-store / -resource-transfer.
+        # These workers only import Node builtins, so compiling them directly
+        # with esbuild (already a root devDependency) avoids installing the
+        # separate electron/ project just to typecheck main-process code.
+        run: |
+          mkdir -p electron/build/src
+          for worker in reticulum-resource reticulum-chat reticulum-media ed25519-verify; do
+            npx --no-install esbuild "electron/src/${worker}.worker.ts" \
+              --format=cjs --platform=node --target=node22 \
+              --outfile="electron/build/src/${worker}.worker.js"
+          done
 
       - name: Run tests
         # `npm test` is Vitest watch mode; it only exits in CI because Vitest
