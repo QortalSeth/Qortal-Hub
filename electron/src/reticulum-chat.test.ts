@@ -108,6 +108,11 @@ import {
   RETICULUM_RESOURCE_TRANSFER_PULL_THROTTLE_MS,
 } from './reticulum-resource-transfer';
 
+// CI runners are shared and can be far slower than a dev machine. The default
+// `vi.waitFor` poll budget (1000ms) is too tight there for worker-thread hops
+// and filesystem work, which caused intermittent failures. Allow real headroom.
+const WAIT_TIMEOUT = { timeout: 15_000 } as const;
+
 const relayCacheIt = isDisabledRelayCache ? it.skip : it;
 const relayCacheDisabledIt = isDisabledRelayCache ? it : it.skip;
 const TEST_AUTHOR_STREAM_ID = 'f'.repeat(32);
@@ -9811,9 +9816,11 @@ describe('reticulum chat manager', () => {
       },
       inboundPeerHash
     );
-    await flushAsyncWork();
-
-    expect(fanoutReticulumChatDetailed).toHaveBeenCalledTimes(1);
+    // flushAsyncWork only yields microtasks, but the relay fans out via
+    // setImmediate/timer work. Poll instead of asserting on a fixed tick count.
+    await vi.waitFor(() => {
+      expect(fanoutReticulumChatDetailed).toHaveBeenCalledTimes(1);
+    }, WAIT_TIMEOUT);
     expect((relay as any).controlRetryQueue.size).toBe(0);
     relay.close();
   });
@@ -10041,9 +10048,10 @@ describe('reticulum chat manager', () => {
       },
       inboundPeerHash
     );
-    await flushAsyncWork();
-
-    expect(fanoutReticulumChatDetailed).toHaveBeenCalledTimes(1);
+    // Same as above: fanout is queued work, not microtask work.
+    await vi.waitFor(() => {
+      expect(fanoutReticulumChatDetailed).toHaveBeenCalledTimes(1);
+    }, WAIT_TIMEOUT);
     expect((relay as any).controlRetryQueue.size).toBe(0);
     relay.close();
   });
@@ -12797,7 +12805,7 @@ describe('reticulum chat manager', () => {
       false,
       'provider-a'
     );
-    await vi.waitFor(() => expect(accepts).toHaveLength(1));
+    await vi.waitFor(() => expect(accepts).toHaveLength(1), WAIT_TIMEOUT);
     await (manager as any).requestLinkedHistoryPage(
       providerB,
       69,
@@ -12811,7 +12819,7 @@ describe('reticulum chat manager', () => {
 
     releaseFirst();
     await firstRequest;
-    await vi.waitFor(() => expect(accepts).toHaveLength(2));
+    await vi.waitFor(() => expect(accepts).toHaveLength(2), WAIT_TIMEOUT);
     expect(accepts.map((payload) => payload.peerPresenceHash)).toEqual([
       providerA,
       providerB,
@@ -12869,7 +12877,7 @@ describe('reticulum chat manager', () => {
       accepts[0].transferId,
       'resource_request_timeout'
     );
-    await vi.waitFor(() => expect(accepts).toHaveLength(2));
+    await vi.waitFor(() => expect(accepts).toHaveLength(2), WAIT_TIMEOUT);
     expect(accepts.map((payload) => payload.peerPresenceHash)).toEqual([
       providerA,
       providerB,
@@ -15173,10 +15181,12 @@ describe('reticulum chat manager', () => {
     });
 
     intermediate.handleWire(wire, inboundPeer);
-    await vi.waitFor(() =>
-      expect(direct.map(({ peer }) => peer).sort()).toEqual(
-        [sharedNextHop, otherNextHop].sort()
-      )
+    await vi.waitFor(
+      () =>
+        expect(direct.map(({ peer }) => peer).sort()).toEqual(
+          [sharedNextHop, otherNextHop].sort()
+        ),
+      WAIT_TIMEOUT
     );
     expect(direct.every(({ wire: sent }) => sent === wire)).toBe(true);
     expect((intermediate as any).pendingEventPulls.size).toBe(0);
@@ -15253,13 +15263,13 @@ describe('reticulum chat manager', () => {
 
     installRoute();
     intermediate.handleWire(wire, sourcePeer);
-    await vi.waitFor(() => expect(attempts).toBe(1));
+    await vi.waitFor(() => expect(attempts).toBe(1), WAIT_TIMEOUT);
 
     // The failed edge is pruned. Once route discovery restores it, another
     // signed copy can retry forwarding despite local notice deduplication.
     installRoute();
     intermediate.handleWire(wire, '9'.repeat(32));
-    await vi.waitFor(() => expect(attempts).toBe(2));
+    await vi.waitFor(() => expect(attempts).toBe(2), WAIT_TIMEOUT);
 
     intermediate.close();
     source.close();
@@ -15325,8 +15335,9 @@ describe('reticulum chat manager', () => {
     });
 
     intermediate.handleWire(wire, sourcePeer);
-    await vi.waitFor(() =>
-      expect(direct).toContainEqual({ peer: downstreamPeer, wire })
+    await vi.waitFor(
+      () => expect(direct).toContainEqual({ peer: downstreamPeer, wire }),
+      WAIT_TIMEOUT
     );
     expect(direct.some(({ wire: sent }) => sent.k === 'event_req')).toBe(false);
     expect((intermediate as any).pendingEventPulls.size).toBe(1);
@@ -15376,12 +15387,14 @@ describe('reticulum chat manager', () => {
     recipient.subscribeGroup(73);
 
     recipient.handleWire(wire, relayPeer);
-    await vi.waitFor(() =>
-      expect(
-        (recipient as any).pendingEventPulls.has(
-          '73:event-multihop-reverse-request'
-        )
-      ).toBe(true)
+    await vi.waitFor(
+      () =>
+        expect(
+          (recipient as any).pendingEventPulls.has(
+            '73:event-multihop-reverse-request'
+          )
+        ).toBe(true),
+      WAIT_TIMEOUT
     );
     const pending = (recipient as any).pendingEventPulls.get(
       '73:event-multihop-reverse-request'
@@ -15442,7 +15455,7 @@ describe('reticulum chat manager', () => {
 
     intermediate.handleWire(wire, sourcePeer);
     intermediate.handleWire(wire, sourcePeer);
-    await vi.waitFor(() => expect(sends).toEqual([nextHop]));
+    await vi.waitFor(() => expect(sends).toEqual([nextHop]), WAIT_TIMEOUT);
     expect((intermediate as any).controlRetryQueue.size).toBe(1);
     expect([...(intermediate as any).controlRetryQueue.values()][0]).toEqual(
       expect.objectContaining({
@@ -16630,14 +16643,14 @@ describe('reticulum chat manager', () => {
       }),
       'peer-source'
     );
-    await vi.waitFor(() => expect(emitted).toHaveLength(1));
+    await vi.waitFor(() => expect(emitted).toHaveLength(1), WAIT_TIMEOUT);
     expect(emitted[0]).not.toHaveProperty('destinationHash');
 
     manager.handleWire(
       signer.landRouteWire(73, 'late-route', destinationHash, 100_000),
       'peer-source'
     );
-    await vi.waitFor(() => expect(emitted).toHaveLength(2));
+    await vi.waitFor(() => expect(emitted).toHaveLength(2), WAIT_TIMEOUT);
     expect(emitted[1]).toMatchObject({
       sequence: 1,
       destinationHash,
@@ -16702,7 +16715,7 @@ describe('reticulum chat manager', () => {
       true,
       4
     );
-    await vi.waitFor(() => expect(emitted).toHaveLength(1));
+    await vi.waitFor(() => expect(emitted).toHaveLength(1), WAIT_TIMEOUT);
 
     expect(direct.some(({ wire }) => wire.k === 'land_state')).toBe(false);
     manager.close();
@@ -16762,10 +16775,12 @@ describe('reticulum chat manager', () => {
       4
     );
 
-    await vi.waitFor(() =>
-      expect(direct.filter(({ wire }) => wire.k === 'land_state')).toHaveLength(
-        1
-      )
+    await vi.waitFor(
+      () =>
+        expect(
+          direct.filter(({ wire }) => wire.k === 'land_state')
+        ).toHaveLength(1),
+      WAIT_TIMEOUT
     );
     expect(direct.find(({ wire }) => wire.k === 'land_state')?.peer).toBe(
       'peer-b'
@@ -16797,10 +16812,12 @@ describe('reticulum chat manager', () => {
       true,
       4
     );
-    await vi.waitFor(() =>
-      expect(direct.filter(({ wire }) => wire.k === 'land_state')).toHaveLength(
-        1
-      )
+    await vi.waitFor(
+      () =>
+        expect(
+          direct.filter(({ wire }) => wire.k === 'land_state')
+        ).toHaveLength(1),
+      WAIT_TIMEOUT
     );
     expect(direct.find(({ wire }) => wire.k === 'land_state')?.peer).toBe(
       'peer-a'
@@ -17088,8 +17105,9 @@ describe('reticulum chat manager', () => {
     const auth = signer.landAuthWire(73, 'session-relayed', 100_000);
 
     manager.handleWire({ ...auth, o: 'origin-peer', h: 0 }, 'peer-a');
-    await vi.waitFor(() =>
-      expect(validateGroupMember).toHaveBeenCalledTimes(1)
+    await vi.waitFor(
+      () => expect(validateGroupMember).toHaveBeenCalledTimes(1),
+      WAIT_TIMEOUT
     );
     await flushQueuedWork();
     const initialRevision = (manager as any).landStateForwardingRevision;
@@ -17230,7 +17248,7 @@ describe('reticulum chat manager', () => {
 
     await vi.waitFor(() => {
       expect(direct.some(({ wire }) => wire.k === 'land_state')).toBe(true);
-    });
+    }, WAIT_TIMEOUT);
 
     direct.length = 0;
     (manager as any).landStateForwardingSnapshotDirty = true;
@@ -17251,7 +17269,7 @@ describe('reticulum chat manager', () => {
 
     await vi.waitFor(() => {
       expect(direct.some(({ wire }) => wire.k === 'land_state')).toBe(true);
-    });
+    }, WAIT_TIMEOUT);
     manager.close();
   });
 
@@ -17292,7 +17310,10 @@ describe('reticulum chat manager', () => {
     clearTimeout((manager as any).landStateForwardingSyncTimer);
     (manager as any).landStateForwardingSyncTimer = null;
     const oldApply = (manager as any).applyLandStateForwardingSnapshot();
-    await vi.waitFor(() => expect(oldConfigure).toHaveBeenCalledTimes(1));
+    await vi.waitFor(
+      () => expect(oldConfigure).toHaveBeenCalledTimes(1),
+      WAIT_TIMEOUT
+    );
 
     manager.setBridge(newBridge);
     await new Promise((resolve) => setImmediate(resolve));
@@ -17301,7 +17322,10 @@ describe('reticulum chat manager', () => {
     expect(resolveOldSnapshot).not.toBeNull();
     resolveOldSnapshot?.({ ok: true });
     await oldApply;
-    await vi.waitFor(() => expect(newConfigure).toHaveBeenCalledTimes(1));
+    await vi.waitFor(
+      () => expect(newConfigure).toHaveBeenCalledTimes(1),
+      WAIT_TIMEOUT
+    );
 
     manager.close();
   });
@@ -21956,7 +21980,10 @@ describe('reticulum chat manager', () => {
       peerPresenceHash: requesterPeerHash,
       auth: authRequest,
     });
-    await vi.waitFor(() => expect(authorizations).toHaveLength(2));
+    await vi.waitFor(
+      () => expect(authorizations).toHaveLength(2),
+      WAIT_TIMEOUT
+    );
 
     const expectedPayloadHash = nodeCrypto
       .createHash('sha256')
@@ -22217,7 +22244,10 @@ describe('reticulum chat manager', () => {
         requesterPeerHash,
       },
     });
-    await vi.waitFor(() => expect(offeredResources).toHaveLength(1));
+    await vi.waitFor(
+      () => expect(offeredResources).toHaveLength(1),
+      WAIT_TIMEOUT
+    );
 
     expect(rejections).toEqual([]);
     expect(offeredResources).toHaveLength(1);
@@ -22415,7 +22445,10 @@ describe('reticulum chat manager', () => {
         requesterPeerHash: 'a'.repeat(32),
       },
     });
-    await vi.waitFor(() => expect(offeredResources).toHaveLength(1));
+    await vi.waitFor(
+      () => expect(offeredResources).toHaveLength(1),
+      WAIT_TIMEOUT
+    );
 
     expect(
       resourceStore.getManifest(manifest.fileHash)?.metadata?.groupId
@@ -23186,8 +23219,9 @@ describe('reticulum chat manager', () => {
     });
 
     manager.handleWire(findWire, '2'.repeat(32));
-    await vi.waitFor(() =>
-      expect(validateGroupMember).toHaveBeenCalledTimes(1)
+    await vi.waitFor(
+      () => expect(validateGroupMember).toHaveBeenCalledTimes(1),
+      WAIT_TIMEOUT
     );
 
     expect(direct.some((item) => item.wire.k === 'resource_have')).toBe(false);
@@ -23261,8 +23295,9 @@ describe('reticulum chat manager', () => {
     });
 
     manager.handleWire(findWire, '2'.repeat(32));
-    await vi.waitFor(() =>
-      expect(validateGroupMember).toHaveBeenCalledTimes(1)
+    await vi.waitFor(
+      () => expect(validateGroupMember).toHaveBeenCalledTimes(1),
+      WAIT_TIMEOUT
     );
 
     expect(
@@ -31030,7 +31065,7 @@ describe('reticulum chat manager', () => {
         requesterPeerHash,
       },
     });
-    await vi.waitFor(() => expect(sentResources).toHaveLength(1));
+    await vi.waitFor(() => expect(sentResources).toHaveLength(1), WAIT_TIMEOUT);
 
     expect(rejections).toEqual([]);
     const page = JSON.parse(
@@ -35695,8 +35730,9 @@ describe('reticulum chat manager', () => {
     manager.handleWire(badWire, 'peer-notice');
     expect((manager as any).pendingEventPulls.size).toBe(0);
     manager.handleWire(wire, 'peer-notice');
-    await vi.waitFor(() =>
-      expect((manager as any).pendingEventPulls.size).toBe(1)
+    await vi.waitFor(
+      () => expect((manager as any).pendingEventPulls.size).toBe(1),
+      WAIT_TIMEOUT
     );
     manager.close();
   });

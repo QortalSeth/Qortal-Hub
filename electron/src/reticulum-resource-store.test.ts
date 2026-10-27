@@ -930,9 +930,14 @@ describe('reticulum resource store', () => {
     stores.push(reopened);
 
     expect(reopened.getVerifiedAssembledPath(manifest.fileHash)).toBe(null);
-    await vi.waitFor(() => {
-      expect(reopened.getStorageStatus().totalResidentBytes).toBe(0);
-    });
+    // Startup reconciliation runs in the background. The default 1s poll budget
+    // is exceeded on a loaded CI runner, so allow a generous margin.
+    await vi.waitFor(
+      () => {
+        expect(reopened.getStorageStatus().totalResidentBytes).toBe(0);
+      },
+      { timeout: 10_000 }
+    );
     expect(reopened.getManifest(manifest.fileHash)).toBeTruthy();
   });
 
@@ -981,14 +986,19 @@ describe('reticulum resource store', () => {
     });
     stores.push(reopened);
 
-    await vi.waitFor(() => {
-      expect(reopened.getVerifiedAssembledPath(manifest.fileHash)).toBe(
-        assembledPath
-      );
-      expect(reopened.getStorageStatus().totalResidentBytes).toBe(
-        contents.length
-      );
-    });
+    // Recovery scans the blobs directory on open, which is I/O bound and easily
+    // exceeds the 1s default poll budget on a shared CI filesystem.
+    await vi.waitFor(
+      () => {
+        expect(reopened.getVerifiedAssembledPath(manifest.fileHash)).toBe(
+          assembledPath
+        );
+        expect(reopened.getStorageStatus().totalResidentBytes).toBe(
+          contents.length
+        );
+      },
+      { timeout: 10_000 }
+    );
   });
 
   it('assembles public resources to the original safe filename', () => {
@@ -1922,11 +1932,14 @@ describe('reticulum resource store', () => {
       );
       await writeStarted;
       const discard = store.discardResourceDataAsync(manifest.fileHash);
-      await vi.waitFor(() => {
-        expect((store as any).evictingFileHashes.has(manifest.fileHash)).toBe(
-          true
-        );
-      });
+      await vi.waitFor(
+        () => {
+          expect((store as any).evictingFileHashes.has(manifest.fileHash)).toBe(
+            true
+          );
+        },
+        { timeout: 10_000 }
+      );
 
       continueWrite();
       await expect(write).rejects.toThrow(/reclaimed/);
