@@ -35,26 +35,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build test worker threads
-        # Several suites spawn real worker_threads that load
-        # electron/build/src/<name>.worker.js by absolute path. That directory is
-        # produced by a compile and is gitignored, so a bare checkout has no
-        # worker: every task fails with "Cannot find module", surfacing as
-        # "Resource worker unavailable" and intermittent failures across
-        # reticulum-chat / -resource-store / -resource-transfer.
-        # These workers only import Node builtins, so compiling them directly
-        # with esbuild (already a root devDependency) avoids installing the
-        # separate electron/ project just to typecheck main-process code.
-        run: |
-          mkdir -p electron/build/src
-          for worker in reticulum-resource reticulum-chat reticulum-media ed25519-verify; do
-            npx --no-install esbuild "electron/src/${worker}.worker.ts" \
-              --format=cjs --platform=node --target=node22 \
-              --outfile="electron/build/src/${worker}.worker.js"
-          done
-
       - name: Run tests
-        # `npm test` is Vitest watch mode; it only exits in CI because Vitest
-        # implicitly detects CI=true. Run explicitly so the behaviour does not
-        # depend on that detection.
-        run: npx vitest run
+        # Must go through `npm test`, not `npx vitest run`: the `pretest` script
+        # compiles the worker threads that several suites spawn by absolute path
+        # (electron/build/src/*.worker.js, a gitignored build output). Bypassing
+        # it leaves those workers missing and the reticulum suites fail with
+        # "Cannot find module" / "Resource worker unavailable".
+        # `-- --run` disables Vitest watch mode explicitly rather than relying on
+        # Vitest inferring it from CI=true.
+        run: npm test -- --run

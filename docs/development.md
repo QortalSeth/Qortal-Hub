@@ -17,6 +17,24 @@ Follow these steps:
 - `npm run dev`
 - open the browser at page `http://localhost:5173/`
 
+## Running tests
+
+```bash
+npm test             # watch mode
+npm test -- --run    # single run, as CI does
+npx vitest run <path>  # one file (also watch-free)
+```
+
+Run tests through `npm test`, not `npx vitest` directly, at least once from a
+clean checkout. The `pretest` script compiles the worker threads in
+`electron/src/*.worker.ts` into `electron/build/src/`, which is a gitignored
+build output. Several Reticulum suites spawn those workers by absolute path, so
+without the compile they fail with `Cannot find module
+'.../electron/src/reticulum-resource.worker.js'` — which surfaces as the
+misleading `Resource worker unavailable during assembly` rather than anything
+mentioning a missing build. `npx vitest run <path>` is fine once the workers
+exist.
+
 Electron development with Reticulum networking:
 
 - install root dependencies: `npm install`
