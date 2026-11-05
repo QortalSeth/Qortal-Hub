@@ -128,6 +128,10 @@
     "enter_qortal_land": "Qortal Landに入る",
     "return_to_chat": "チャットに戻る"
   },
+  "notification": {
+    "someone": "誰か",
+    "welcome_joined": "{{name}}がグループ{{groupName}}に参加しました"
+  },
   "onboarding": {
     "find_communities": "コミュニティを探す",
     "invite_error_invalid": "これは有効なQortalグループの招待リンクではないようです。",

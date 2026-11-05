@@ -3059,8 +3059,18 @@ export const fireOsNotificationPayment = async (
         if (osPushDisabled) return;
       }
 
+      // Keyed on the event when one is supplied, so the main-process sink can
+      // dedupe: it replaces an entry with the same id rather than adding a
+      // second one. `Date.now()` here meant every call looked like a new
+      // notification, so a post that reached two handlers produced two desktop
+      // notifications no matter what the renderer decided.
+      //
+      // Non-Q-Chat notifications (payments, app resources) have no eventId and
+      // keep the clock-derived id.
       const notificationId = encodeURIComponent(
-        'general_notification_' + Date.now() + '_type=general-notification'
+        eventId
+          ? `q-chat_notification_${eventId}`
+          : 'general_notification_' + Date.now() + '_type=general-notification'
       );
 
       generalNotificationPayloadById.set(

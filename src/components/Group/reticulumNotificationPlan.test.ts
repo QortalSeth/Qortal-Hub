@@ -234,12 +234,71 @@ describe('welcome posts', () => {
     expect(plan.suppressMention).toBe(true);
   });
 
-  it('emits normally when welcome-post notifications are enabled', async () => {
+  it('emits the welcome kind when welcome-post notifications are enabled', async () => {
     const plan = await planReticulumNotifications(
       input({ isWelcomePost: true, notifyOnWelcomePosts: true }),
       makeDeps()
     );
-    expect(plan.kind).toBe('message');
+    // A join notice is more specific than "posted in channel", so it no longer
+    // borrows the generic message kind.
+    expect(plan.kind).toBe('welcome');
+    expect(plan.welcome).toBe(true);
+    expect(plan.message).toBe(false);
+  });
+
+  it('keeps the welcome kind above the generic message', async () => {
+    const plan = await planReticulumNotifications(
+      input({
+        isWelcomePost: true,
+        notifyOnWelcomePosts: true,
+        recordMentionNotification: true,
+      }),
+      makeDeps()
+    );
+    expect(plan.kind).toBe('welcome');
+  });
+
+  it('prefers a welcome over a mention of the reader', async () => {
+    // A welcome post self-mentions its author, so `isDirectMention` is true for
+    // the joiner. With mention ranked first, that reader got a mention
+    // notification for someone joining rather than a join notice.
+    const plan = await planReticulumNotifications(
+      input({
+        isWelcomePost: true,
+        notifyOnWelcomePosts: true,
+        recordMentionNotification: true,
+      }),
+      makeDeps({ isDirectMention: () => true })
+    );
+    expect(plan.kind).toBe('welcome');
+    expect(plan.welcome).toBe(true);
+    expect(plan.mention).toBe(false);
+  });
+
+  it('prefers a welcome over an authorized @everyone mention', async () => {
+    const plan = await planReticulumNotifications(
+      input({
+        isWelcomePost: true,
+        notifyOnWelcomePosts: true,
+        recordMentionNotification: true,
+      }),
+      makeDeps({ isAuthorizedBroadcast: () => true })
+    );
+    expect(plan.kind).toBe('welcome');
+    expect(plan.mention).toBe(false);
+  });
+
+  it('still prefers a reply over a welcome', async () => {
+    const plan = await planReticulumNotifications(
+      input({
+        isWelcomePost: true,
+        notifyOnWelcomePosts: true,
+        repliedToEventId: 'evt-parent',
+      }),
+      makeDeps({ lookupReplyParentAuthor: async () => MY_ADDRESS })
+    );
+    expect(plan.kind).toBe('reply');
+    expect(plan.welcome).toBe(false);
   });
 });
 
@@ -271,14 +330,17 @@ describe('one notification per post — exhaustive', () => {
                     })
                   );
                   expectAtMostOne(plan);
-                  // `kind` must agree with the booleans.
+                  // `kind` must agree with the booleans, in precedence order:
+                  // reply > welcome > mention > message.
                   const expected = plan.reply
                     ? 'reply'
-                    : plan.mention
-                      ? 'mention'
-                      : plan.message
-                        ? 'message'
-                        : null;
+                    : plan.welcome
+                      ? 'welcome'
+                      : plan.mention
+                        ? 'mention'
+                        : plan.message
+                          ? 'message'
+                          : null;
                   expect(plan.kind).toBe(expected);
                 }
               }

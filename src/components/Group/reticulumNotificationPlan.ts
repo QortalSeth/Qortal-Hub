@@ -22,10 +22,14 @@
  * is now a plain function over injected dependencies: the async lookups are
  * parameters, so the whole sequence is deterministic and testable.
  *
- * Invariant: at most one of `reply` / `mention` / `message` is true.
+ * Invariant: at most one of `reply` / `mention` / `welcome` / `message` is true.
  */
 
-export type ReticulumNotificationKind = 'reply' | 'mention' | 'message';
+export type ReticulumNotificationKind =
+  | 'reply'
+  | 'mention'
+  | 'welcome'
+  | 'message';
 
 export interface NotificationPlanInput {
   /** The post is a message (not an edit, delete, reaction, or metadata event). */
@@ -80,11 +84,17 @@ export interface NotificationPlan {
   reply: boolean;
   /** Emit a mention notification. */
   mention: boolean;
+  /** Emit a "member joined" notification for a welcome post. */
+  welcome: boolean;
   /** Emit the generic "posted in channel" notification. */
   message: boolean;
   /**
-   * The single kind to emit, or `null` for none. Derived from the three
-   * booleans above; present so callers cannot accidentally emit two.
+   * The single kind to emit, or `null` for none. Derived from the booleans
+   * above; present so callers cannot accidentally emit two.
+   *
+   * Precedence, most specific first:
+   *
+   *   reply > welcome > mention > message
    */
   kind: ReticulumNotificationKind | null;
   /** True when a welcome post had mention notifications suppressed. */
@@ -97,6 +107,7 @@ export interface NotificationPlan {
 const EMPTY_PLAN: NotificationPlan = {
   reply: false,
   mention: false,
+  welcome: false,
   message: false,
   kind: null,
   suppressMention: false,
@@ -138,8 +149,23 @@ export async function planReticulumNotifications(
   }
 
   // ---- welcome-post suppression -----------------------------------------
+  // A member who turned welcome posts off gets nothing for them at all: not the
+  // welcome kind, not the mention the post carries, and not the generic
+  // fallback.
   const suppressMention =
     input.isWelcomePost && input.notifyOnWelcomePosts === false;
+
+  // ---- welcome -----------------------------------------------------------
+  // Its own kind rather than a generic "posted in channel": a welcome post says
+  // someone joined, and the OS notification should say that too.
+  //
+  // Above `mention` on purpose. A welcome post self-mentions its author — that
+  // is how the post renders the joiner's name — and it can also carry an
+  // `@everyone`. With `mention` first, a reader who has mention notifications
+  // enabled received a *mention* notification for someone joining. A join
+  // notice is a join notice; only a reply outranks it.
+  const welcome =
+    !reply && !suppressMention && input.isMessage && input.isWelcomePost;
 
   // ---- mention -----------------------------------------------------------
   let mention = false;
@@ -147,6 +173,7 @@ export async function planReticulumNotifications(
   let directMention = false;
   if (
     !reply &&
+    !welcome &&
     input.recordMentionNotification &&
     !suppressMention &&
     input.isMessage
@@ -164,6 +191,7 @@ export async function planReticulumNotifications(
   // the reader authored, nor for a broadcast/mention that already notified.
   const message =
     !reply &&
+    !welcome &&
     !mention &&
     !suppressMention &&
     input.recordMentionNotification &&
@@ -173,15 +201,18 @@ export async function planReticulumNotifications(
 
   const kind: ReticulumNotificationKind | null = reply
     ? 'reply'
-    : mention
-      ? 'mention'
-      : message
-        ? 'message'
-        : null;
+    : welcome
+      ? 'welcome'
+      : mention
+        ? 'mention'
+        : message
+          ? 'message'
+          : null;
 
   return {
     reply,
     mention,
+    welcome,
     message,
     kind,
     suppressMention,

@@ -13,10 +13,12 @@
  * `fireOsNotificationPayment`, which calls `window.reticulumChat.showNotification`.
  * This module stops at the same boundary and records what crossed it.
  *
- * What it does NOT cover: the push-level gate (`shouldFirePushNotification`),
- * per-channel mute storage, and the OS presentation itself. A scenario that
- * needs those should call the real functions directly rather than trusting this
- * module to be faithful.
+ * The push-level gate is covered too, by `notification-push-gate`, via
+ * {@link loadNotificationPolicy}. Its absence was a real gap: every other
+ * notification scenario asserted on the plan and the sink, so a post that
+ * reached two handlers produced two OS notifications with a green suite.
+ *
+ * Still NOT covered: per-channel mute storage and the OS presentation itself.
  */
 
 const NOTIFICATION_PLAN_PATH = new URL(
@@ -24,10 +26,16 @@ const NOTIFICATION_PLAN_PATH = new URL(
   import.meta.url
 ).pathname;
 
-/** The three event names `Group.tsx` emits and `WebsocketNotifications` listens for. */
+const NOTIFICATION_POLICY_PATH = new URL(
+  '../../src/components/Group/reticulumNotificationPrecedence.ts',
+  import.meta.url
+).pathname;
+
+/** The event names `Group.tsx` emits and `WebsocketNotifications` listens for. */
 export const NOTIFICATION_EVENT_BY_KIND = {
   reply: 'q-chat-reply-notification',
   mention: 'q-chat-mention-notification',
+  welcome: 'q-chat-welcome-notification',
   message: 'q-chat-message-notification',
 };
 
@@ -47,6 +55,27 @@ export async function loadNotificationPlan() {
     );
   }
   return cachedPlanModule;
+}
+
+let cachedPolicyModule = null;
+
+/**
+ * The real `resolveOsNotificationKind` / `OsNotificationClaims` — the gate every
+ * `WebsocketNotifications` handler calls.
+ *
+ * Loadable by type stripping for the same reason as the plan module: it imports
+ * nothing. If that ever stops being true, this throws rather than silently
+ * testing a stale copy.
+ */
+export async function loadNotificationPolicy() {
+  if (cachedPolicyModule) return cachedPolicyModule;
+  cachedPolicyModule = await import(NOTIFICATION_POLICY_PATH);
+  if (typeof cachedPolicyModule.OsNotificationClaims !== 'function') {
+    throw new Error(
+      `reticulumNotificationPrecedence.ts no longer exports OsNotificationClaims`
+    );
+  }
+  return cachedPolicyModule;
 }
 
 /**

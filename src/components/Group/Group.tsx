@@ -3153,7 +3153,8 @@ export const Group = ({
             );
             return store ? isScopeMuted(store, undefined, channelId) : false;
           },
-          isAuthorizedBroadcast: () => authorizedReticulumBroadcastApplies(event),
+          isAuthorizedBroadcast: () =>
+            authorizedReticulumBroadcastApplies(event),
           isDirectMention: () => event.directMentionAuthorized === true,
         }
       );
@@ -3182,6 +3183,24 @@ export const Group = ({
           text,
           senderName
         );
+      }
+
+      if (notificationPlan.welcome) {
+        // The joiner's own display name is carried in the signed payload
+        // (`qchatSystem.joinedName`), so it does not depend on the reader's name
+        // cache being warm — which it is not, for someone they just met.
+        const joinedName =
+          String((payload as any)?.qchatSystem?.joinedName || '').trim() ||
+          senderName;
+        executeEvent('q-chat-welcome-notification', {
+          channelId,
+          eventId: String(event.eventId || ''),
+          groupId,
+          groupName,
+          joinedName,
+          senderName: joinedName,
+          timestamp: Number(event.timestamp || Date.now()),
+        });
       }
 
       if (notificationPlan.message) {

@@ -104,6 +104,7 @@ file instead:
 | `notification-generic`             | `'resource'` |
 | `notification-mention`             | `'resource'` |
 | `notification-own-post`            | `'resource'` |
+| `notification-push-gate`           | `'direct'`   |
 | `notification-reaction`            | `'resource'` |
 | `notification-reply`               | `'resource'` |
 | `notification-reply-beats-mention` | `'resource'` |
@@ -166,17 +167,27 @@ without a desktop session.
 
 ### 2.4 What is proven, today
 
-| Area                                                | Covered headlessly           |
-| --------------------------------------------------- | ---------------------------- |
-| Group message delivery                              | Yes, over the real transport |
-| Notification precedence (reply > mention > generic) | Yes, 6 scenarios             |
-| Mention authorisation derived from signed hashes    | Yes                          |
-| Own-post suppression                                | Yes                          |
-| Reaction does not produce a generic notification    | Yes                          |
-| Notification registry cap / eviction / dedupe       | Yes, unit tests              |
-| Show-time suppression (viewed channel)              | Yes, unit tests              |
-| Address validators reject malformed input           | Yes, 6 regression tests      |
-| Test-mode gate parsing and refusals                 | Yes, 13 unit tests           |
+| Area                                                          | Covered headlessly            |
+| ------------------------------------------------------------- | ----------------------------- |
+| Group message delivery                                        | Yes, over the real transport  |
+| Notification precedence (reply > welcome > mention > generic) | Yes, 8 scenarios              |
+| Push level: "all" / "mentions" / "none"                       | Yes, `notification-push-gate` |
+| A mention under "all" presents once, not twice                | Yes, `notification-push-gate` |
+| Reply and reaction honour their own settings                  | Yes, `notification-push-gate` |
+| At most one OS notification per eventId                       | Yes, `OsNotificationClaims`   |
+| Mention authorisation derived from signed hashes              | Yes                           |
+| Own-post suppression                                          | Yes                           |
+| Reaction does not produce a generic notification              | Yes                           |
+| Notification registry cap / eviction / dedupe                 | Yes, unit tests               |
+| Show-time suppression (viewed channel)                        | Yes, unit tests               |
+| Address validators reject malformed input                     | Yes, 6 regression tests       |
+| Test-mode gate parsing and refusals                           | Yes, 13 unit tests            |
+
+An earlier version of this table said the push-level gate was covered. It was
+not — the harness had a comment saying so, and a real bug shipped through the
+gap: with "All Messages" on, a post that mentioned the reader produced two
+desktop notifications, one for the mention and one for the generic post. See
+§3.7 for what that cost and what closed it.
 
 ---
 
@@ -274,6 +285,39 @@ explicitly in `.github/workflows/scenarios.yml`. This is a real papercut: a stal
 `electron/build/` produces confusing failures — a new module simply does not
 exist, or an old signature is used.
 
+### 3.7 The bug that shipped through the gap
+
+Worth recording in full, because the shape recurs.
+
+With push level "All Messages", a post that mentioned the reader produced **two
+desktop notifications**: one for the mention, one for the generic "posted in
+channel". For a post that also replied, it produced **three**.
+
+The notification scenarios were green throughout. They asserted on
+`planReticulumNotifications`, which guarantees `Group.tsx` emits one _event_ per
+post — and that was never broken. The duplication was downstream, in
+`WebsocketNotifications.tsx`, where four handlers each owned a private "already
+notified this eventId" `Set`:
+
+- a mention passed the mention gate _and_ the generic gate, because
+  `shouldFirePushNotification` returns `true` unconditionally at push level
+  `'all'`;
+- reply and reaction never called that function at all, so they ignored both the
+  push level and `notifyOnReplies` / `notifyOnReactions` — settings the emitter
+  _did_ honour, so the two disagreed;
+- `background.ts` keyed the notification id on `Date.now()`, so the main-process
+  sink's dedupe could never engage either.
+
+The harness had a comment stating the push gate was out of scope. That comment
+was accurate and was the whole problem: **a suite that names its blind spot has
+not covered it.**
+
+Closed by: `reticulumNotificationPrecedence.ts` gaining
+`resolveOsNotificationKind` + `OsNotificationClaims`, all four handlers asking
+that one question, the sync-unread guard moved ahead of the bell-entry rebuild,
+and a stable per-event id. Plus `notification-push-gate`, twelve assertions on
+the real gate, so the next regression is caught rather than reasoned about.
+
 ---
 
 ## 4. Where the numbers stand
@@ -291,6 +335,12 @@ changes, **7 are now automated**.
 
 The 14 share one cause: they assert on **renderer state** rather than on a
 decision with a pure surface.
+
+Note what the 7 did and did not buy. The precedence change was marked fully
+automated, and the scenarios were green — yet a real duplicate-notification bug
+lived behind them for as long as they existed, because "exactly one event is
+emitted" was mistaken for "exactly one notification is shown". Automated counts
+measure what a suite asserts, not what the product does.
 
 ---
 

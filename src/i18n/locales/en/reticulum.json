@@ -125,6 +125,10 @@
     "enter_qortal_land": "Enter Qortal Land",
     "return_to_chat": "Return to Chat"
   },
+  "notification": {
+    "someone": "someone",
+    "welcome_joined": "{{name}} has joined the {{groupName}} group"
+  },
   "onboarding": {
     "find_communities": "Find Communities",
     "invite_error_invalid": "This doesn't look like a valid Qortal group invite link.",
@@ -219,9 +223,9 @@
       "delivery_description": "Choose how Q-Chat push notifications are delivered to your system.",
       "delivery_ephemeral": "Use Ephemeral Notifications",
       "delivery_ephemeral_tooltip": "Ephemeral notifications are gone forever after the preview disappears.",
-      "delivery_title": "Notification Delivery",
       "delivery_native": "Use Push Notifications",
       "delivery_native_tooltip": "Push notifications go into your OS Notification Manager after the preview disappears.",
+      "delivery_title": "Notification Delivery",
       "description": "Configure notification preferences that apply to all of your groups at once. Per-section and per-channel overrides are preserved.",
       "revert_button": "Revert to Defaults",
       "title": "Notifications"

@@ -128,6 +128,10 @@
     "enter_qortal_land": "Sisene Qortal Landi",
     "return_to_chat": "Tagasi vestlusesse"
   },
+  "notification": {
+    "someone": "keegi",
+    "welcome_joined": "{{name}} liitus grupiga {{groupName}}"
+  },
   "onboarding": {
     "find_communities": "Leia kogukondi",
     "invite_error_invalid": "See ei tundu olevat kehtiv Qortali rühma kutselink.",

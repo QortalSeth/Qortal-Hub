@@ -32,10 +32,15 @@ import {
   getGroupNotificationStore,
   getNotificationDeliveryMethod,
   isScopeMuted,
-  shouldFirePushNotification,
   shouldSuppressForMutedChannel,
   getWelcomeUnreadCount,
+  type EffectiveNotificationSettings,
 } from '../../utils/qChatNotificationSettings';
+import {
+  OsNotificationClaims,
+  type OsNotificationFacts,
+  type OsNotificationKind,
+} from './reticulumNotificationPrecedence';
 import {
   isHubBeingViewed,
   shouldNotifyForReticulumDm,
@@ -53,6 +58,25 @@ import {
 } from '../../utils/qChatViewContextSuppression';
 import { MAX_NOTIFICATION_PREVIEW_CHARS } from '../../constants/notificationConstants';
 import qortPng from '../../assets/qort.png';
+
+/**
+ * Ask the shared gate whether this handler may present this kind for this event.
+ *
+ * Every Q-Chat handler calls this instead of its own `Set`, so the answer cannot
+ * differ between handlers. See `reticulumNotificationPrecedence.ts` for why the
+ * decision lives there — it is imported by the scenario harness as source, so it
+ * must stay free of imports.
+ */
+const mayPresentQChatOsNotification = (
+  claims: OsNotificationClaims,
+  eventId: string,
+  settings: EffectiveNotificationSettings | null | undefined,
+  facts: OsNotificationFacts,
+  kind: OsNotificationKind
+): boolean => {
+  if (!settings) return false;
+  return claims.claimIfPermitted(eventId, settings, facts, kind);
+};
 
 /**
  * Suppression decision for a notification about (groupId, channelId).
@@ -79,7 +103,8 @@ const isReticulumCalendarNotification = (notification: any) =>
   notification?.data?.reticulumCalendarReminder === true;
 
 const NOTIFICATION_AGE_MS = 3 * 24 * 60 * 60 * 1000;
-const QCHAT_MENTION_OS_NOTIFICATION_MAX_TRACKED = 500;
+// The per-handler `Set`s and their cap were replaced by
+// `OsNotificationClaims`, which owns the cap for all four kinds at once.
 const RETICULUM_DM_OS_NOTIFICATION_MAX_TRACKED = 500;
 
 const getNotificationCreatorTimestamp = (notification: {
@@ -182,10 +207,17 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
   const namesAbortControllerRef = useRef<AbortController | null>(null);
   const listOfMyNamesRef = useRef<string[]>([]);
   const initWebsocketRef = useRef<(() => Promise<void>) | null>(null);
-  const qChatMentionOsNotifiedEventIdsRef = useRef<Set<string>>(new Set());
-  const qChatReplyOsNotifiedEventIdsRef = useRef<Set<string>>(new Set());
-  const qChatMessageOsNotifiedEventIdsRef = useRef<Set<string>>(new Set());
-  const qChatReactionOsNotifiedEventIdsRef = useRef<Set<string>>(new Set());
+  /**
+   * At most one OS notification per event, across all four handlers.
+   *
+   * Replaces four independent `Set`s. Ownership was the bug: each handler only
+   * knew whether *it* had already notified an event, so a mention and a generic
+   * message could both present for the same post, and reply/reaction never
+   * consulted the push-level settings at all.
+   */
+  const qChatOsNotificationClaimsRef = useRef<OsNotificationClaims>(
+    new OsNotificationClaims()
+  );
   const reticulumDmOsNotifiedEventIdsRef = useRef<Set<string>>(new Set());
   const currentViewContextRef = useRef<QChatViewContext>({
     groupId: -1,
@@ -622,14 +654,12 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
         globalNotifFormRef.current
       ).catch(() => null);
 
+      // The pair of conditions that used to be inline here — push level plus
+      // muted-channel — are now the shared gate's job, so this handler and the
+      // generic one cannot disagree about whether a mention also deserves a
+      // "posted in channel" notification.
       const shouldPush =
         effectiveSettings != null &&
-        shouldFirePushNotification(
-          effectiveSettings,
-          true,
-          isEveryoneOrHere,
-          false
-        ) &&
         !shouldSuppressForMutedChannel(
           channelMuted,
           effectiveSettings.pushLevel,
@@ -659,6 +689,17 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
           // The stable ID remains a useful fallback while metadata is syncing.
         }
       }
+      // A summaries refresh must not resurrect the bell entry for the channel
+      // the user is looking at. The sync guard used to sit only on the OS-emit
+      // block below, so the entry was rebuilt first and the suppression check
+      // never ran for this path.
+      if (
+        isUnreadCountSync &&
+        shouldSuppressForCurrentView(currentViewContextRef, groupId, channelId)
+      ) {
+        return;
+      }
+
       setPaymentNotifications((previous) => {
         const trimmed = trimNotificationsToLast3Days(previous);
         const existing = trimmed.find(
@@ -766,26 +807,19 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
           ),
         ];
       });
-
       // Unread-count synchronization rebuilds the Hub notification state and
       // must not replay old mentions as OS notifications.
       if (
         shouldPush &&
         !isUnreadCountSync &&
-        !qChatMentionOsNotifiedEventIdsRef.current.has(eventId)
+        mayPresentQChatOsNotification(
+          qChatOsNotificationClaimsRef.current,
+          eventId,
+          effectiveSettings,
+          { isMentionOfMe: true, isEveryoneOrHere },
+          'mention'
+        )
       ) {
-        qChatMentionOsNotifiedEventIdsRef.current.add(eventId);
-        if (
-          qChatMentionOsNotifiedEventIdsRef.current.size >
-          QCHAT_MENTION_OS_NOTIFICATION_MAX_TRACKED
-        ) {
-          const oldestEventId = qChatMentionOsNotifiedEventIdsRef.current
-            .values()
-            .next().value;
-          if (oldestEventId) {
-            qChatMentionOsNotifiedEventIdsRef.current.delete(oldestEventId);
-          }
-        }
         const mentionSender = detail.senderName || 'Someone';
         const mentionText = detail.messageText || '';
         if (
@@ -870,15 +904,25 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
         // The stable ID remains a useful fallback while metadata is syncing.
       }
 
-      if (qChatReplyOsNotifiedEventIdsRef.current.has(eventId)) return;
-      qChatReplyOsNotifiedEventIdsRef.current.add(eventId);
-      if (qChatReplyOsNotifiedEventIdsRef.current.size > 500) {
-        const oldestEventId = qChatReplyOsNotifiedEventIdsRef.current
-          .values()
-          .next().value;
-        if (oldestEventId !== undefined) {
-          qChatReplyOsNotifiedEventIdsRef.current.delete(oldestEventId);
-        }
+      // Reply used to skip the push gate entirely, so `pushLevel: 'none'` with
+      // `notifyOnReplies: false` still produced a notification. It now asks the
+      // same question as every other handler.
+      const replySettings = await getEffectiveNotificationSettings(
+        groupId,
+        undefined,
+        channelId,
+        globalNotifFormRef.current
+      ).catch(() => null);
+      if (
+        !mayPresentQChatOsNotification(
+          qChatOsNotificationClaimsRef.current,
+          eventId,
+          replySettings,
+          { isReplyToMe: true },
+          'reply'
+        )
+      ) {
+        return;
       }
 
       if (
@@ -916,6 +960,101 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
       );
     };
 
+    /**
+     * "Someone joined the group", its own kind rather than a generic post.
+     *
+     * Title only. The channel name would be noise — a welcome always lands in
+     * `general` — so the notice is one interpolated sentence in the title and
+     * the body is left empty rather than repeating it. Kept as a single key,
+     * never concatenated fragments, because word order differs across the
+     * twelve locales.
+     */
+    const handleQChatWelcomeNotification = async (
+      event: CustomEvent<{
+        channelId?: string;
+        eventId?: string;
+        groupId?: number;
+        groupName?: string;
+        joinedName?: string;
+        senderName?: string;
+        timestamp?: number;
+      }>
+    ) => {
+      const detail = event.detail;
+      const eventId = String(detail?.eventId || '');
+      const groupId = Number(detail?.groupId);
+      if (!eventId || !Number.isFinite(groupId)) return;
+
+      const channelId = String(detail?.channelId || 'general');
+      const groupName =
+        String(detail?.groupName || '').trim() || `Group ${groupId}`;
+      const joinedName =
+        String(detail?.joinedName || detail?.senderName || '').trim() ||
+        i18n.t('reticulum:notification.someone');
+
+      const welcomeGroupStore = await getGroupNotificationStore(groupId).catch(
+        () => null
+      );
+      const welcomeMuted = welcomeGroupStore
+        ? isScopeMuted(welcomeGroupStore, undefined, channelId)
+        : false;
+      if (welcomeMuted) return;
+
+      const welcomeSettings = await getEffectiveNotificationSettings(
+        groupId,
+        undefined,
+        channelId,
+        globalNotifFormRef.current
+      ).catch(() => null);
+      if (
+        !mayPresentQChatOsNotification(
+          qChatOsNotificationClaimsRef.current,
+          eventId,
+          welcomeSettings,
+          { isWelcomePost: true },
+          'welcome'
+        )
+      ) {
+        return;
+      }
+
+      if (
+        shouldSuppressForCurrentView(currentViewContextRef, groupId, channelId)
+      )
+        return;
+
+      const welcomeText = i18n.t('reticulum:notification.welcome_joined', {
+        name: joinedName,
+        groupName,
+      });
+      const welcomeDeliveryMethod = await getNotificationDeliveryMethod();
+      void fireOsNotificationPayment(
+        {
+          appName: QCHAT_MENTION_NOTIFICATION_APP_NAME,
+          appService: 'INTERNAL',
+          event: 'Q_CHAT_WELCOME',
+        },
+        welcomeText,
+        // No body: the title already says who joined which group, and a
+        // duplicate line under it reads as a rendering bug. An empty body is
+        // safe end to end — the Linux helper does `body or ''` and Electron's
+        // Notification simply renders without one.
+        '',
+        qortPng,
+        undefined,
+        {
+          channelId,
+          eventId,
+          from: groupId,
+          senderName: joinedName,
+          qChatWelcome: true,
+        },
+        welcomeDeliveryMethod,
+        { groupId, channelId },
+        eventId
+      );
+    };
+
     const handleQChatReactionNotification = async (
       event: CustomEvent<{
         channelId?: string;
@@ -933,15 +1072,24 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
       const groupId = Number(detail?.groupId);
       if (!eventId || !Number.isFinite(groupId)) return;
 
-      if (qChatReactionOsNotifiedEventIdsRef.current.has(eventId)) return;
-      qChatReactionOsNotifiedEventIdsRef.current.add(eventId);
-      if (qChatReactionOsNotifiedEventIdsRef.current.size > 500) {
-        const oldestEventId = qChatReactionOsNotifiedEventIdsRef.current
-          .values()
-          .next().value;
-        if (oldestEventId !== undefined) {
-          qChatReactionOsNotifiedEventIdsRef.current.delete(oldestEventId);
-        }
+      const reactionChannelId = String(detail?.channelId || 'general');
+      // Reaction also skipped the gate. It now honours `notifyOnReactions`.
+      const reactionSettings = await getEffectiveNotificationSettings(
+        groupId,
+        undefined,
+        reactionChannelId,
+        globalNotifFormRef.current
+      ).catch(() => null);
+      if (
+        !mayPresentQChatOsNotification(
+          qChatOsNotificationClaimsRef.current,
+          eventId,
+          reactionSettings,
+          { isReactionToMe: true },
+          'reaction'
+        )
+      ) {
+        return;
       }
 
       const reactionSender = detail.senderName || 'Someone';
@@ -1039,29 +1187,29 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
         globalNotifFormRef.current
       ).catch(() => null);
 
-      const shouldPush =
+      const channelAllowed =
         effectiveSettings != null &&
-        shouldFirePushNotification(effectiveSettings, false, false, false) &&
         !shouldSuppressForMutedChannel(
           channelMuted,
           effectiveSettings.pushLevel,
           false
         );
 
-      if (!shouldPush) return;
+      if (!channelAllowed) return;
 
-      if (qChatMessageOsNotifiedEventIdsRef.current.has(eventId)) return;
-      qChatMessageOsNotifiedEventIdsRef.current.add(eventId);
+      // The generic notification is the fallback kind: the shared gate refuses
+      // it whenever the same post also merits a reply or mention, which is what
+      // produced two notifications per post under `pushLevel: 'all'`.
       if (
-        qChatMessageOsNotifiedEventIdsRef.current.size >
-        QCHAT_MENTION_OS_NOTIFICATION_MAX_TRACKED
+        !mayPresentQChatOsNotification(
+          qChatOsNotificationClaimsRef.current,
+          eventId,
+          effectiveSettings,
+          {},
+          'message'
+        )
       ) {
-        const oldestEventId = qChatMessageOsNotifiedEventIdsRef.current
-          .values()
-          .next().value;
-        if (oldestEventId) {
-          qChatMessageOsNotifiedEventIdsRef.current.delete(oldestEventId);
-        }
+        return;
       }
 
       const groupName =
@@ -1122,6 +1270,10 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
       handleQChatReplyNotification as EventListener
     );
     subscribeToEvent(
+      'q-chat-welcome-notification',
+      handleQChatWelcomeNotification as EventListener
+    );
+    subscribeToEvent(
       'q-chat-reaction-notification',
       handleQChatReactionNotification as EventListener
     );
@@ -1137,6 +1289,10 @@ export const WebSocketNotifications = ({ myAddress, userName }) => {
       unsubscribeFromEvent(
         'q-chat-reply-notification',
         handleQChatReplyNotification as EventListener
+      );
+      unsubscribeFromEvent(
+        'q-chat-welcome-notification',
+        handleQChatWelcomeNotification as EventListener
       );
       unsubscribeFromEvent(
         'q-chat-reaction-notification',

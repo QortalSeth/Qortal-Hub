@@ -128,6 +128,10 @@
     "enter_qortal_land": "Entrar no Qortal Land",
     "return_to_chat": "Voltar ao chat"
   },
+  "notification": {
+    "someone": "alguém",
+    "welcome_joined": "{{name}} entrou no grupo {{groupName}}"
+  },
   "onboarding": {
     "find_communities": "Encontrar comunidades",
     "invite_error_invalid": "Isto não parece um link de convite de grupo Qortal válido.",
