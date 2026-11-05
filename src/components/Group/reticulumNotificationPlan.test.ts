@@ -48,13 +48,22 @@ function input(overrides: Partial<NotificationPlanInput> = {}) {
   return { ...baseInput, ...overrides };
 }
 
-/** Assert the one-notification invariant. */
+/**
+ * Assert the one-notification invariant.
+ *
+ * `welcome` must be included: this helper previously checked only reply /
+ * mention / message, so a plan with welcome *and* message both true passed the
+ * invariant while producing two OS notifications.
+ */
 function expectAtMostOne(plan: {
   reply: boolean;
   mention: boolean;
+  welcome: boolean;
   message: boolean;
 }) {
-  const count = [plan.reply, plan.mention, plan.message].filter(Boolean).length;
+  const count = [plan.reply, plan.mention, plan.welcome, plan.message].filter(
+    Boolean
+  ).length;
   expect(count).toBeLessThanOrEqual(1);
 }
 
@@ -299,6 +308,78 @@ describe('welcome posts', () => {
     );
     expect(plan.kind).toBe('reply');
     expect(plan.welcome).toBe(false);
+  });
+
+  it('emits nothing when notifications are disabled for this pass', async () => {
+    // Regression: the welcome branch originally omitted
+    // `recordMentionNotification`, so it fired for history replay — which never
+    // sets that option — and every historic welcome post raised an OS
+    // notification on each launch.
+    const plan = await planReticulumNotifications(
+      input({
+        isWelcomePost: true,
+        notifyOnWelcomePosts: true,
+        recordMentionNotification: false,
+      }),
+      makeDeps()
+    );
+    expect(plan.kind).toBeNull();
+    expect(plan.welcome).toBe(false);
+    expect(plan.message).toBe(false);
+  });
+});
+
+describe('history replay is silent', () => {
+  /**
+   * Group.tsx replays the last 50 events of every member group at startup, and
+   * passes only `{ skipReplyNotification: true }`. `recordMentionNotification`
+   * is therefore `undefined` on that path, which Group.tsx turns into `false`.
+   *
+   * Every kind must stay silent for that option set. Testing it as a property
+   * rather than per-branch is the point: the welcome kind was added later and
+   * simply forgot the flag, which no per-branch test would have caught.
+   */
+  const replayInput = (overrides: Partial<NotificationPlanInput> = {}) =>
+    input({ recordMentionNotification: false, ...overrides });
+
+  it('emits nothing for a welcome post', async () => {
+    const plan = await planReticulumNotifications(
+      replayInput({ isWelcomePost: true }),
+      makeDeps({ isDirectMention: () => true })
+    );
+    expect(plan.kind).toBeNull();
+  });
+
+  it('emits nothing for a mention of the reader', async () => {
+    const plan = await planReticulumNotifications(
+      replayInput(),
+      makeDeps({ isDirectMention: () => true })
+    );
+    expect(plan.kind).toBeNull();
+  });
+
+  it('emits nothing for an authorized @everyone', async () => {
+    const plan = await planReticulumNotifications(
+      replayInput(),
+      makeDeps({ isAuthorizedBroadcast: () => true })
+    );
+    expect(plan.kind).toBeNull();
+  });
+
+  it('emits nothing for a plain post', async () => {
+    const plan = await planReticulumNotifications(replayInput(), makeDeps());
+    expect(plan.kind).toBeNull();
+  });
+
+  it('emits nothing for a welcome post that also mentions the reader', async () => {
+    const plan = await planReticulumNotifications(
+      replayInput({ isWelcomePost: true }),
+      makeDeps({
+        isDirectMention: () => true,
+        isAuthorizedBroadcast: () => true,
+      })
+    );
+    expect(plan.kind).toBeNull();
   });
 });
 

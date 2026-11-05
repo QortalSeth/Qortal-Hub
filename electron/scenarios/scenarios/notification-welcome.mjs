@@ -115,5 +115,27 @@ export default {
         return 'null';
       }
     );
+
+    // The startup history replay. Group.tsx passes only
+    // `{ skipReplyNotification: true }`, so `recordMentionNotification` is
+    // undefined and reaches the plan as false. A join notice must stay silent
+    // there, or every launch re-notifies every historic welcome post.
+    const replayed = await planAndEmit(ctx, sink, {
+      event: visible,
+      myAddress: reader.address,
+      recordMentionNotification: false,
+      isWelcomePost: true,
+      notifyOnWelcomePosts: true,
+      notificationId: 'welcome-replay',
+    });
+
+    await ctx.check('the startup history replay stays silent', () => {
+      if (replayed.plan.kind !== null) {
+        throw new Error(
+          `replay produced ${replayed.plan.kind} for a historic welcome post`
+        );
+      }
+      return 'null';
+    });
   },
 };

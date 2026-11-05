@@ -54,8 +54,14 @@ export interface NotificationPlanInput {
    */
   repliedToEventId?: string;
   /**
-   * Whether mention notifications are recorded at all for this post. False for
-   * history replay, which must not replay old mentions as notifications.
+   * Whether this post may produce a notification at all. False for history
+   * replay, which must not replay old posts as notifications.
+   *
+   * Despite the name only the mention branch is specifically about mentions:
+   * `welcome` and the generic `message` require it too. History replay is the
+   * reason all three do — the startup replay never sets this option, so any
+   * branch that ignores it resurrects old posts as OS notifications on every
+   * launch.
    */
   recordMentionNotification: boolean;
   /** A welcome post with welcome-post notifications disabled. */
@@ -164,8 +170,19 @@ export async function planReticulumNotifications(
   // `@everyone`. With `mention` first, a reader who has mention notifications
   // enabled received a *mention* notification for someone joining. A join
   // notice is a join notice; only a reply outranks it.
+  //
+  // `recordMentionNotification` is required here for the same reason the
+  // mention and message branches require it: it is the "this post may notify at
+  // all" switch, false during the startup history replay. Omitting it made every
+  // historic welcome post raise an OS notification on every launch — a flood of
+  // old join notices, because the replay path never sets the flag and this was
+  // the one kind that ignored it.
   const welcome =
-    !reply && !suppressMention && input.isMessage && input.isWelcomePost;
+    !reply &&
+    !suppressMention &&
+    input.recordMentionNotification &&
+    input.isMessage &&
+    input.isWelcomePost;
 
   // ---- mention -----------------------------------------------------------
   let mention = false;
