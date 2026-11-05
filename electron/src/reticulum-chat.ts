@@ -28143,6 +28143,13 @@ export class ReticulumChatManager extends EventEmitter {
     address: string
   ): Promise<boolean | null> {
     if (!Number.isInteger(groupId) || groupId <= 0) return false;
+    // Callers pass fields parsed out of inbound wires, so `address` can be
+    // undefined despite the parameter type. `undefined.trim()` used to throw
+    // from inside unawaited async paths (e.g. the metadata-snapshot request
+    // handler), which crashes the main process rather than rejecting the frame.
+    // A validator reports "not a member" for a malformed address; it does not
+    // throw.
+    if (typeof address !== 'string') return false;
     const normalizedAddress = address.trim();
     if (!normalizedAddress) return false;
     if (!this.validateGroupMember) return this.localGroupIds.has(groupId);
@@ -28258,6 +28265,10 @@ export class ReticulumChatManager extends EventEmitter {
     address: string
   ): Promise<ReticulumChatAdminValidationStatus> {
     if (!Number.isInteger(groupId) || groupId <= 0) return 'not_admin';
+    // Same reasoning as `isValidatedGroupMember`: the address may come from a
+    // parsed wire and can be undefined, and a validator reports "not an admin"
+    // rather than throwing out of an unawaited async path.
+    if (typeof address !== 'string') return 'not_admin';
     const normalizedAddress = address.trim();
     if (!normalizedAddress) return 'not_admin';
     if (

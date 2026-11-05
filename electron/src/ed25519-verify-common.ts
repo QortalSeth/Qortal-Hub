@@ -26,7 +26,6 @@ function warnCallClockSkew(wireType: string, skewMs: number): void {
   const last = callClockSkewWarnAt.get(wireType) ?? 0;
   if (now - last < 60_000) return;
   callClockSkewWarnAt.set(wireType, now);
-  // eslint-disable-next-line no-console
   console.warn(
     `[Call] Dropped ${wireType}: clock skew ${Math.round(skewMs / 1000)}s exceeds ${Math.round(MAX_CALL_CLOCK_SKEW_MS / 1000)}s — check the system clock on this device or the peer's`
   );

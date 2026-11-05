@@ -20,7 +20,9 @@
     "test:gcall:e2e:scenario": "GCALL_E2E_SCENARIO=${npm_config_scenario:-} GCALL_E2E_ARTIFACT_DIR=${GCALL_E2E_ARTIFACT_DIR:-.artifacts/gcall-e2e} vitest run src/lib/group-call/v2/groupCallE2eQuality.test.ts",
     "test:gcall:e2e:electron": "GCALL_E2E_ARTIFACT_DIR=${GCALL_E2E_ARTIFACT_DIR:-.artifacts/gcall-e2e} vitest run electron/src/group-call-e2e-electron.test.ts",
     "test:gcall:e2e:live-export": "GCALL_E2E_EXPORT_A=${npm_config_exporta:-} GCALL_E2E_EXPORT_B=${npm_config_exportb:-} GCALL_E2E_ARTIFACT_DIR=${GCALL_E2E_ARTIFACT_DIR:-.artifacts/gcall-e2e} vitest run src/lib/group-call/v2/groupCallE2eLiveExport.test.ts",
-    "build:libopus-fec": "./native/libopus-fec-wasm/build.sh"
+    "build:libopus-fec": "./native/libopus-fec-wasm/build.sh",
+    "test:scenario": "node electron/scenarios/runner.mjs",
+    "test:scenarios": "node electron/scenarios/run-all.mjs"
   },
   "dependencies": {
     "@capacitor-community/electron": "^5.0.1",

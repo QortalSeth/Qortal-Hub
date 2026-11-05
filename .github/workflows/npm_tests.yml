@@ -35,6 +35,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Lint
+        # Was absent until now, which is why `npm run lint` could not pass for
+        # an unknown length of time: the config covered only `src/**`, so every
+        # `electron/**/*.ts` file failed to parse.
+        run: npm run lint
+
       - name: Run tests
         # Must go through `npm test`, not `npx vitest run`: the `pretest` script
         # compiles the worker threads that several suites spawn by absolute path

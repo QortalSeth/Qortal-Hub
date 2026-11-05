@@ -85,6 +85,15 @@ export class NotificationRegistry {
   }
 
   /**
+   * Entries paired with their ids, in insertion order. `entriesList()` loses the
+   * id, and callers that need to report on a specific notification — the
+   * scenario harness, diagnostics — need both.
+   */
+  entriesWithIds(): Array<[string, NotificationEntry]> {
+    return [...this.entries];
+  }
+
+  /**
    * Register a new entry under `nid`. If the id already exists, the entry is
    * replaced (dedupe) and no eviction happens — the incoming id is never
    * evicted to make room for itself. When at the cap (and the id is new), the

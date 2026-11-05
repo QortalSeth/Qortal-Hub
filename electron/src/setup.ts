@@ -6,13 +6,37 @@ import {
 } from './foreign-wallet-signer';
 import { createForeignWalletJournal } from './foreign-wallet-journal';
 import { QAppFileSaves, SaveError } from './qapp-file-save';
-import { qappGuestPartition, qappGuestUrlAllowed, type QAppGuestOwner } from './qapp-guest-policy';
+import {
+  qappGuestPartition,
+  qappGuestUrlAllowed,
+  type QAppGuestOwner,
+} from './qapp-guest-policy';
 import { restrictQAppGuestWebRtc } from './qapp-guest-network-policy';
 import type { CapacitorElectronConfig } from '@capacitor-community/electron';
+import { QChatNotificationSink } from './qchat-notification-sink';
 import {
-  NotificationRegistry,
-  type NotificationEntry,
-} from './notification-registry';
+  TEST_PROFILE_DIR_ENV,
+  TEST_MODE_FLAG,
+  isSuppressedInTestMode,
+} from './test-mode';
+
+/**
+ * Whether this process is a test-mode run.
+ *
+ * Read directly from argv/env rather than threading a flag through every
+ * constructor, because the decisions that depend on it are spread across module
+ * scope (tray, audio surface, notification presentation) where there is no
+ * natural parameter to pass.
+ */
+export function isTestModeActive(): boolean {
+  const argv = process.argv;
+  return (
+    argv.includes(TEST_MODE_FLAG) ||
+    argv.some((arg) => arg.startsWith(`${TEST_MODE_FLAG}=`)) ||
+    process.env[TEST_PROFILE_DIR_ENV] != null ||
+    process.env.QORTAL_TEST_MODE === '1'
+  );
+}
 import {
   LinuxNotificationManager,
   defaultHelperScriptPath,
@@ -1057,9 +1081,11 @@ export class ElectronCapacitorApp {
       join(app.getAppPath(), 'app')
     );
     await registerReticulumResourceProtocol();
-    this.audioSurfaceHttpsOrigin = await ensureAudioSurfaceHttpsServer(
-      join(app.getAppPath(), 'app')
-    );
+    // The audio surface needs a certificate and a bound port; neither is useful
+    // in a headless scenario run.
+    this.audioSurfaceHttpsOrigin = isTestModeActive()
+      ? null
+      : await ensureAudioSurfaceHttpsServer(join(app.getAppPath(), 'app'));
     const icon = nativeImage.createFromPath(
       join(
         app.getAppPath(),
@@ -1101,31 +1127,37 @@ export class ElectronCapacitorApp {
       },
     });
     configuredQAppSessions.clear();
-    this.MainWindow.webContents.on('will-attach-webview', (event, webPreferences, params) => {
-      const prepared = [...preparedQAppGuests.values()].find(
-        (candidate) => qappGuestUrlAllowed(
-          candidate.url,
-          params.src,
-          candidate.owner,
-          candidate.isDevMode
-        ) &&
-          candidate.partition === params.partition &&
-          candidate.preloadTokenUrl === params.preload
-      );
-      if (!prepared) {
-        event.preventDefault();
-        return;
+    this.MainWindow.webContents.on(
+      'will-attach-webview',
+      (event, webPreferences, params) => {
+        const prepared = [...preparedQAppGuests.values()].find(
+          (candidate) =>
+            qappGuestUrlAllowed(
+              candidate.url,
+              params.src,
+              candidate.owner,
+              candidate.isDevMode
+            ) &&
+            candidate.partition === params.partition &&
+            candidate.preloadTokenUrl === params.preload
+        );
+        if (!prepared) {
+          event.preventDefault();
+          return;
+        }
+        webPreferences.preload = qappGuestPreloadPath;
+        params.preload = pathToFileURL(qappGuestPreloadPath).toString();
+        webPreferences.nodeIntegration = false;
+        webPreferences.nodeIntegrationInSubFrames = false;
+        webPreferences.contextIsolation = true;
+        webPreferences.sandbox = true;
+        webPreferences.webviewTag = false;
+        webPreferences.partition = prepared.partition;
+        webPreferences.additionalArguments = [
+          `--qapp-guest-token=${prepared.guestToken}`,
+        ];
       }
-      webPreferences.preload = qappGuestPreloadPath;
-      params.preload = pathToFileURL(qappGuestPreloadPath).toString();
-      webPreferences.nodeIntegration = false;
-      webPreferences.nodeIntegrationInSubFrames = false;
-      webPreferences.contextIsolation = true;
-      webPreferences.sandbox = true;
-      webPreferences.webviewTag = false;
-      webPreferences.partition = prepared.partition;
-      webPreferences.additionalArguments = [`--qapp-guest-token=${prepared.guestToken}`];
-    });
+    );
     this.MainWindow.webContents.on('did-attach-webview', (_event, guest) => {
       attachedQAppGuests.set(guest.id, { contents: guest, prepared: null });
       // Restrict WebRTC on the Q-App guest itself. The iframe response policy
@@ -1142,7 +1174,12 @@ export class ElectronCapacitorApp {
         return candidates.some(
           (candidate) =>
             guest.session === session.fromPartition(candidate.partition) &&
-            qappGuestUrlAllowed(candidate.url, nextUrl, candidate.owner, candidate.isDevMode)
+            qappGuestUrlAllowed(
+              candidate.url,
+              nextUrl,
+              candidate.owner,
+              candidate.isDevMode
+            )
         );
       };
       guest.on('will-navigate', (event, nextUrl) => {
@@ -1172,9 +1209,12 @@ export class ElectronCapacitorApp {
       attachedQAppGuests.clear();
       preparedQAppGuests.clear();
     };
-    this.MainWindow.webContents.on('did-start-navigation', (_event, _url, inPlace, mainFrame) => {
-      if (mainFrame && !inPlace) clearGuestRegistrations();
-    });
+    this.MainWindow.webContents.on(
+      'did-start-navigation',
+      (_event, _url, inPlace, mainFrame) => {
+        if (mainFrame && !inPlace) clearGuestRegistrations();
+      }
+    );
     this.MainWindow.webContents.on('destroyed', clearGuestRegistrations);
     this.mainWindowState.manage(this.MainWindow);
     installDisplayMediaPicker(this.MainWindow);
@@ -1289,8 +1329,12 @@ export class ElectronCapacitorApp {
       }
     });
 
-    // When the tray icon is enabled, setup the options.
-    if (this.CapacitorFileConfig.electron?.trayIconAndMenuEnabled) {
+    // When the tray icon is enabled, setup the options. Test mode owns no OS
+    // state, so the tray is skipped entirely.
+    if (
+      this.CapacitorFileConfig.electron?.trayIconAndMenuEnabled &&
+      !isSuppressedInTestMode(isTestModeActive(), 'tray')
+    ) {
       // On macOS, use dock instead of menu bar tray icon (more conventional)
       // On Windows and Linux, use the system tray icon
       if (process.platform !== 'darwin') {
@@ -1392,54 +1436,54 @@ export class ElectronCapacitorApp {
   }
 }
 
-export function setupContentSecurityPolicy(customScheme: string, targetSession = session.defaultSession): void {
-  targetSession.webRequest.onHeadersReceived(
-    (details: any, callback) => {
-      const requestUrl = details.url;
-      const expandedDomains = [...domainHolder.allowedDomains];
-      for (const d of domainHolder.allowedDomains) {
-        try {
-          const url = new URL(d);
-          if (isLocalPrivateHost(url.hostname)) {
-            const hostPort = url.port
-              ? `${url.hostname}:${url.port}`
-              : url.hostname;
-            expandedDomains.push(
-              `http://${hostPort}`,
-              `https://${hostPort}`,
-              `ws://${hostPort}`,
-              `wss://${hostPort}`
-            );
-          }
-        } catch {
-          /* ignore */
+export function setupContentSecurityPolicy(
+  customScheme: string,
+  targetSession = session.defaultSession
+): void {
+  targetSession.webRequest.onHeadersReceived((details: any, callback) => {
+    const requestUrl = details.url;
+    const expandedDomains = [...domainHolder.allowedDomains];
+    for (const d of domainHolder.allowedDomains) {
+      try {
+        const url = new URL(d);
+        if (isLocalPrivateHost(url.hostname)) {
+          const hostPort = url.port
+            ? `${url.hostname}:${url.port}`
+            : url.hostname;
+          expandedDomains.push(
+            `http://${hostPort}`,
+            `https://${hostPort}`,
+            `ws://${hostPort}`,
+            `wss://${hostPort}`
+          );
         }
+      } catch {
+        /* ignore */
       }
-      const allowedSources = [
-        "'self'",
-        customScheme,
-        ...new Set(expandedDomains),
-      ];
+    }
+    const allowedSources = [
+      "'self'",
+      customScheme,
+      ...new Set(expandedDomains),
+    ];
 
-      const frameSources = [
-        "'self'",
-        'http://localhost:*',
-        'https://localhost:*',
-        'ws://localhost:*',
-        'ws://127.0.0.1:*',
-        'http://127.0.0.1:*',
-        'https://127.0.0.1:*',
-        ...allowedSources,
-      ];
-      const isHubShellRequest = requestUrl.startsWith(`${customScheme}://`);
-      const inlineScriptSource = isHubShellRequest ? '' : " 'unsafe-inline'";
-      const evalScriptSource = isHubShellRequest ? '' : " 'unsafe-eval'";
-      const wasmEvalScriptSource = isHubShellRequest
-        ? ''
-        : " 'wasm-unsafe-eval'";
+    const frameSources = [
+      "'self'",
+      'http://localhost:*',
+      'https://localhost:*',
+      'ws://localhost:*',
+      'ws://127.0.0.1:*',
+      'http://127.0.0.1:*',
+      'https://127.0.0.1:*',
+      ...allowedSources,
+    ];
+    const isHubShellRequest = requestUrl.startsWith(`${customScheme}://`);
+    const inlineScriptSource = isHubShellRequest ? '' : " 'unsafe-inline'";
+    const evalScriptSource = isHubShellRequest ? '' : " 'unsafe-eval'";
+    const wasmEvalScriptSource = isHubShellRequest ? '' : " 'wasm-unsafe-eval'";
 
-      // Create the Content Security Policy (CSP) string
-      const csp = `
+    // Create the Content Security Policy (CSP) string
+    const csp = `
     default-src 'self' ${frameSources.join(' ')};
     frame-src ${frameSources.join(' ')};
     script-src 'self'${wasmEvalScriptSource}${evalScriptSource}${inlineScriptSource} ${frameSources.join(' ')};
@@ -1451,74 +1495,71 @@ export function setupContentSecurityPolicy(customScheme: string, targetSession =
     style-src 'self' 'unsafe-inline';
     font-src 'self' data:;
   `
-        .replace(/\s+/g, ' ')
-        .trim();
+      .replace(/\s+/g, ' ')
+      .trim();
 
-      // Get the request URL and origin
-      const requestOrigin =
-        details.origin || details.referrer || 'capacitor-electron://-';
+    // Get the request URL and origin
+    const requestOrigin =
+      details.origin || details.referrer || 'capacitor-electron://-';
 
-      // Parse the request URL to get its origin
-      let requestUrlOrigin: string;
-      try {
-        const parsedUrl = new URL(requestUrl);
-        requestUrlOrigin = parsedUrl.origin;
-      } catch (e) {
-        // Handle invalid URLs gracefully
-        requestUrlOrigin = '';
-      }
-
-      // Determine if the request is cross-origin
-      const isCrossOrigin = requestOrigin !== requestUrlOrigin;
-      const originalResponseHeaders = details.responseHeaders ?? {};
-
-      // Check if the response already includes Access-Control-Allow-Origin
-      const hasAccessControlAllowOrigin = Object.keys(
-        originalResponseHeaders
-      ).some(
-        (header) => header.toLowerCase() === 'access-control-allow-origin'
-      );
-
-      // Prepare response headers: remove any existing CSP (e.g. from node over HTTPS)
-      // so only our permissive CSP is applied and qapps (e.g. extract7z) can use eval.
-      const cspHeaderLower = 'content-security-policy';
-      const filtered = Object.fromEntries(
-        Object.entries(originalResponseHeaders).filter(
-          ([key]) => key.toLowerCase() !== cspHeaderLower
-        )
-      );
-      const responseHeaders = withEmbeddedFrameWebRtcBlocked(
-        {
-          ...filtered,
-          'Content-Security-Policy': [csp],
-        },
-        { resourceType: details.resourceType }
-      );
-
-      Object.assign(
-        responseHeaders,
-        withAudioSurfaceIsolationHeaders(responseHeaders, {
-          url: details.url,
-          resourceType: details.resourceType,
-          origin: details.origin,
-          referrer: details.referrer,
-        })
-      );
-
-      if (isCrossOrigin && !hasAccessControlAllowOrigin) {
-        // Handle CORS for cross-origin requests lacking CORS headers
-        // Optionally, check if the requestOrigin is allowed
-        responseHeaders['Access-Control-Allow-Origin'] = requestOrigin;
-        responseHeaders['Access-Control-Allow-Methods'] =
-          'GET, POST, OPTIONS, DELETE';
-        responseHeaders['Access-Control-Allow-Headers'] =
-          'Content-Type, Authorization, x-api-key';
-      }
-
-      // Callback with modified headers
-      callback({ responseHeaders });
+    // Parse the request URL to get its origin
+    let requestUrlOrigin: string;
+    try {
+      const parsedUrl = new URL(requestUrl);
+      requestUrlOrigin = parsedUrl.origin;
+    } catch (e) {
+      // Handle invalid URLs gracefully
+      requestUrlOrigin = '';
     }
-  );
+
+    // Determine if the request is cross-origin
+    const isCrossOrigin = requestOrigin !== requestUrlOrigin;
+    const originalResponseHeaders = details.responseHeaders ?? {};
+
+    // Check if the response already includes Access-Control-Allow-Origin
+    const hasAccessControlAllowOrigin = Object.keys(
+      originalResponseHeaders
+    ).some((header) => header.toLowerCase() === 'access-control-allow-origin');
+
+    // Prepare response headers: remove any existing CSP (e.g. from node over HTTPS)
+    // so only our permissive CSP is applied and qapps (e.g. extract7z) can use eval.
+    const cspHeaderLower = 'content-security-policy';
+    const filtered = Object.fromEntries(
+      Object.entries(originalResponseHeaders).filter(
+        ([key]) => key.toLowerCase() !== cspHeaderLower
+      )
+    );
+    const responseHeaders = withEmbeddedFrameWebRtcBlocked(
+      {
+        ...filtered,
+        'Content-Security-Policy': [csp],
+      },
+      { resourceType: details.resourceType }
+    );
+
+    Object.assign(
+      responseHeaders,
+      withAudioSurfaceIsolationHeaders(responseHeaders, {
+        url: details.url,
+        resourceType: details.resourceType,
+        origin: details.origin,
+        referrer: details.referrer,
+      })
+    );
+
+    if (isCrossOrigin && !hasAccessControlAllowOrigin) {
+      // Handle CORS for cross-origin requests lacking CORS headers
+      // Optionally, check if the requestOrigin is allowed
+      responseHeaders['Access-Control-Allow-Origin'] = requestOrigin;
+      responseHeaders['Access-Control-Allow-Methods'] =
+        'GET, POST, OPTIONS, DELETE';
+      responseHeaders['Access-Control-Allow-Headers'] =
+        'Content-Type, Authorization, x-api-key';
+    }
+
+    // Callback with modified headers
+    callback({ responseHeaders });
+  });
 }
 
 // IPC listener for updating allowed domains
@@ -3217,57 +3258,105 @@ function validateQAppReticulumIpcSender(
 
 let qappFileSaves: QAppFileSaves;
 function fileSaves() {
-  return (qappFileSaves ??= new QAppFileSaves(join(app.getPath('userData'), 'file-save-journal')));
+  return (qappFileSaves ??= new QAppFileSaves(
+    join(app.getPath('userData'), 'file-save-journal')
+  ));
 }
-void app.whenReady().then(() => fileSaves().initialize()).catch(() => undefined);
+void app
+  .whenReady()
+  .then(() => fileSaves().initialize())
+  .catch(() => undefined);
 function saveOwner(owner: any) {
-  if (!owner || !['tabId', 'name', 'service'].every(key =>
-    typeof owner[key] === 'string' && owner[key].length > 0 && owner[key].length <= 256))
+  if (
+    !owner ||
+    !['tabId', 'name', 'service'].every(
+      (key) =>
+        typeof owner[key] === 'string' &&
+        owner[key].length > 0 &&
+        owner[key].length <= 256
+    )
+  )
     throw new SaveError('SAVE_INVALID_REQUEST');
   return JSON.stringify([owner.tabId, owner.name, owner.service]);
 }
 ipcMain.handle('qappFileSave:request', async (event, owner, request) => {
-  if (!isMainShellSender(event.sender) || event.senderFrame !== event.sender.mainFrame)
+  if (
+    !isMainShellSender(event.sender) ||
+    event.senderFrame !== event.sender.mainFrame
+  )
     return { error: 'SAVE_PERMISSION_DENIED' };
   try {
     const key = saveOwner(owner);
     const manager = fileSaves();
     switch (request?.action) {
       case 'FILE_SAVE_OPEN':
-        return await manager.open(key, request.filename, request.size, async (filename, _size, checkLive) => {
-          const labels = request.labels;
-          if (!labels || !['title', 'detail', 'allow', 'cancel'].every(k =>
-            typeof labels[k] === 'string' && labels[k].length <= 2048))
-            throw new SaveError('SAVE_INVALID_REQUEST');
-          const win = myCapacitorApp.getMainWindow();
-          const permission = await dialog.showMessageBox(win, {
-            type: 'question', message: labels.title, detail: labels.detail,
-            buttons: [labels.cancel, labels.allow], defaultId: 0, cancelId: 0,
-            noLink: true,
-          });
-          if (permission.response !== 1) return undefined;
-          checkLive();
-          const result = await dialog.showSaveDialog(win, {
-            defaultPath: filename, title: labels.title,
-            properties: ['showOverwriteConfirmation', 'createDirectory'],
-          });
-          return result.canceled ? undefined : result.filePath;
-        });
-      case 'FILE_SAVE_WRITE': return await manager.write(key, request.saveId, request.offset, request.data);
-      case 'FILE_SAVE_FINISH': return await manager.finish(key, request.saveId);
-      case 'FILE_SAVE_ABORT': return await manager.abort(key, request.saveId);
-      case 'FILE_SAVE_CLEANUP': await manager.cleanup(key); return { aborted: true };
-      default: throw new SaveError('SAVE_INVALID_REQUEST');
+        return await manager.open(
+          key,
+          request.filename,
+          request.size,
+          async (filename, _size, checkLive) => {
+            const labels = request.labels;
+            if (
+              !labels ||
+              !['title', 'detail', 'allow', 'cancel'].every(
+                (k) => typeof labels[k] === 'string' && labels[k].length <= 2048
+              )
+            )
+              throw new SaveError('SAVE_INVALID_REQUEST');
+            const win = myCapacitorApp.getMainWindow();
+            const permission = await dialog.showMessageBox(win, {
+              type: 'question',
+              message: labels.title,
+              detail: labels.detail,
+              buttons: [labels.cancel, labels.allow],
+              defaultId: 0,
+              cancelId: 0,
+              noLink: true,
+            });
+            if (permission.response !== 1) return undefined;
+            checkLive();
+            const result = await dialog.showSaveDialog(win, {
+              defaultPath: filename,
+              title: labels.title,
+              properties: ['showOverwriteConfirmation', 'createDirectory'],
+            });
+            return result.canceled ? undefined : result.filePath;
+          }
+        );
+      case 'FILE_SAVE_WRITE':
+        return await manager.write(
+          key,
+          request.saveId,
+          request.offset,
+          request.data
+        );
+      case 'FILE_SAVE_FINISH':
+        return await manager.finish(key, request.saveId);
+      case 'FILE_SAVE_ABORT':
+        return await manager.abort(key, request.saveId);
+      case 'FILE_SAVE_CLEANUP':
+        await manager.cleanup(key);
+        return { aborted: true };
+      default:
+        throw new SaveError('SAVE_INVALID_REQUEST');
     }
   } catch (error) {
     // Never expose OS errors containing filesystem paths to a QApp.
-    return { error: error instanceof SaveError ? error.message : 'SAVE_IO_ERROR' };
+    return {
+      error: error instanceof SaveError ? error.message : 'SAVE_IO_ERROR',
+    };
   }
 });
-setInterval(() => { void qappFileSaves?.expire(); }, 30_000).unref();
-app.on('before-quit', () => { void qappFileSaves?.cleanup(); });
+setInterval(() => {
+  void qappFileSaves?.expire();
+}, 30_000).unref();
+app.on('before-quit', () => {
+  void qappFileSaves?.cleanup();
+});
 app.on('web-contents-created', (_event, contents) => {
-  const cleanup = () => { if (isMainShellSender(contents)) void qappFileSaves?.cleanup(); };
+  const cleanup = () => {
+    if (isMainShellSender(contents)) void qappFileSaves?.cleanup();
+  };
   contents.on('render-process-gone', cleanup);
   contents.on('destroyed', cleanup);
   contents.on('did-start-navigation', (_e, _url, inPlace, mainFrame) => {
@@ -3294,7 +3383,10 @@ type PreparedQAppGuest = {
   preloadTokenUrl: string;
 };
 const preparedQAppGuests = new Map<string, PreparedQAppGuest>();
-const attachedQAppGuests = new Map<number, { contents: WebContents; prepared: PreparedQAppGuest | null }>();
+const attachedQAppGuests = new Map<
+  number,
+  { contents: WebContents; prepared: PreparedQAppGuest | null }
+>();
 const configuredQAppSessions = new Set<string>();
 const qappGuestPreloadPath = join(__dirname, 'qapp-guest-preload.js');
 
@@ -3317,53 +3409,67 @@ function configureQAppGuestSession(partition: string): void {
   configuredQAppSessions.add(partition);
 }
 
-ipcMain.handle('qappGuest:prepare', (event, owner: QAppGuestOwner, url: string, isDevMode: boolean) => {
-  validateQAppReticulumIpcSender(event);
-  if (event.senderFrame !== event.sender.mainFrame) throw new Error('QAPP_PERMISSION_DENIED');
-  saveOwner(owner);
-  if (typeof url !== 'string' || url.length > 4096) throw new Error('QAPP_INVALID_URL');
-  const parsed = new URL(url);
-  if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('QAPP_INVALID_URL');
-  if (!qappGuestUrlAllowed(url, url, owner, isDevMode === true)) throw new Error('QAPP_INVALID_URL');
-  const guestToken = randomUUID();
-  const prepared = {
-    owner,
-    url,
-    partition: qappGuestPartition(parsed.origin, owner),
-    isDevMode: isDevMode === true,
-    guestToken,
-    preloadTokenUrl: `${pathToFileURL(qappGuestPreloadPath).toString()}?authorization=${guestToken}`,
-  };
-  configureQAppGuestSession(prepared.partition);
-  preparedQAppGuests.set(qappGuestOwnerKey(owner), prepared);
-  return {
-    partition: prepared.partition,
-    preload: prepared.preloadTokenUrl,
-  };
-});
+ipcMain.handle(
+  'qappGuest:prepare',
+  (event, owner: QAppGuestOwner, url: string, isDevMode: boolean) => {
+    validateQAppReticulumIpcSender(event);
+    if (event.senderFrame !== event.sender.mainFrame)
+      throw new Error('QAPP_PERMISSION_DENIED');
+    saveOwner(owner);
+    if (typeof url !== 'string' || url.length > 4096)
+      throw new Error('QAPP_INVALID_URL');
+    const parsed = new URL(url);
+    if (!['http:', 'https:'].includes(parsed.protocol))
+      throw new Error('QAPP_INVALID_URL');
+    if (!qappGuestUrlAllowed(url, url, owner, isDevMode === true))
+      throw new Error('QAPP_INVALID_URL');
+    const guestToken = randomUUID();
+    const prepared = {
+      owner,
+      url,
+      partition: qappGuestPartition(parsed.origin, owner),
+      isDevMode: isDevMode === true,
+      guestToken,
+      preloadTokenUrl: `${pathToFileURL(qappGuestPreloadPath).toString()}?authorization=${guestToken}`,
+    };
+    configureQAppGuestSession(prepared.partition);
+    preparedQAppGuests.set(qappGuestOwnerKey(owner), prepared);
+    return {
+      partition: prepared.partition,
+      preload: prepared.preloadTokenUrl,
+    };
+  }
+);
 
 ipcMain.handle('qappGuest:hello', (event, guestToken: string) => {
-  if (event.sender.getType() !== 'webview' ||
-      event.senderFrame !== event.sender.mainFrame ||
-      typeof guestToken !== 'string' ||
-      !/^[a-f0-9-]{36}$/.test(guestToken))
+  if (
+    event.sender.getType() !== 'webview' ||
+    event.senderFrame !== event.sender.mainFrame ||
+    typeof guestToken !== 'string' ||
+    !/^[a-f0-9-]{36}$/.test(guestToken)
+  )
     throw new Error('QAPP_PERMISSION_DENIED');
   const prepared = [...preparedQAppGuests.values()].find(
     (candidate) => candidate.guestToken === guestToken
   );
   const attached = attachedQAppGuests.get(event.sender.id);
-  if (!prepared || !attached ||
-      (attached.prepared && attached.prepared !== prepared))
+  if (
+    !prepared ||
+    !attached ||
+    (attached.prepared && attached.prepared !== prepared)
+  )
     throw new Error('QAPP_GUEST_UNAVAILABLE');
   if (attached.contents.session !== session.fromPartition(prepared.partition))
     throw new Error('QAPP_GUEST_MISMATCH');
   const currentUrl = attached.contents.getURL();
-  if (!qappGuestUrlAllowed(
-    prepared.url,
-    !currentUrl || currentUrl === 'about:blank' ? prepared.url : currentUrl,
-    prepared.owner,
-    prepared.isDevMode
-  ))
+  if (
+    !qappGuestUrlAllowed(
+      prepared.url,
+      !currentUrl || currentUrl === 'about:blank' ? prepared.url : currentUrl,
+      prepared.owner,
+      prepared.isDevMode
+    )
+  )
     throw new Error('QAPP_GUEST_MISMATCH');
   attached.prepared = prepared;
   return true;
@@ -3371,11 +3477,15 @@ ipcMain.handle('qappGuest:hello', (event, guestToken: string) => {
 
 ipcMain.handle('qappGuest:release', (event, owner: QAppGuestOwner) => {
   validateQAppReticulumIpcSender(event);
-  if (event.senderFrame !== event.sender.mainFrame) throw new Error('QAPP_PERMISSION_DENIED');
+  if (event.senderFrame !== event.sender.mainFrame)
+    throw new Error('QAPP_PERMISSION_DENIED');
   const key = qappGuestOwnerKey(owner);
   preparedQAppGuests.delete(key);
   for (const [guestId, attached] of attachedQAppGuests) {
-    if (!attached.prepared || qappGuestOwnerKey(attached.prepared.owner) !== key)
+    if (
+      !attached.prepared ||
+      qappGuestOwnerKey(attached.prepared.owner) !== key
+    )
       continue;
     attachedQAppGuests.delete(guestId);
   }
@@ -6881,8 +6991,6 @@ ipcMain.handle(
   }
 );
 
-const activeNotifications = new NotificationRegistry();
-
 /**
  * Linux notifications are sent by an untracked helper process rather than by
  * `new Notification()`. Cinnamon destroys an app's notifications when that app
@@ -6938,8 +7046,10 @@ function handleLinuxNotifyEvent(event: {
     // Without this the map grows for the life of the process.
     if (rendererId) linuxNotificationPayloadById.delete(rendererId);
     if (event.selfClosed) return; // our own close; entry already removed
-    if (rendererId && activeNotifications.has(rendererId)) {
-      activeNotifications.markOsClosed(rendererId);
+    if (rendererId) {
+      // Idempotent: an unknown id is a no-op, which covers the entry having
+      // been app-closed before the desktop reported the close.
+      qChatNotificationSink.markOsClosed(rendererId);
     }
     return;
   }
@@ -6963,17 +7073,102 @@ app.on('before-quit', () => {
 });
 
 /**
+ * The decision half of Q-Chat notifications — show-time suppression, id
+ * assignment, cap and dedupe — lives in `QChatNotificationSink` so it can be
+ * exercised without Electron. The presentation half stays in this file, wired
+ * in as the presenter below. The view-context store is owned by the sink so
+ * there is exactly one.
+ */
+const qChatNotificationSink = new QChatNotificationSink();
+
+/**
  * The Q-Chat channel the renderer currently has on screen, published over
  * `reticulumChat:setViewContext`. Consulted at notification *show* time, not
  * submit time: notifications drain from a queue with a multi-second delay, so
  * the renderer's state when a notification was submitted can be stale by the
  * time it is presented.
  */
-const qChatViewContext = new QChatViewContextStore();
+const qChatViewContext = qChatNotificationSink.getViewContextStore();
 
 function clearQChatViewContext(): void {
-  qChatViewContext.clear();
+  qChatNotificationSink.clearViewContext();
 }
+
+qChatNotificationSink.setPresenter(async (payload, nid) => {
+  // Test mode registers the entry so a scenario can assert on it, but must not
+  // present anything to the desktop.
+  if (isTestModeActive()) {
+    return null;
+  }
+
+  const mainWindow = myCapacitorApp.getMainWindow();
+
+  let notificationIcon: Electron.NativeImage | undefined;
+  if (typeof payload.icon === 'string' && payload.icon.length > 0) {
+    try {
+      if (payload.icon.startsWith('data:')) {
+        notificationIcon = nativeImage.createFromDataURL(payload.icon);
+      } else if (
+        payload.icon.startsWith('file://') ||
+        payload.icon.startsWith('/')
+      ) {
+        notificationIcon = nativeImage.createFromPath(
+          payload.icon.startsWith('file://')
+            ? decodeURIComponent(payload.icon.slice(7))
+            : payload.icon
+        );
+      }
+    } catch {
+      // Icon resolution failed — proceed without an icon
+    }
+  }
+
+  // Linux: send through the untracked helper so the desktop's focus handler
+  // cannot attribute the notification to the Hub window.
+  if (linuxNotifications?.available) {
+    if (payload.data) linuxNotificationPayloadById.set(nid, payload.data);
+    const handle = await linuxNotifications.notify({
+      id: nid,
+      summary: payload.title,
+      body: payload.body,
+      icon: typeof payload.icon === 'string' ? payload.icon : undefined,
+    });
+    if (handle) {
+      return { notification: null, close: handleToCloser(handle) };
+    }
+    // Helper failed for this one notification; fall through to Electron.
+  }
+
+  const notification = new Notification({
+    title: payload.title,
+    body: payload.body,
+    icon: notificationIcon,
+    urgency: 'normal',
+  });
+  notification.on('click', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.focus();
+      if (payload.notificationId) {
+        mainWindow.webContents.send(
+          'reticulumChat:notificationClicked',
+          payload.notificationId,
+          payload.data
+        );
+      }
+    }
+  });
+  notification.on('close', () => {
+    // App-initiated closes remove the entry from the registry first, so this
+    // handler only sees DE-initiated closes (auto-dismiss after timeout, or
+    // shade collapse on clicking another notification). Those must NOT
+    // terminate the entry's logical life — retain it (D1/E1).
+    qChatNotificationSink.markOsClosed(nid);
+  });
+  notification.show();
+  // Keep the handle alive: GC-finalizing the wrapper closes the OS
+  // notification on Linux.
+  return { notification };
+});
 
 ipcMain.handle(
   'reticulumChat:showNotification',
@@ -6989,126 +7184,18 @@ ipcMain.handle(
       eventId?: string;
     }
   ) => {
-    try {
-      const mainWindow = myCapacitorApp.getMainWindow();
-      const nid = payload.notificationId || String(Date.now());
-      const now = Date.now();
-
-      // Show-time gate. A notification submitted while the user was elsewhere
-      // can be presented seconds later by the queue; if the target channel is
-      // now on screen, drop it before creating a Notification or registering an
-      // entry — an entry that is never shown must not consume a cap slot, and
-      // must not be able to survive as an orphan after an OS-initiated close.
-      if (
-        qChatViewContext.shouldSuppress(
-          payload.groupContext?.groupId,
-          payload.groupContext?.channelId
-        )
-      ) {
-        return { success: true, suppressed: true };
-      }
-
-      // The registry enforces the max-concurrent cap by evicting the OLDEST
-      // logical entry (smallest createdAt) before registering a new one —
-      // OS-closed entries (osClosedBySystem) still count, so the registry
-      // keeps exactly MAX_ACTIVE_NOTIFICATIONS entries at peak. Duplicate ids
-      // are replaced without eviction (dedupe, task 2.2).
-
-      let notificationIcon: Electron.NativeImage | undefined;
-      if (typeof payload.icon === 'string' && payload.icon.length > 0) {
-        try {
-          if (payload.icon.startsWith('data:')) {
-            notificationIcon = nativeImage.createFromDataURL(payload.icon);
-          } else if (
-            payload.icon.startsWith('file://') ||
-            payload.icon.startsWith('/')
-          ) {
-            notificationIcon = nativeImage.createFromPath(
-              payload.icon.startsWith('file://')
-                ? decodeURIComponent(payload.icon.slice(7))
-                : payload.icon
-            );
-          }
-        } catch {
-          // Icon resolution failed — proceed without an icon
-        }
-      }
-      const notification = new Notification({
-        title: payload.title,
-        body: payload.body,
-        icon: notificationIcon,
-        urgency: 'normal',
-      });
-      const entry: NotificationEntry = {
-        notification,
-        groupContext: payload.groupContext,
-        eventId: payload.eventId,
-        createdAt: now,
-        osClosedBySystem: false,
-      };
-      // The registry handles dedupe (replacing an existing id without
-      // eviction) and cap eviction (oldest createdAt) on registration.
-      activeNotifications.set(nid, entry);
-      // Keep the entry (and its Notification object reference) alive until the
-      // OS or user closes it — GC-finalizing a wrapper closes the OS notification
-      // on Linux. Entries are removed by app-initiated close; DE-initiated
-      // 'close' marks osClosedBySystem and retains (D1/E1).
-      // Linux: send through the untracked helper so the desktop's focus
-      // handler cannot attribute the notification to the Hub window.
-      if (linuxNotifications?.available) {
-        if (payload.data) linuxNotificationPayloadById.set(nid, payload.data);
-        const handle = await linuxNotifications.notify({
-          id: nid,
-          summary: payload.title,
-          body: payload.body,
-          icon: typeof payload.icon === 'string' ? payload.icon : undefined,
-        });
-        if (handle) {
-          activeNotifications.set(nid, {
-            notification: null,
-            close: handleToCloser(handle),
-            groupContext: payload.groupContext,
-            eventId: payload.eventId,
-            createdAt: now,
-            osClosedBySystem: false,
-          });
-          return { success: true };
-        }
-        // Helper failed for this one notification; fall through to Electron.
-      }
-
-      notification.on('click', () => {
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.focus();
-          if (payload.notificationId) {
-            mainWindow.webContents.send(
-              'reticulumChat:notificationClicked',
-              payload.notificationId,
-              payload.data
-            );
-          }
-        }
-      });
-      notification.on('close', () => {
-        // App-initiated closes remove the entry from the registry first, so
-        // this handler only sees DE-initiated closes (auto-dismiss after
-        // timeout, or shade collapse on clicking another notification). Those
-        // must NOT terminate the entry's logical life — retain it (D1/E1).
-        activeNotifications.markOsClosed(nid);
-      });
-      notification.show();
-      return { success: true };
-    } catch (error) {
-      console.error('[showNotification]', error);
-      return { success: false, error: String(error) };
+    const result = await qChatNotificationSink.submit(payload);
+    if ('error' in result) {
+      console.error('[showNotification]', result.error);
     }
+    return result;
   }
 );
 
 ipcMain.handle(
   'reticulumChat:dismissNotifications',
   async (_event, params: { groupId: number; channelId?: string }) => {
-    activeNotifications.dismissByContext(params.groupId, params.channelId);
+    qChatNotificationSink.dismissByContext(params.groupId, params.channelId);
     return { success: true };
   }
 );
@@ -7116,7 +7203,7 @@ ipcMain.handle(
 ipcMain.handle(
   'reticulumChat:setViewContext',
   async (_event, context: unknown) => {
-    qChatViewContext.set(context);
+    qChatNotificationSink.setViewContext(context);
     return { success: true };
   }
 );
@@ -7124,7 +7211,7 @@ ipcMain.handle(
 ipcMain.handle(
   'reticulumChat:dismissNotification',
   async (_event, params: { eventId: string }) => {
-    activeNotifications.dismissByEventId(params.eventId);
+    qChatNotificationSink.dismissByEventId(params.eventId);
     return { success: true };
   }
 );
