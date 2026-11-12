@@ -687,6 +687,37 @@ function computeFilteredChannelCounts(
 }
 
 /**
+ * How many welcome-post unreads it is legitimate to subtract from a group's
+ * unread count.
+ *
+ * `unreadWelcomeEventIdsAtom` records every welcome post the client has seen
+ * while it was unread, and is reconciled lazily. If that reconciliation has not
+ * run — first launch after an upgrade, or a welcome post read on another device
+ * — the set can hold more ids than the group has unread messages. Subtracting
+ * the raw size then drives the arithmetic negative and the group reports no
+ * unread at all, so the badge and count silently disappear while real messages
+ * remain unread.
+ *
+ * A set claiming more unread welcome posts than there are unread messages is
+ * provably inconsistent with the summary, so it is disregarded rather than
+ * trusted. Trusting it would hide real unread, which is the failure being fixed;
+ * disregarding it can at worst show a badge for welcome posts the user muted,
+ * which self-corrects on the next reconciliation.
+ *
+ * Equal counts are consistent — a group whose every unread message is a welcome
+ * post — and are still subtracted.
+ */
+function resolveEffectiveWelcomeUnread(
+  welcomeUnreadCount: number | undefined,
+  totalUnread: number
+): number {
+  const welcomeCount = Math.max(0, Number(welcomeUnreadCount) || 0);
+  if (welcomeCount === 0) return 0;
+  if (welcomeCount > Math.max(0, totalUnread)) return 0;
+  return welcomeCount;
+}
+
+/**
  * Determines whether a group should show its red unread dot, considering
  * per-channel mute state.
  */
@@ -700,11 +731,13 @@ export function groupHasUnreadConsideringMute(
 
   const notifyOnWelcomePosts =
     groupStore?.notifyOnWelcomePosts ?? fallback.notifyOnWelcomePosts ?? true;
-  const welcomeCount =
-    !notifyOnWelcomePosts && welcomeUnreadCount ? welcomeUnreadCount : 0;
 
   const { totalUnread, totalMention, anyUnreadMention } =
     computeFilteredChannelCounts(groupStore, summary);
+
+  const welcomeCount = notifyOnWelcomePosts
+    ? 0
+    : resolveEffectiveWelcomeUnread(welcomeUnreadCount, totalUnread);
 
   if (welcomeCount > 0) {
     return (
@@ -730,10 +763,14 @@ export function getGroupUnreadCountConsideringMute(
 
   const notifyOnWelcomePosts =
     groupStore?.notifyOnWelcomePosts ?? fallback.notifyOnWelcomePosts ?? true;
-  const welcomeCount =
-    !notifyOnWelcomePosts && welcomeUnreadCount ? welcomeUnreadCount : 0;
 
   const { totalUnread } = computeFilteredChannelCounts(groupStore, summary);
+
+  // Same bound as the boolean predicate: a welcome set larger than the unread
+  // total is stale, and subtracting it in full would clamp the count to zero.
+  const welcomeCount = notifyOnWelcomePosts
+    ? 0
+    : resolveEffectiveWelcomeUnread(welcomeUnreadCount, totalUnread);
 
   return Math.max(0, totalUnread - welcomeCount);
 }
@@ -1096,6 +1133,39 @@ export function getWelcomeUnreadCount(
 }
 
 /**
+ * Trims a group's welcome-unread set down to what the group can still hold as
+ * unread, returning the same object when nothing changed.
+ *
+ * At most `totalUnread` recorded welcome posts can still be unread, so a set
+ * larger than that contains entries whose messages have since been read. The set
+ * carries no timestamps, so rather than guessing which specific entries are
+ * stale, the oldest insertions are dropped — `Set` preserves insertion order and
+ * welcome posts are added in arrival order, so the front of the set is the
+ * likeliest to have aged out.
+ *
+ * The bound matters even though the subtraction helpers also clamp: leaving an
+ * inflated set in place means every future read of the group re-clamps it, and
+ * the OS badge arithmetic has to keep working around it.
+ */
+export function reconcileWelcomeUnreadForGroup(
+  map: WelcomeUnreadMap,
+  groupId: string | number,
+  totalUnread: number
+): WelcomeUnreadMap {
+  const key = String(groupId);
+  const existing = map[key];
+  if (!existing || existing.size === 0) return map;
+  const keep = Math.max(0, Math.floor(Number(totalUnread) || 0));
+  if (existing.size <= keep) return map;
+  if (keep === 0) {
+    const { [key]: _, ...rest } = map;
+    return rest;
+  }
+  const trimmed = new Set([...existing].slice(existing.size - keep));
+  return { ...map, [key]: trimmed };
+}
+
+/**
  * Returns the effective unread count after subtracting welcome-post unreads
  * when notifyOnWelcomePosts is false. Used by derived red-dot atoms.
  */
@@ -1108,7 +1178,10 @@ export function getEffectiveUnreadCount(
   const unreadCount = Number(summary?.unreadCount ?? 0);
   const total = mentionCount + unreadCount;
   if (!notifyOnWelcomePosts && welcomeUnreadCount > 0) {
-    return Math.max(0, total - welcomeUnreadCount);
+    return Math.max(
+      0,
+      total - resolveEffectiveWelcomeUnread(welcomeUnreadCount, total)
+    );
   }
   return total;
 }

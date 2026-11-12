@@ -120,10 +120,13 @@ import {
   getEffectiveNotificationSettings,
   getGroupNotificationStore,
   groupHasUnreadConsideringMute,
+  getWelcomeUnreadCount,
   isScopeMuted,
   addWelcomeUnreadEventId,
   removeWelcomeUnreadEventId,
   clearWelcomeUnreadForGroup,
+  reconcileWelcomeUnreadForGroup,
+  type GroupNotificationStore,
 } from '../../utils/qChatNotificationSettings';
 import { resolveChannelReadWatermarkFromSummaries } from '../../utils/qChatReadWatermark';
 import { planReticulumNotifications } from './reticulumNotificationPlan';
@@ -1653,25 +1656,46 @@ export const Group = ({
               updated[groupIdStr]
             ) {
               updated = clearWelcomeUnreadForGroup(updated, groupIdStr);
+              continue;
             }
+            // A group can hold no more unread welcome posts than it has unread
+            // messages. The set is otherwise only cleared when a group reaches
+            // zero, so a welcome post read on another device — or read before
+            // this bookkeeping existed — leaves an entry behind and the set
+            // grows past the truth until it erases the group's real unread.
+            updated = reconcileWelcomeUnreadForGroup(
+              updated,
+              groupIdStr,
+              unreadCount + mentionCount
+            );
           }
           return updated;
         });
         syncReticulumMentionNotifications(next);
         const welcomeMap = unreadWelcomeValueRef.current;
         let totalBadge = 0;
+        // Subtracted per group, and only for groups that actually count toward
+        // the badge. Summing the whole welcome set and subtracting it once let
+        // ids belonging to an excluded group (muted, or welcome-only-unread)
+        // eat into another group's real unread, and let a stale set drive the
+        // total to zero. `getGroupUnreadCountConsideringMute` applies the same
+        // bound the red dot uses, so the two can never disagree.
+        let totalWelcomeUnreads = 0;
         for (const [groupIdStr, summary] of Object.entries(next)) {
           const groupId = Number(groupIdStr);
           if (!Number.isInteger(groupId) || groupId <= 0) continue;
+          const welcomeUnreadCount = getWelcomeUnreadCount(
+            welcomeMap,
+            groupIdStr
+          );
+          let settings: GroupNotificationStore | null = null;
           try {
-            const settings = await getGroupNotificationStore(groupId).catch(
-              () => null
-            );
+            settings = await getGroupNotificationStore(groupId);
             if (
               !groupHasUnreadConsideringMute(
                 settings,
                 summary,
-                0,
+                welcomeUnreadCount,
                 globalNotifFormRef.current
               )
             ) {
@@ -1680,14 +1704,28 @@ export const Group = ({
           } catch {
             // Cannot load settings — include the group's counts to be safe
           }
-          totalBadge +=
-            Math.max(0, Number((summary as any)?.mentionCount) || 0) +
-            Math.max(0, Number((summary as any)?.unreadCount) || 0);
+          const groupUnread = Math.max(
+            0,
+            Number((summary as any)?.unreadCount) || 0
+          );
+          const groupMention = Math.max(
+            0,
+            Number((summary as any)?.mentionCount) || 0
+          );
+          totalBadge += groupUnread + groupMention;
+          const rawWelcome = Math.max(0, welcomeUnreadCount);
+          if (rawWelcome > 0) {
+            const notifyOnWelcomePosts =
+              settings?.notifyOnWelcomePosts ??
+              globalNotifFormRef.current.notifyOnWelcomePosts ??
+              true;
+            // Equal counts are consistent; a larger set is stale and must not
+            // be subtracted at all.
+            if (!notifyOnWelcomePosts && rawWelcome <= groupUnread) {
+              totalWelcomeUnreads += rawWelcome;
+            }
+          }
         }
-        const totalWelcomeUnreads = Object.keys(welcomeMap || {}).reduce(
-          (acc, groupId) => acc + (welcomeMap[groupId]?.size ?? 0),
-          0
-        );
         void window.reticulumChat?.updateMentionBadge?.(
           Math.max(0, totalBadge - totalWelcomeUnreads)
         );

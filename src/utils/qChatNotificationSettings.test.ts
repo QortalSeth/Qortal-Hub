@@ -26,6 +26,7 @@ import {
   clearWelcomeUnreadForGroup,
   getWelcomeUnreadCount,
   getEffectiveUnreadCount,
+  reconcileWelcomeUnreadForGroup,
   DEFAULT_NOTIFICATION_SETTINGS,
   GLOBAL_SETTINGS_KEY,
   type EffectiveNotificationSettings,
@@ -994,5 +995,80 @@ describe('welcome unread helpers', () => {
     expect(
       getEffectiveUnreadCount({ unreadCount: 5, mentionCount: 2 }, true, 3)
     ).toBe(7);
+  });
+
+  it('getEffectiveUnreadCount ignores a welcome count larger than the total', () => {
+    // A stale set must not be able to subtract real unread away.
+    expect(
+      getEffectiveUnreadCount({ unreadCount: 3, mentionCount: 0 }, false, 9)
+    ).toBe(3);
+  });
+
+  it('reconcileWelcomeUnreadForGroup drops entries beyond the unread total', () => {
+    const map = {
+      '1': new Set(['a', 'b', 'c', 'd', 'e']),
+    };
+    const reconciled = reconcileWelcomeUnreadForGroup(map, '1', 3);
+    expect(reconciled['1']?.size).toBe(3);
+    // The oldest insertions are dropped; the newest are kept.
+    expect([...reconciled['1']]).toEqual(['c', 'd', 'e']);
+  });
+
+  it('reconcileWelcomeUnreadForGroup leaves a consistent set untouched', () => {
+    const map = { '1': new Set(['a', 'b']) };
+    // Same reference: no spurious state write on every summaries refresh.
+    expect(reconcileWelcomeUnreadForGroup(map, '1', 2)).toBe(map);
+    expect(reconcileWelcomeUnreadForGroup(map, '1', 5)).toBe(map);
+  });
+
+  it('reconcileWelcomeUnreadForGroup clears the key at zero unread', () => {
+    const map = { '1': new Set(['a', 'b']) };
+    const reconciled = reconcileWelcomeUnreadForGroup(map, '1', 0);
+    expect(reconciled['1']).toBeUndefined();
+  });
+
+  it('reconcileWelcomeUnreadForGroup ignores unknown groups', () => {
+    const map = { '1': new Set(['a']) };
+    expect(reconcileWelcomeUnreadForGroup(map, '2', 0)).toBe(map);
+  });
+});
+
+describe('welcome subtraction is bounded by real unread', () => {
+  const fallback: EffectiveNotificationSettings = {
+    ...DEFAULT_NOTIFICATION_SETTINGS,
+    notifyOnWelcomePosts: false,
+  };
+  const groupStore: GroupNotificationStore = { channels: {} };
+  const summary = {
+    unreadCount: 3,
+    mentionCount: 0,
+    channels: [{ channelId: 'general', unreadCount: 3, mentionCount: 0 }],
+  };
+
+  it('groupHasUnreadConsideringMute ignores an inflated welcome count', () => {
+    expect(
+      groupHasUnreadConsideringMute(groupStore, summary, 9, fallback)
+    ).toBe(true);
+  });
+
+  it('getGroupUnreadCountConsideringMute ignores an inflated welcome count', () => {
+    expect(
+      getGroupUnreadCountConsideringMute(groupStore, summary, 9, fallback)
+    ).toBe(3);
+  });
+
+  it('still subtracts a welcome count equal to the unread total', () => {
+    expect(
+      groupHasUnreadConsideringMute(groupStore, summary, 3, fallback)
+    ).toBe(false);
+    expect(
+      getGroupUnreadCountConsideringMute(groupStore, summary, 3, fallback)
+    ).toBe(0);
+  });
+
+  it('still subtracts a welcome count below the unread total', () => {
+    expect(
+      getGroupUnreadCountConsideringMute(groupStore, summary, 1, fallback)
+    ).toBe(2);
   });
 });

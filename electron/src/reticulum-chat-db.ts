@@ -663,6 +663,8 @@ type MessageProjectionRow = {
   author_stream_id?: string;
   author_seq: number;
   created_at: number;
+  /** Local arrival order; see `nextArrivalSequence`. */
+  stored_at?: number;
   root_event_type: string;
   current_event_id: string;
   updated_at: number;
@@ -686,6 +688,22 @@ const rendererExpiresAtByEvent = new WeakMap<
   number | null
 >();
 const projectionUpdatedAtByEvent = new WeakMap<ReticulumChatEvent, number>();
+
+/**
+ * Local arrival order for a projected message.
+ *
+ * Kept off the event object: it is local sequencing, not signed content, and an
+ * enumerable field would leak into wire serialization. Absent for rows written
+ * before the column existed, where the sender timestamp is used instead.
+ */
+const projectionStoredAtByEvent = new WeakMap<ReticulumChatEvent, number>();
+
+function messageArrivalOrder(event: ReticulumChatEvent): number {
+  const storedAt = projectionStoredAtByEvent.get(event);
+  if (typeof storedAt === 'number') return storedAt;
+  const senderTimestamp = Number(event.timestamp);
+  return Number.isFinite(senderTimestamp) ? senderTimestamp : 0;
+}
 
 function rememberRendererExpiresAt<T extends ReticulumChatEvent>(
   event: T,
@@ -1003,6 +1021,10 @@ function messageProjectionRowToEvent(
     event,
     Math.max(Number(row.created_at) || 0, Number(row.updated_at) || 0)
   );
+  const storedAt = Number(row.stored_at);
+  if (Number.isFinite(storedAt) && storedAt > 0) {
+    projectionStoredAtByEvent.set(event, storedAt);
+  }
   return rememberRendererExpiresAt(event, row.expires_at);
 }
 
@@ -1614,6 +1636,13 @@ export class ReticulumChatDatabase {
     }>
   >();
   private memoryReadWatermarks = new Map<string, number>();
+  /**
+   * Last issued arrival sequence. Strictly increasing so several messages stored
+   * inside one millisecond still order against each other and against a read.
+   * Wall-clock values tie there, and a tie reads as "already seen" — losing a
+   * message.
+   */
+  private lastArrivalSequence = 0;
   private channelSummaryCache = new Map<
     string,
     CachedReticulumChannelSummary
@@ -1675,6 +1704,8 @@ export class ReticulumChatDatabase {
   private stmtGetPrivilegedMentionStatus: Statement;
   private stmtUpdatePrivilegedMentionStatus: Statement;
   private stmtGetWatermark: Statement;
+  private stmtGetWatermarkLocalReadAt: Statement;
+  private stmtUpsertWatermarkLocalReadAt: Statement;
   private stmtGetNewestEventTimestamp: Statement;
   private stmtGetDirectWatermark: Statement;
   private stmtUpsertWatermark: Statement;
@@ -1888,13 +1919,13 @@ export class ReticulumChatDatabase {
          author_stream_id, author_seq, created_at, root_event_type, current_event_id, updated_at,
          reply_to_event_id, encrypted_payload, payload_hash,
          mention_address_hashes, mention_targets, signature, deleted_at,
-         deleted_event_id, expires_at, has_attachment)
+         deleted_event_id, expires_at, has_attachment, stored_at)
       VALUES
         (@root_event_id, @group_id, @channel_id, @author_address, @author_public_key,
          @author_stream_id, @author_seq, @created_at, @root_event_type, @current_event_id, @updated_at,
          @reply_to_event_id, @encrypted_payload, @payload_hash,
          @mention_address_hashes, @mention_targets, @signature, @deleted_at,
-         @deleted_event_id, @expires_at, @has_attachment)
+         @deleted_event_id, @expires_at, @has_attachment, @stored_at)
       ON CONFLICT(root_event_id) DO UPDATE SET
         group_id = excluded.group_id,
         channel_id = excluded.channel_id,
@@ -1915,7 +1946,13 @@ export class ReticulumChatDatabase {
         deleted_at = excluded.deleted_at,
         deleted_event_id = excluded.deleted_event_id,
         expires_at = excluded.expires_at,
-        has_attachment = excluded.has_attachment
+        has_attachment = excluded.has_attachment,
+        -- Keep the original arrival position. An edit or repair is the same
+        -- message and must not jump forward in the unread sequence.
+        stored_at = CASE
+          WHEN excluded.stored_at > 0 THEN excluded.stored_at
+          ELSE rchat_message_projection.stored_at
+        END
     `);
     this.stmtGetMessageProjection = this.db.prepare(
       'SELECT * FROM rchat_message_projection WHERE root_event_id = ? LIMIT 1'
@@ -2244,13 +2281,26 @@ export class ReticulumChatDatabase {
     this.stmtGetWatermark = this.db.prepare(
       'SELECT timestamp FROM reticulum_chat_read_watermarks WHERE group_id = ? AND channel_id = ? AND address = ?'
     );
+    this.stmtGetWatermarkLocalReadAt = this.db.prepare(
+      'SELECT local_read_at FROM reticulum_chat_read_watermarks WHERE group_id = ? AND channel_id = ? AND address = ?'
+    );
     this.stmtGetDirectWatermark = this.db.prepare(
       'SELECT timestamp FROM rchat_dm_read_watermarks WHERE conversation_id = ? AND address = ?'
     );
     this.stmtUpsertWatermark = this.db.prepare(`
-      INSERT INTO reticulum_chat_read_watermarks (group_id, channel_id, address, timestamp)
-      VALUES (?, ?, ?, ?)
-      ON CONFLICT(group_id, channel_id, address) DO UPDATE SET timestamp = excluded.timestamp
+      INSERT INTO reticulum_chat_read_watermarks
+        (group_id, channel_id, address, timestamp, local_read_at)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(group_id, channel_id, address) DO UPDATE SET
+        timestamp = excluded.timestamp,
+        -- The read *moment* only ever moves forward: it records when the reader
+        -- looked, and a repair replaying an older watermark is not a new read.
+        local_read_at = MAX(local_read_at, excluded.local_read_at)
+    `);
+    this.stmtUpsertWatermarkLocalReadAt = this.db.prepare(`
+      UPDATE reticulum_chat_read_watermarks
+         SET local_read_at = MAX(local_read_at, ?)
+       WHERE group_id = ? AND channel_id = ? AND address = ?
     `);
     this.stmtUpsertMention = this.db.prepare(`
       INSERT INTO reticulum_chat_mentions
@@ -6044,6 +6094,7 @@ export class ReticulumChatDatabase {
       current_event_id: current.eventId,
       updated_at: current.timestamp,
       reply_to_event_id: root.replyToEventId ?? null,
+      stored_at: this.nextArrivalSequence(),
       encrypted_payload: current.encryptedPayload,
       payload_hash: current.payloadHash,
       mention_address_hashes: serializeMentionAddressHashes(
@@ -11694,6 +11745,22 @@ export class ReticulumChatDatabase {
     return replyEventIds.size;
   }
 
+  /**
+   * Next strictly-increasing arrival sequence number.
+   *
+   * Seeded from the wall clock so values stay comparable with rows that stored a
+   * bare timestamp, then incremented per insert. Several messages routinely land
+   * inside one millisecond; with a raw timestamp those tie, and a tie against a
+   * read moment reads as "already seen" — losing the message. The counter cannot
+   * tie.
+   */
+  private nextArrivalSequence(): number {
+    const now = Date.now();
+    this.lastArrivalSequence =
+      now > this.lastArrivalSequence ? now : this.lastArrivalSequence + 1;
+    return this.lastArrivalSequence;
+  }
+
   private getChannelSummary(
     groupId: number,
     channelId: string,
@@ -11778,15 +11845,40 @@ export class ReticulumChatDatabase {
       normalizedChannelId,
       myAddress
     );
+    const readMoment = this.getReadWatermarkLocalReadAt(
+      groupId,
+      normalizedChannelId,
+      myAddress
+    );
+    // A watermark ahead of the local clock can only come from another sender's
+    // fast clock: the reader cannot have read a message stamped in their own
+    // future. When that has happened, comparing sender timestamps is no longer
+    // meaningful, because a later message from a correctly-clocked sender sits
+    // below the watermark and is counted as read although nobody has seen it.
+    // That is the intermittent "push arrived, but no red dot" report —
+    // notifications never consult the watermark, so they keep firing while the
+    // count stays at zero.
+    //
+    // In that case only, fall back to arrival order, which is recorded locally
+    // and so is the one sequence every sender's message shares. Every other
+    // channel keeps the existing sender-timestamp comparison untouched, so
+    // backfilled history below the watermark is still correctly treated as read.
+    const watermarkIsUnreliable =
+      myAddress !== '' && readMoment > 0 && watermark > readMoment;
     const unreadCount =
       myAddress && !suppressUnreadState
-        ? events.filter(
-            (event) =>
-              event.timestamp > watermark &&
-              event.authorAddress !== myAddress &&
-              event.timestamp >
-                (ignoredThroughByAuthor.get(event.authorAddress) ?? 0)
-          ).length
+        ? events.filter((event) => {
+            if (event.authorAddress === myAddress) return false;
+            if (
+              event.timestamp <=
+              (ignoredThroughByAuthor.get(event.authorAddress) ?? 0)
+            ) {
+              return false;
+            }
+            return watermarkIsUnreliable
+              ? messageArrivalOrder(event) > readMoment
+              : event.timestamp > watermark;
+          }).length
         : 0;
     const replyCount =
       myAddress && !suppressUnreadState
@@ -12087,14 +12179,34 @@ export class ReticulumChatDatabase {
     }
     if (normalizedTargets.size === 0) return 0;
 
-    const readAt = Date.now();
+    // Same strictly-increasing sequence as message arrival: a wall-clock value
+    // ties with messages stored in the same millisecond, and a tie reads as
+    // "already seen", losing the message.
+    const readAt = this.nextArrivalSequence();
     const watermarkUpdates = [...normalizedTargets.values()].filter(
       ({ groupId, channelId, timestamp }) =>
         timestamp > this.getReadWatermark(groupId, channelId, address)
     );
     const transaction = this.db.transaction(() => {
       for (const { groupId, channelId, timestamp } of watermarkUpdates) {
-        this.stmtUpsertWatermark.run(groupId, channelId, address, timestamp);
+        this.stmtUpsertWatermark.run(
+          groupId,
+          channelId,
+          address,
+          timestamp,
+          readAt
+        );
+      }
+      // Record the read moment even when the watermark did not advance. A read
+      // of an already-read channel still tells us the reader looked *now*, which
+      // is what bounds a watermark that another sender's clock pushed ahead.
+      for (const { groupId, channelId } of normalizedTargets.values()) {
+        this.stmtUpsertWatermarkLocalReadAt.run(
+          readAt,
+          groupId,
+          channelId,
+          address
+        );
       }
       if (address) {
         for (const {
@@ -12149,6 +12261,31 @@ export class ReticulumChatDatabase {
       this.invalidateChatSummaryCache(groupId, channelId, address);
     }
     return normalizedTargets.size;
+  }
+
+  /**
+   * Arrival order of the last recorded read on this device, or 0 when none was
+   * recorded.
+   *
+   * Used only to detect a watermark that another sender's fast clock pushed into
+   * the future. See the unread computation in `computeChannelSummary`.
+   */
+  getReadWatermarkLocalReadAt(
+    groupId: number,
+    channelId: string,
+    address = ''
+  ): number {
+    if (!Number.isInteger(groupId) || groupId <= 0) return 0;
+    const normalizedChannelId = normalizeReticulumChatChannelId(channelId);
+    const normalizedAddress = typeof address === 'string' ? address.trim() : '';
+    if (!normalizedAddress) return 0;
+    const row = this.stmtGetWatermarkLocalReadAt.get(
+      groupId,
+      normalizedChannelId,
+      normalizedAddress
+    ) as { local_read_at?: number } | undefined;
+    const stored = Number(row?.local_read_at);
+    return Number.isFinite(stored) && stored > 0 ? stored : 0;
   }
 
   getReadWatermark(groupId: number, channelId: string, address = ''): number {
@@ -12932,7 +13069,10 @@ export class ReticulumChatDatabase {
         deleted_at INTEGER,
         deleted_event_id TEXT,
         expires_at INTEGER,
-        has_attachment INTEGER NOT NULL DEFAULT 0
+        has_attachment INTEGER NOT NULL DEFAULT 0,
+        -- Local arrival order. Sender timestamps are not comparable across
+        -- senders; this is the only sequence every message shares.
+        stored_at INTEGER NOT NULL DEFAULT 0
       );
       CREATE INDEX IF NOT EXISTS idx_rchat_message_projection_visible
         ON rchat_message_projection (group_id, channel_id, deleted_at, created_at, root_event_id);
@@ -13128,6 +13268,10 @@ export class ReticulumChatDatabase {
         channel_id TEXT NOT NULL DEFAULT 'general',
         address TEXT NOT NULL DEFAULT '',
         timestamp INTEGER NOT NULL,
+        -- This device's clock reading at the moment of the read. Used to detect
+        -- a watermark that a fast-clocked sender pushed into the future; see
+        -- effectiveReadWatermark. 0 means never recorded.
+        local_read_at INTEGER NOT NULL DEFAULT 0,
         PRIMARY KEY (group_id, channel_id, address)
       );
       CREATE TABLE IF NOT EXISTS rchat_dm_read_watermarks (
@@ -13442,6 +13586,46 @@ export class ReticulumChatDatabase {
     );
   }
 
+  /**
+   * Local clock reading stored alongside each read watermark.
+   *
+   * Needed because a watermark can legitimately be *ahead* of this device's
+   * clock: it is taken from the newest event's sender timestamp, and a sender
+   * whose clock runs fast produces one in the future. Recording when the reader
+   * actually looked lets `effectiveReadWatermark` tell a normal read from one
+   * dragged forward by another participant's clock.
+   */
+  /** Local arrival order for projected messages. See `nextArrivalSequence`. */
+  private migrateMessageProjectionStoredAtSchema(): void {
+    this.ensureColumn(
+      'rchat_message_projection',
+      'stored_at',
+      `
+      ALTER TABLE rchat_message_projection
+        ADD COLUMN stored_at INTEGER NOT NULL DEFAULT 0
+      `
+    );
+    // Rows written before this column existed have no recorded arrival order.
+    // Their sender timestamp is the best available stand-in and preserves their
+    // previous unread behaviour exactly, so an upgrade changes nothing visible.
+    this.db.exec(`
+      UPDATE rchat_message_projection
+         SET stored_at = created_at
+       WHERE stored_at = 0
+    `);
+  }
+
+  private migrateReadWatermarkLocalReadAtSchema(): void {
+    this.ensureColumn(
+      'reticulum_chat_read_watermarks',
+      'local_read_at',
+      `
+      ALTER TABLE reticulum_chat_read_watermarks
+        ADD COLUMN local_read_at INTEGER NOT NULL DEFAULT 0
+      `
+    );
+  }
+
   private migrateMetadataSnapshotLineageSchema(): void {
     this.ensureColumn(
       'rchat_metadata_snapshots',
@@ -13577,6 +13761,14 @@ export class ReticulumChatDatabase {
       {
         name: 'channel-write-mode-updated-at',
         run: () => this.migrateChannelWriteModeUpdatedAtSchema(),
+      },
+      {
+        name: 'message-projection-stored-at',
+        run: () => this.migrateMessageProjectionStoredAtSchema(),
+      },
+      {
+        name: 'read-watermark-local-read-at',
+        run: () => this.migrateReadWatermarkLocalReadAtSchema(),
       },
       { name: 'message-expiry', run: () => this.migrateExpirySchema() },
       {

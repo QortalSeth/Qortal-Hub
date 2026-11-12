@@ -669,23 +669,83 @@ and group-only fields. Old keys are left in place.
 
 ## 13. Quick Reference Table
 
-| Notification              | Trigger                                                        | Display                                                                                                 | Clear                                                                                |
-| ------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| **Channel unread**        | New message in a channel; `channel.unreadCount > 0`            | Red badge on group icon (aggregated from channels)                                                      | `markRead(groupId, channelId, upToTimestamp)` — auto on view or explicit acknowledge |
-| **Group unread**          | `reticulumChatSummary.unreadCount > 0` or legacy 15-min window | Red badge / `MarkChatUnreadIcon` on group (GroupList, GlobalChatWidget); red Groups tab (DesktopFooter) | `markGroupsRead` / `markAsRead` event / clicking the group                           |
-| **Group mention**         | Incoming message mentions my address (not muted/read/own)      | `AlternateEmailIcon` (red) on group; bell entry "n mentions"; OS notification "Mention in {group}"      | Click bell entry → `openGroupMessage`; `markRead`                                    |
-| **Announcement**          | `!announcement.seentimestamp`                                  | `CampaignIcon` on group                                                                                 | `getGroupAnnouncements` after `markAsRead`                                           |
-| **DM unread**             | `reticulumDirectSummary.unreadCount > 0`                       | `MarkChatUnreadIcon` (blue) on DM row; red Directs tab                                                  | `markDirectRead`; clicking the DM                                                    |
-| **DM OS push**            | New DM from a friend while hub not focused                     | OS notification "New message from {name}"                                                               | N/A (auto-dismiss after 10s)                                                         |
-| **DM incoming call**      | `callState = 'ringing'` for `direct:` chat                     | Full-window Dialog overlay + Web Audio ringtone                                                         | Accept / Decline (stops ringtone)                                                    |
-| **Support incoming call** | `callState = 'ringing'` for `support:` chat                    | Inline banner with pulsing icon                                                                         | Accept / Reject                                                                      |
-| **Group call active**     | gcall / mesh call active for group                             | Green `PhoneIcon` badge + participant count on group                                                    | Call ends (indicator auto-clears)                                                    |
-| **Group call join error** | `gcallJoinError` set by controller                             | Snackbar toast (error message)                                                                          | `clearGcallJoinError` after toast                                                    |
-| **Missed DM call**        | Call record `outcome=missed`, `readAt=0`                       | `PhoneMissedRoundedIcon` (red) on DM; bell entry                                                        | Click bell entry; Electron sets `readAt` → notification removed                      |
-| **Mention OS badge**      | Total mention count across all groups                          | App taskbar/dock badge                                                                                  | `updateMentionBadge(0)` when no mentions                                             |
-| **Calendar reminder**     | `onCalendarReminderDue`                                        | Bell entry + OS notification (when hub not viewed)                                                      | Click bell entry → `openGroupMessage` with `openCalendar`                            |
-| **Q-Mail**                | New Q-Mail                                                     | Red dot (`other.unread` blue) on Q-Mail status                                                          | Opening Q-Mail                                                                       |
-| **Payment**               | New payment received                                           | Bell entry + OS notification                                                                            | Click bell entry; closing popover sets `lastSeenTimestamp`                           |
+| Notification       | Trigger                                                        | Display                                                                                                 | Clear                                                                                |
+| ------------------ | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| **Channel unread** | New message in a channel; `channel.unreadCount > 0`            | Red badge on group icon (aggregated from channels)                                                      | `markRead(groupId, channelId, upToTimestamp)` — auto on view or explicit acknowledge |
+| **Group unread**   | `reticulumChatSummary.unreadCount > 0` or legacy 15-min window | Red badge / `MarkChatUnreadIcon` on group (GroupList, GlobalChatWidget); red Groups tab (DesktopFooter) | `markGroupsRead` / `markAsRead` event / clicking the group                           |
+| **Group mention**  | Incoming message mentions my address (not muted/read/own)      | `AlternateEmailIcon` (red) on group; bell entry "n mentions"; OS notification "Mention in {group}"      | Click bell entry → `openGroupMessage`; `markRead`                                    |
+
+### Welcome-post unread accounting
+
+Welcome posts (`qchatSystem.type === 'group-welcome'`) are tracked separately
+from ordinary unread, so that a user with **Notify on welcome posts** switched
+off does not get a badge for people joining. The tracking lives in
+`unreadWelcomeEventIdsAtom` and is applied by `groupHasUnreadConsideringMute`
+and `getGroupUnreadCountConsideringMute` in
+`src/utils/qChatNotificationSettings.ts`.
+
+Two rules make that accounting safe. Both were added after a bug where the
+group badge and channel count disappeared while messages were genuinely unread:
+
+1. **The subtraction is bounded.** A welcome set can only account for as many
+   unread messages as the group actually has. A set claiming _more_ than the
+   unread total is provably stale and is disregarded entirely, not clamped — a
+   clamp would subtract every real unread message and re-hide the badge.
+2. **The set is reconciled.** `reconcileWelcomeUnreadForGroup` trims each
+   group's set to its unread total on every summaries refresh, dropping the
+   oldest entries. Entries are otherwise only cleared when a group reaches zero
+   unread or a message is deleted, so a welcome post read on another device
+   would leave a permanent entry and the set would grow without bound.
+
+Verified headlessly by the `unread-badge-visibility` scenario
+(`node electron/scenarios/runner.mjs unread-badge-visibility`), which asserts
+both the bounded subtraction and that the membership join baseline never clears
+a message newer than the member's `joinedAt`.
+
+### Clock skew between senders
+
+Unread is normally decided by `event.timestamp > read_watermark`. Both values come
+from **senders'** clocks, so a participant whose clock runs a few minutes ahead
+can drag the watermark into the future and make every later message from a
+correctly-clocked sender look already read. The visible symptom is a **push
+notification with no red dot** — notifications are generated from live events and
+never consult the watermark, so the two paths disagree.
+
+Two columns exist to detect and work around this:
+
+- `reticulum_chat_read_watermarks.local_read_at` — when this device last read the
+  channel, from the local clock.
+- `rchat_message_projection.stored_at` — local arrival order for each message.
+
+Both are written from a single strictly-increasing counter, not `Date.now()`,
+because several messages routinely land in the same millisecond and a tie against
+a read moment would read as "already seen".
+
+The rule in `computeChannelSummary` is deliberately narrow:
+
+```
+if (watermark > local_read_at)   // dragged forward by another sender's clock
+    unread = arrival order > local_read_at
+else
+    unread = timestamp > watermark        // unchanged
+```
+
+Only a poisoned watermark switches to arrival order. Everything else keeps the
+sender-timestamp comparison, which is what keeps late-fetched history below the
+watermark from appearing unread — the behaviour asserted in
+`electron/src/reticulum-chat.test.ts` under device read-state sync.
+| **Announcement** | `!announcement.seentimestamp` | `CampaignIcon` on group | `getGroupAnnouncements` after `markAsRead` |
+| **DM unread** | `reticulumDirectSummary.unreadCount > 0` | `MarkChatUnreadIcon` (blue) on DM row; red Directs tab | `markDirectRead`; clicking the DM |
+| **DM OS push** | New DM from a friend while hub not focused | OS notification "New message from {name}" | N/A (auto-dismiss after 10s) |
+| **DM incoming call** | `callState = 'ringing'` for `direct:` chat | Full-window Dialog overlay + Web Audio ringtone | Accept / Decline (stops ringtone) |
+| **Support incoming call** | `callState = 'ringing'` for `support:` chat | Inline banner with pulsing icon | Accept / Reject |
+| **Group call active** | gcall / mesh call active for group | Green `PhoneIcon` badge + participant count on group | Call ends (indicator auto-clears) |
+| **Group call join error** | `gcallJoinError` set by controller | Snackbar toast (error message) | `clearGcallJoinError` after toast |
+| **Missed DM call** | Call record `outcome=missed`, `readAt=0` | `PhoneMissedRoundedIcon` (red) on DM; bell entry | Click bell entry; Electron sets `readAt` → notification removed |
+| **Mention OS badge** | Total mention count across all groups | App taskbar/dock badge | `updateMentionBadge(0)` when no mentions |
+| **Calendar reminder** | `onCalendarReminderDue` | Bell entry + OS notification (when hub not viewed) | Click bell entry → `openGroupMessage` with `openCalendar` |
+| **Q-Mail** | New Q-Mail | Red dot (`other.unread` blue) on Q-Mail status | Opening Q-Mail |
+| **Payment** | New payment received | Bell entry + OS notification | Click bell entry; closing popover sets `lastSeenTimestamp` |
 
 ---
 
