@@ -33,6 +33,7 @@ import {
 } from '../../qdn/encryption/group-encryption';
 import { ChatList } from './ChatList';
 import { AdminSpaceInner } from './AdminSpaceInner';
+import { useAdminPopoverDismiss } from './useAdminPopoverDismiss';
 import Tiptap, { type MentionSuggestionItem } from './TipTap';
 import { SpellCheckContextMenu } from './SpellCheckContextMenu';
 import { normalizeExactReticulumMentions } from './reticulumMentionNormalization';
@@ -1383,7 +1384,6 @@ export const ChatGroup = ({
   adminsWithNames = [],
   isReticulumChannelAdmin = false,
   reticulumChannelAccessReady = false,
-  handleNewEncryptionNotification,
   hide,
   handleSecretKeyCreationInProgress,
   triedToFetchSecretKey,
@@ -4427,17 +4427,6 @@ export const ChatGroup = ({
     };
   }, []);
 
-  useEffect(() => {
-    const notifications = messages.filter(
-      (message) => message?.decryptedData?.type === 'notification'
-    );
-    if (notifications.length === 0) return;
-    const latestNotification = notifications.reduce((latest, current) => {
-      return current.timestamp > latest.timestamp ? current : latest;
-    }, notifications[0]);
-    handleNewEncryptionNotification(latestNotification);
-  }, [messages]);
-
   const encryptChatMessage = async (
     data: string,
     secretKeyObject: any,
@@ -7208,9 +7197,22 @@ export const ChatGroup = ({
 
   useEffect(() => {
     executeEvent('reticulumAdminKeysOpenState', {
-      open: Boolean(reticulumAdminAnchorEl || reticulumAdminAnchorPosition),
+      open: Boolean(
+        isReticulumChannelAdmin &&
+          (reticulumAdminAnchorEl || reticulumAdminAnchorPosition)
+      ),
     });
-  }, [reticulumAdminAnchorEl, reticulumAdminAnchorPosition]);
+  }, [
+    isReticulumChannelAdmin,
+    reticulumAdminAnchorEl,
+    reticulumAdminAnchorPosition,
+  ]);
+
+  useEffect(() => {
+    if (isReticulumChannelAdmin) return;
+    setReticulumAdminAnchorEl(null);
+    setReticulumAdminAnchorPosition(null);
+  }, [isReticulumChannelAdmin]);
 
   useEffect(() => {
     executeEvent('reticulumChatSearchOpenState', {
@@ -7300,36 +7302,17 @@ export const ChatGroup = ({
     };
   }, [openQManager, reticulumChatEnabled, toggleReticulumAdminFromEvent]);
 
-  useEffect(() => {
-    if (!reticulumAdminAnchorEl && !reticulumAdminAnchorPosition) return;
+  const closeReticulumAdminPopover = useCallback(() => {
+    setReticulumAdminAnchorEl(null);
+    setReticulumAdminAnchorPosition(null);
+  }, []);
 
-    const closeAdminPopoverOnOutsidePointerDown = (event: PointerEvent) => {
-      const target = event.target as Node;
-      if (
-        target instanceof Element &&
-        target.closest('.reticulum-admin-popover-paper')
-      ) {
-        return;
-      }
-      if (reticulumAdminPopoverRef.current?.contains(target)) return;
-      if (reticulumAdminAnchorEl?.contains(target)) return;
-
-      setReticulumAdminAnchorEl(null);
-      setReticulumAdminAnchorPosition(null);
-    };
-
-    document.addEventListener(
-      'pointerdown',
-      closeAdminPopoverOnOutsidePointerDown,
-      true
-    );
-    return () =>
-      document.removeEventListener(
-        'pointerdown',
-        closeAdminPopoverOnOutsidePointerDown,
-        true
-      );
-  }, [reticulumAdminAnchorEl, reticulumAdminAnchorPosition]);
+  useAdminPopoverDismiss({
+    open: Boolean(reticulumAdminAnchorEl || reticulumAdminAnchorPosition),
+    anchor: reticulumAdminAnchorEl,
+    panelRef: reticulumAdminPopoverRef,
+    onClose: closeReticulumAdminPopover,
+  });
 
   const theme = useTheme();
 
@@ -9867,21 +9850,21 @@ export const ChatGroup = ({
                     setReticulumCalendarOpen((current) => !current);
                   },
                 })}
-                {legacyThreadsEnabled && (
-                  <>
-                    {renderReticulumHeaderAction({
-                      label: 'Threads',
-                      icon: <ForumRoundedIcon sx={{ fontSize: 19 }} />,
-                      onClick: onThreadsClick,
-                    })}
-                    {renderReticulumHeaderAction({
-                      active: Boolean(reticulumAdminAnchorEl),
-                      label: 'Admins',
-                      icon: <SecurityRoundedIcon sx={{ fontSize: 19 }} />,
-                      onClick: toggleReticulumAdminPopover,
-                    })}
-                  </>
-                )}
+                {legacyThreadsEnabled &&
+                  renderReticulumHeaderAction({
+                    label: t('reticulum:settings.nav.threads'),
+                    icon: <ForumRoundedIcon sx={{ fontSize: 19 }} />,
+                    onClick: onThreadsClick,
+                  })}
+                {isReticulumChannelAdmin &&
+                  renderReticulumHeaderAction({
+                    active: Boolean(reticulumAdminAnchorEl),
+                    label: t('group:member_category.admins', {
+                      postProcess: 'capitalizeFirstChar',
+                    }),
+                    icon: <SecurityRoundedIcon sx={{ fontSize: 19 }} />,
+                    onClick: toggleReticulumAdminPopover,
+                  })}
                 {renderReticulumHeaderAction({
                   active: isOpenQManager === true,
                   label: 'Q-Manager',
@@ -13054,7 +13037,10 @@ export const ChatGroup = ({
           setReticulumAdminAnchorEl(null);
           setReticulumAdminAnchorPosition(null);
         }}
-        open={Boolean(reticulumAdminAnchorEl || reticulumAdminAnchorPosition)}
+        open={Boolean(
+          isReticulumChannelAdmin &&
+            (reticulumAdminAnchorEl || reticulumAdminAnchorPosition)
+        )}
         hideBackdrop
         disableAutoFocus
         disableEnforceFocus
@@ -13102,6 +13088,7 @@ export const ChatGroup = ({
         >
           {isReticulumChannelAdmin ? (
             <AdminSpaceInner
+              key={selectedGroup}
               adminsWithNames={adminsWithNames}
               compact
               isOwner={isGroupOwner}

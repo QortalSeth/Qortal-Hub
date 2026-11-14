@@ -78,10 +78,16 @@
   },
   "admin_space": {
     "ask_description": "This key encrypts content visible only to admins.",
+    "ask_title": "Chave secreta dos administradores (ASK)",
+    "create_ask": "Criar chave secreta dos administradores",
+    "create_gsk": "Criar chave secreta do grupo",
+    "create_gsk_confirm": "Criar e publicar a primeira chave secreta do grupo? A chave será encriptada para os membros do grupo. Aplica-se uma taxa de publicação QDN.",
     "gsk_description": "This key encrypts group content visible to all group members. It is currently the only key used for group chat and shared data.",
     "gsk_description_compact": "This key encrypts group content visible to all group members. It is currently the only key used in this UI.",
+    "gsk_title": "Chave secreta do grupo (GSK)",
     "publish_ask": "Publish ASK",
-    "publish_gsk": "Publish GSK"
+    "publish_gsk": "Publish GSK",
+    "published": "Chave secreta publicada. Pode demorar alguns minutos a aparecer."
   },
   "advanced_options": "opções avancadas",
   "announcement_placeholder": "Write an announcement...",
@@ -439,7 +445,9 @@
     "wallet_password": "Palavra-passe da carteira",
     "wallet_password_placeholder": "Introduza a palavra-passe da carteira",
     "wallet_password_required": "Introduza a palavra-passe da carteira para desencriptar a chave privada.",
-    "wallet_unavailable_error": "Os dados da carteira não estão disponíveis de momento."
+    "wallet_unavailable_error": "Os dados da carteira não estão disponíveis de momento.",
+    "widgets_module": "Widgets",
+    "widgets_module_desc": "Mostre os seus widgets no Início: pequenas Q-Apps como um relógio ou o tempo. Desative para deixar de os executar."
   },
   "dm": {
     "add_friend_before_calling": "Adiciona este utilizador como amigo antes de ligar",
@@ -680,6 +688,35 @@
     "register_name_pending_hint": "Salvando nome on-chain — pode demorar um momento.",
     "register_name_workspace_hint": "Um nome registrado faz desta conta uma identidade reconhecível."
   },
+  "home_widgets": {
+    "add": "adicionar",
+    "add_widget": "adicionar widget",
+    "added": "adicionado",
+    "arrange": "organizar",
+    "arrange_hint": "Arraste um widget para o mover, ou o seu canto para o redimensionar.",
+    "arrange_widget": "{{title}}: as setas movem-no, Shift e as setas redimensionam-no, Delete remove-o.",
+    "by": "de {{name}}",
+    "done": "concluído",
+    "empty": "Coloque pequenas Q-Apps no Início: um relógio, o tempo, as publicações mais recentes das suas apps favoritas.",
+    "error": {
+      "not_allowed": "Os widgets não podem fazer isto. Abra a app para isso (OPEN_NEW_TAB).",
+      "not_on_screen": "O Início não está visível, por isso os widgets não podem pedir isto."
+    },
+    "limit": "Pode ter até {{max}} widgets no Início.",
+    "load_failed": "{{title}} não carregou.",
+    "loading": "A carregar {{title}}",
+    "open_app": "abrir {{name}}",
+    "picker_developers": "Programadores de Q-Apps: publiquem um widget como APP com a etiqueta go-widget, de preferência com um identificador que comece por go-widget.",
+    "picker_empty": "Ainda não há widgets publicados.",
+    "picker_error": "Não foi possível carregar os widgets. Verifique a ligação ao nó.",
+    "picker_none_found": "Nenhum widget corresponde.",
+    "picker_note": "Os widgets são pequenas Q-Apps no Início. Podem mostrar coisas e abrir apps, mas não podem pagar, publicar nem assinar nada.",
+    "picker_search": "Pesquisar widgets",
+    "picker_title": "Adicionar um widget",
+    "reload": "recarregar widget",
+    "remove": "remover widget",
+    "title": "Widgets"
+  },
   "important_info": "informações importantes",
   "initial": {
     "see_apps": "ver aplicativos",
@@ -812,12 +849,15 @@
     }
   },
   "message_item": {
+    "attachment_disk_full": "Espaço em disco insuficiente para guardar este anexo",
     "delete_shortcut": "Eliminar (Shift+Del)",
     "download_failed": "Falha na transferência",
     "file_attachment": "Ficheiro anexado",
     "file_transfer": "Transferência de ficheiro",
     "file_unavailable": "Ficheiro indisponível",
     "image_attachment": "Imagem anexada",
+    "image_disk_full": "Espaço em disco insuficiente para guardar esta imagem",
+    "image_download_failed": "Não foi possível transferir a imagem",
     "image_unavailable_no_peers": "Imagem indisponível neste momento (sem pares)",
     "invalid_attachment": "Anexo de recurso inválido",
     "new_messages": "Novas mensagens",

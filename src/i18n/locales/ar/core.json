@@ -115,7 +115,6 @@
     "resize": "تغيير الحجم",
     "restore": "استعادة",
     "return": "رجوع",
-    "return_apps_dashboard": "العودة إلى لوحة التطبيقات",
     "save": "حفظ",
     "save_disk": "حفظ على القرص",
     "search": "بحث",
@@ -174,6 +173,12 @@
   "app_other": "تطبيقات",
   "app_private": "خاص",
   "app_service_type": "نوع خدمة التطبيق",
+  "app_tab": {
+    "close_all": "إغلاق كل علامات التبويب",
+    "duplicate": "تكرار علامة التبويب",
+    "limit_reached": "تم الوصول إلى الحد الأقصى لعدد علامات التبويب. أغلق واحدة لفتح أخرى.",
+    "locked_kept_open": "تبقى علامات التبويب المقفلة مفتوحة. أغلق كل واحدة منها على حدة للتأكيد."
+  },
   "apps_dashboard": "لوحة التطبيقات",
   "apps_official": "تطبيقات رسمية",
   "aria": {
@@ -436,6 +441,21 @@
   "image_embed": "تضمين صورة",
   "items_per_page": "عناصر لكل صفحة:",
   "last_height": "آخر ارتفاع",
+  "launcher": {
+    "bookmark_remove": "إزالة الإشارة المرجعية",
+    "clear_search": "مسح البحث",
+    "enter_opens": "اضغط Enter لفتح {{title}}",
+    "folder_delete": "حذف المجلد",
+    "folder_move_to": "نقل إلى مجلد",
+    "folder_remove_from": "إزالة من المجلد",
+    "no_matches": "لا شيء يطابق «{{query}}»",
+    "no_matches_hint": "جرّب اسمًا آخر، أو الصق رابط qortal://.",
+    "pinned_and_bookmarks": "التطبيقات المثبّتة والإشارات المرجعية",
+    "pinned_empty": "لا يوجد شيء مثبّت بعد. ثبّت تطبيقًا من المكتبة أدناه ليبقى هنا.",
+    "pinned_hint": "اسحب لإعادة الترتيب · أفلت تطبيقًا على آخر لإنشاء مجلد · انقر بالزر الأيمن للمزيد",
+    "results_apps": "التطبيقات والمواقع",
+    "results_saved": "تطبيقاتك المثبّتة وإشاراتك المرجعية"
+  },
   "level": "مستوى",
   "library": "مكتبة",
   "list": {
@@ -485,6 +505,7 @@
       "network_generic": "خطأ في الشبكة",
       "password_not_matching": "حقول كلمة المرور غير متطابقة!",
       "password_wrong": "غير قادر على المصادقة. كلمة مرور خاطئة",
+      "private_app_needs_own_node": "لا يُفتح هذا التطبيق الخاص إلا عبر النود الخاص بك ومفتاح API الخاص به",
       "publish_app": "غير قادر على نشر التطبيق",
       "publish_image": "غير قادر على نشر الصورة",
       "rate": "غير قادر على التقييم",
@@ -502,6 +523,7 @@
       "address_copied": "تم نسخ العنوان إلى الحافظة.",
       "already_voted": "لقد قمت بالتصويت بالفعل.",
       "amount_qort": "المبلغ: {{ amount }} كورتال",
+      "app_details_unavailable": "تعذّر تحميل العنوان والوصف والوسوم الحالية لهذا التطبيق. أعد إدخالها قبل النشر، وإلا فسيتم استبدالها.",
       "app_notifications_hint": "ستظهر إشعارات تطبيقات Q هنا",
       "authenticated_account": "حساب موثق",
       "avatar_publish_fee": "يتطلب نشر الصورة الرمزية رسومًا قدرها {{fee}} QORT",
@@ -692,6 +714,7 @@
   "name": "اسم",
   "name_app": "اسم/تطبيق",
   "navbar": {
+    "search_library": "ابحث في Q-Apps عن «{{query}}»",
     "search_placeholder": "ابحث في Q-Apps أو أدخل ‎qortal://‎",
     "session": {
       "lock_description": "إبقاء المحادثات والمكالمات متصلة",
@@ -700,7 +723,12 @@
       "logout_title": "تسجيل الخروج",
       "menu_aria": "خيارات الجلسة",
       "tooltip": "القفل أو تسجيل الخروج"
-    }
+    },
+    "suggestion_type": {
+      "app": "Q-App",
+      "website": "موقع ويب"
+    },
+    "suggestions": "اقتراحات"
   },
   "new_post_in": "منشور جديد في {{ title }}",
   "none": "لا شيء",
@@ -726,6 +754,7 @@
   "payment": "دفع",
   "payment_notification": "إشعار الدفع",
   "payments_count": "المدفوعات ({{count}})",
+  "pdf_viewer": "عارض PDF",
   "poll_embed": "تضمين استطلاع رأي",
   "port": "منفذ",
   "presence": {
@@ -736,6 +765,19 @@
     "peer_online_hint": "على الشبكة — المكالمة الصوتية متاحة"
   },
   "price": "سعر",
+  "private_apps": {
+    "actions_title": "الوصول إلى تطبيق خاص أو نشره",
+    "details": "{{name}} · {{group}}",
+    "empty": "لم تنشر أي تطبيقات خاصة بعد",
+    "group_id": "المجموعة {{groupId}}",
+    "listing_hint": "تظهر هنا فقط التطبيقات الخاصة المنشورة بدءًا من هذا الإصدار من Qortal Hub",
+    "load_error": "تعذر تحميل تطبيقاتك الخاصة",
+    "max_file_size": "الحجم الأقصى: {{size}} ميغابايت",
+    "no_name_selected": "لم يتم اختيار أي اسم",
+    "published_title": "تطبيقاتي الخاصة المنشورة",
+    "select_name": "اختر اسمًا في Qortal",
+    "selected_file": "الملف المحدد: {{filename}}"
+  },
   "publish": "نشر",
   "q_apps": {
     "about": "حول تطبيق Q هذا",
@@ -875,7 +917,7 @@
   },
   "supply": "العرض",
   "tabs": {
-    "add_private": "+ تطبيق خاص",
+    "add_private": "التطبيقات الخاصة",
     "categories": "الفئات",
     "community_apps": "تطبيقات المجتمع",
     "my_apps": "تطبيقاتي",

@@ -13,6 +13,18 @@
   "deploy_at": "¿Desea implementar este AT?",
   "description": "descripción: {{ description }}",
   "download_file": "¿Desea descargar:",
+  "foreign_fees": {
+    "approve": "¿Firmar las comisiones de las ofertas de intercambio indicadas?",
+    "busy": "Ya hay una solicitud de firma de comisiones pendiente.",
+    "changed": "La cartera o Core ha cambiado. Revise las comisiones de nuevo.",
+    "declined": "Se rechazó la firma de las comisiones.",
+    "failed": "No se pudo completar la firma de las comisiones con Core. Inténtelo de nuevo.",
+    "invalid": "Core devolvió datos de comisiones de monedas extranjeras no válidos. No se firmó nada.",
+    "review": "Revise las direcciones AT y los valores de las comisiones a continuación. Esta aprobación solo se aplica a este lote."
+  },
+  "legacy_save": {
+    "started": "Se ha iniciado la descarga del archivo."
+  },
   "local_send": {
     "changed": "La cartera, el nodo o los fondos disponibles han cambiado. Revisa el pago de nuevo.",
     "confirming": "Su pago anterior aún espera la confirmación de la red. Transacción: {{txId}}. No se envió ningún pago nuevo.",
@@ -67,6 +79,7 @@
       "invalid_encryption_iv": "IV no válido: AES-GCM requiere un IV de 12 bytes",
       "invalid_encryption_key": "clave no válida: AES-GCM requiere una clave de 256 bits.",
       "invalid_fullcontent": "el campo fullContent tiene un formato no válido. Use una cadena, base64 u objeto",
+      "invalid_list_name": "nombre de lista no válido",
       "invalid_receiver": "dirección o nombre del receptor no válido",
       "invalid_type": "tipo no válido",
       "max_size_publish": "el tamaño máximo permitido por archivo es de {{size}} GB.",
@@ -109,6 +122,7 @@
       "transaction_activity_summary": "error en el resumen de actividad de transacción",
       "unknown_admin_action_type": "tipo de acción administrativa desconocida: {{ type }}",
       "unknown_error": "error desconocido",
+      "unsafe_node_path": "ruta de solicitud al nodo no válida",
       "update_foreign_fee": "no se pudo actualizar la tarifa extranjera",
       "update_tradebot": "no se pudo actualizar el bot de intercambio",
       "upload": "carga fallida",
@@ -214,6 +228,10 @@
   },
   "poll": "votación: {{ name }}",
   "provide_recipient_group_id": "por favor proporciona un destinatario o groupId",
+  "publish_validation": {
+    "invalid_file": "La solicitud de publicación no contenía un archivo válido.",
+    "storage_check_failed": "Falló la comprobación de almacenamiento para publicar (HTTP {{status}})."
+  },
   "request_create_poll": "estás solicitando crear la siguiente votación:",
   "request_vote_poll": "se te solicita votar en la siguiente votación:",
   "sats": "{{ amount }} sats",

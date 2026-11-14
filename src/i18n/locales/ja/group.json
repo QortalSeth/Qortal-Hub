@@ -78,10 +78,16 @@
   },
   "admin_space": {
     "ask_description": "This key encrypts content visible only to admins.",
+    "ask_title": "管理者秘密鍵（ASK）",
+    "create_ask": "管理者秘密鍵を作成",
+    "create_gsk": "グループ秘密鍵を作成",
+    "create_gsk_confirm": "グループの最初の秘密鍵を作成して公開しますか？鍵はグループメンバー向けに暗号化されます。QDNの公開手数料がかかります。",
     "gsk_description": "This key encrypts group content visible to all group members. It is currently the only key used for group chat and shared data.",
     "gsk_description_compact": "This key encrypts group content visible to all group members. It is currently the only key used in this UI.",
+    "gsk_title": "グループ秘密鍵（GSK）",
     "publish_ask": "Publish ASK",
-    "publish_gsk": "Publish GSK"
+    "publish_gsk": "Publish GSK",
+    "published": "秘密鍵を公開しました。表示されるまで数分かかる場合があります。"
   },
   "advanced_options": "高度なオプション",
   "announcement_placeholder": "Write an announcement...",
@@ -439,7 +445,9 @@
     "wallet_password": "ウォレットのパスワード",
     "wallet_password_placeholder": "ウォレットのパスワードを入力",
     "wallet_password_required": "秘密鍵を復号するにはウォレットのパスワードを入力してください。",
-    "wallet_unavailable_error": "ウォレットデータは現在利用できません。"
+    "wallet_unavailable_error": "ウォレットデータは現在利用できません。",
+    "widgets_module": "ウィジェット",
+    "widgets_module_desc": "ホームにウィジェットを表示します。時計や天気などの小さな Q-App です。オフにすると実行されなくなります。"
   },
   "dm": {
     "add_friend_before_calling": "通話する前にこのユーザーを友だちに追加してください",
@@ -680,6 +688,35 @@
     "register_name_pending_hint": "名前をオンチェーンで保存しています。しばらくかかることがあります。",
     "register_name_workspace_hint": "名前を登録すると、このアカウントが識別しやすい身元になります。"
   },
+  "home_widgets": {
+    "add": "追加",
+    "add_widget": "ウィジェットを追加",
+    "added": "追加済み",
+    "arrange": "並べ替え",
+    "arrange_hint": "ウィジェットをドラッグすると移動、角をドラッグするとサイズを変更できます。",
+    "arrange_widget": "{{title}}：矢印キーで移動、Shift と矢印キーでサイズ変更、Delete で削除します。",
+    "by": "作成者: {{name}}",
+    "done": "完了",
+    "empty": "ホームに小さな Q-App を置きましょう。時計、天気、お気に入りアプリの最新の投稿など。",
+    "error": {
+      "not_allowed": "ウィジェットではこの操作はできません。アプリを開いて行ってください (OPEN_NEW_TAB)。",
+      "not_on_screen": "ホームが表示されていないため、ウィジェットはこれを要求できません。"
+    },
+    "limit": "ホームに置けるウィジェットは最大 {{max}} 個です。",
+    "load_failed": "{{title}} を読み込めませんでした。",
+    "loading": "{{title}} を読み込み中",
+    "open_app": "{{name}} を開く",
+    "picker_developers": "Q-App 開発者の方へ：ウィジェットは APP として、タグ go-widget を付けて公開してください（go-widget で始まる識別子がおすすめです）。",
+    "picker_empty": "公開されているウィジェットはまだありません。",
+    "picker_error": "ウィジェットを読み込めませんでした。ノードへの接続を確認してください。",
+    "picker_none_found": "一致するウィジェットはありません。",
+    "picker_note": "ウィジェットはホームに置く小さな Q-App です。情報を表示したりアプリを開いたりできますが、支払い、公開、署名は一切できません。",
+    "picker_search": "ウィジェットを検索",
+    "picker_title": "ウィジェットを追加",
+    "reload": "ウィジェットを再読み込み",
+    "remove": "ウィジェットを削除",
+    "title": "ウィジェット"
+  },
   "important_info": "重要な情報",
   "initial": {
     "see_apps": "アプリを見る",
@@ -812,12 +849,15 @@
     }
   },
   "message_item": {
+    "attachment_disk_full": "この添付ファイルを保存するためのディスク空き容量が不足しています",
     "delete_shortcut": "削除 (Shift+Del)",
     "download_failed": "ダウンロードに失敗しました",
     "file_attachment": "ファイル添付",
     "file_transfer": "ファイル転送",
     "file_unavailable": "ファイルを利用できません",
     "image_attachment": "画像添付",
+    "image_disk_full": "この画像を保存するためのディスク空き容量が不足しています",
+    "image_download_failed": "画像をダウンロードできませんでした",
     "image_unavailable_no_peers": "現在この画像は利用できません（ピアなし）",
     "invalid_attachment": "無効なリソース添付",
     "new_messages": "新着メッセージ",

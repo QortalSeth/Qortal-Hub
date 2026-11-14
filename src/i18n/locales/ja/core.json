@@ -115,7 +115,6 @@
     "resize": "サイズ変更",
     "restore": "元に戻す",
     "return": "戻る",
-    "return_apps_dashboard": "アプリダッシュボードに戻ります",
     "save": "保存",
     "save_disk": "ディスクに保存します",
     "search": "検索",
@@ -174,6 +173,12 @@
   "app_other": "アプリ",
   "app_private": "プライベート",
   "app_service_type": "アプリサービスタイプ",
+  "app_tab": {
+    "close_all": "すべてのタブを閉じる",
+    "duplicate": "タブを複製",
+    "limit_reached": "タブの最大数に達しました。別のタブを開くには、いずれかを閉じてください。",
+    "locked_kept_open": "ロックされたタブは開いたままです。確認するには、1つずつ閉じてください。"
+  },
   "apps_dashboard": "アプリダッシュボード",
   "apps_official": "公式アプリ",
   "aria": {
@@ -436,6 +441,21 @@
   "image_embed": "画像埋め込み",
   "items_per_page": "ページあたりの件数：",
   "last_height": "最後の高さ",
+  "launcher": {
+    "bookmark_remove": "ブックマークを削除",
+    "clear_search": "検索をクリア",
+    "enter_opens": "Enterキーで{{title}}を開く",
+    "folder_delete": "フォルダーを削除",
+    "folder_move_to": "フォルダーに移動",
+    "folder_remove_from": "フォルダーから出す",
+    "no_matches": "「{{query}}」に一致するものはありません",
+    "no_matches_hint": "別の名前を試すか、qortal://リンクを貼り付けてください。",
+    "pinned_and_bookmarks": "ピン留めしたアプリとブックマーク",
+    "pinned_empty": "まだ何もピン留めされていません。下のライブラリからアプリをピン留めすると、ここに表示されます。",
+    "pinned_hint": "ドラッグで並べ替え・アプリを別のアプリに重ねるとフォルダーを作成・右クリックでその他の操作",
+    "results_apps": "アプリとWebサイト",
+    "results_saved": "ピン留めしたアプリとブックマーク"
+  },
   "level": "レベル",
   "library": "図書館",
   "list": {
@@ -485,6 +505,7 @@
       "network_generic": "ネットワークエラー",
       "password_not_matching": "パスワードフィールドは一致しません！",
       "password_wrong": "認証できません。間違ったパスワード",
+      "private_app_needs_own_node": "このプライベートアプリは、自分のノードとそのAPIキーでのみ開けます",
       "publish_app": "アプリを公開できません",
       "publish_image": "画像を公開できません",
       "rate": "評価できません",
@@ -502,6 +523,7 @@
       "address_copied": "アドレスをクリップボードにコピーしました。",
       "already_voted": "あなたはすでに投票しました。",
       "amount_qort": "金額: {{ amount }} QORT",
+      "app_details_unavailable": "このアプリの現在のタイトル、説明、タグを読み込めませんでした。公開する前にもう一度入力してください。入力しないと置き換えられます。",
       "app_notifications_hint": "Q-Appの通知はここに表示されます",
       "authenticated_account": "認証済みアカウント",
       "avatar_publish_fee": "アバターの公開には {{fee}} QORT の手数料が必要です",
@@ -692,6 +714,7 @@
   "name": "名前",
   "name_app": "名前/アプリ",
   "navbar": {
+    "search_library": "Q-Apps で「{{query}}」を検索",
     "search_placeholder": "Q-Appsを検索、または qortal:// を入力",
     "session": {
       "lock_description": "チャットと通話の接続を維持します",
@@ -700,7 +723,12 @@
       "logout_title": "ログアウト",
       "menu_aria": "セッションのオプション",
       "tooltip": "ロックまたはログアウト"
-    }
+    },
+    "suggestion_type": {
+      "app": "Q-App",
+      "website": "Webサイト"
+    },
+    "suggestions": "候補"
   },
   "new_post_in": "{{ title }} の新しい投稿",
   "none": "なし",
@@ -726,6 +754,7 @@
   "payment": "支払い",
   "payment_notification": "支払い通知",
   "payments_count": "支払い ({{count}})",
+  "pdf_viewer": "PDFビューアー",
   "poll_embed": "投票埋め込み",
   "port": "ポート",
   "presence": {
@@ -736,6 +765,19 @@
     "peer_online_hint": "ネットワーク上にいます — 音声通話を利用できます"
   },
   "price": "価格",
+  "private_apps": {
+    "actions_title": "プライベートアプリにアクセスまたは公開",
+    "details": "{{name}} · {{group}}",
+    "empty": "まだプライベートアプリを公開していません",
+    "group_id": "グループ {{groupId}}",
+    "listing_hint": "ここには、このバージョンのQortal Hub以降に公開されたプライベートアプリのみが表示されます",
+    "load_error": "プライベートアプリを読み込めません",
+    "max_file_size": "最大サイズ: {{size}} MB",
+    "no_name_selected": "名前が選択されていません",
+    "published_title": "公開したプライベートアプリ",
+    "select_name": "Qortalの名前を選択",
+    "selected_file": "選択したファイル: {{filename}}"
+  },
   "publish": "公開",
   "q_apps": {
     "about": "このq-appについて",
@@ -875,7 +917,7 @@
   },
   "supply": "供給",
   "tabs": {
-    "add_private": "+ プライベートアプリ",
+    "add_private": "プライベートアプリ",
     "categories": "カテゴリ",
     "community_apps": "コミュニティアプリ",
     "my_apps": "マイアプリ",

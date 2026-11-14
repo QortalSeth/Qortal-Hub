@@ -24,7 +24,12 @@ import {
   horizontalListSortingStrategy,
   SortableContext,
 } from '@dnd-kit/sortable';
-import { AppsHomeDesktop } from './AppsHomeDesktop';
+import {
+  AppsLauncher,
+  type AppsLauncherRequest,
+  isLauncherShown,
+  isLauncherSubPage,
+} from './AppsLauncher';
 import { AppsDevModeHome } from './AppsDevModeHome';
 import { Spacer } from '../../common/Spacer';
 import { getBaseApiReact } from '../../App';
@@ -50,7 +55,6 @@ import {
   RatingsCacheInitializer,
   useAppRatings,
 } from '../../hooks/useAppRatings';
-import { AppsLibraryDesktop } from './AppsLibraryDesktop';
 import { AppsCategoryDesktop } from './AppsCategoryDesktop';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import { CustomizedSnackbars } from '../Snackbar/Snackbar';
@@ -66,11 +70,15 @@ import {
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import {
+  appsSubPageCanGoBackAtom,
   navigationControllerAtom,
   isNewTabWindowAtom,
   userInfoAtom,
 } from '../../atoms/global';
-import { publishEditTargetAtom } from '../../atoms/appsAtoms';
+import {
+  availableQappsAtom,
+  publishEditTargetAtom,
+} from '../../atoms/appsAtoms';
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
 import { useTranslation } from 'react-i18next';
 import {
@@ -90,27 +98,13 @@ import {
   getDialogPaperSx,
   getDialogSecondaryButtonSx,
 } from '../App/dialogSurface';
+import { pickNextTabFromMru, tabsLeftByCloseAll } from './tabSelection';
 
 const uid = new ShortUniqueId({ length: 8 });
 const MAX_OPEN_APP_TABS = 10;
 const MIN_LIBRARY_APPS_BEFORE_SLOW_POLL = 10;
 /** Bounded MRU stack (tab ids only) for "last visited" after closing the active tab */
 const MAX_TAB_MRU_DEPTH = 64;
-
-function pickNextTabFromMru(
-  remainingTabs: { tabId: string }[],
-  mruIds: string[]
-): { tabId: string } | null {
-  if (!remainingTabs.length) return null;
-  const ids = new Set(remainingTabs.map((t) => t.tabId));
-  for (let i = mruIds.length - 1; i >= 0; i--) {
-    const id = mruIds[i];
-    if (ids.has(id)) {
-      return remainingTabs.find((t) => t.tabId === id) ?? null;
-    }
-  }
-  return null;
-}
 
 /** Prefer the tab that was to the right of the closed tab; if closed tab was last, use the new last tab */
 function positionalTabAfterClose(
@@ -217,7 +211,7 @@ export const AppsDesktop = ({
   const setPublishEditTarget = useSetAtom(publishEditTargetAtom);
   const myName = userInfo?.name;
   const myAddress = userInfo?.address;
-  const [availableQapps, setAvailableQapps] = useState([]);
+  const [availableQapps, setAvailableQapps] = useAtom(availableQappsAtom);
   const availableQappsCountRef = useRef(0);
   const [selectedAppInfo, setSelectedAppInfo] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState(null);
@@ -253,10 +247,10 @@ export const AppsDesktop = ({
   const [tabStripCompresses, setTabStripCompresses] = useState(false);
   const tabScrollerRef = useRef<HTMLDivElement | null>(null);
   const tabAddButtonRef = useRef<HTMLButtonElement | null>(null);
-  const [librarySearchRequest, setLibrarySearchRequest] = useState<{
-    nonce: number;
-    query: string;
-  }>({ nonce: 0, query: '' });
+  const [launcherRequest, setLauncherRequest] = useState<AppsLauncherRequest>({
+    nonce: 0,
+    query: '',
+  });
   const tabsToNavTimeoutRef = useRef<number | null>(null);
   const tabActivationTimeoutRef = useRef<number | null>(null);
   const tabEntryCleanupTimeoutRef = useRef<number | null>(null);
@@ -764,6 +758,23 @@ export const AppsDesktop = ({
     };
   }, [navigateBackFunc]);
 
+  const setAppsSubPageCanGoBack = useSetAtom(appsSubPageCanGoBackAtom);
+
+  useEffect(() => {
+    const currentMode = desktopViewMode === 'dev' ? devMode : mode;
+    // 'library' is the launcher itself in Apps mode: nothing to go back to.
+    const isSubPage =
+      (desktopViewMode === 'apps' || desktopViewMode === 'dev') &&
+      !selectedTab &&
+      (isLauncherSubPage(currentMode) ||
+        (desktopViewMode === 'dev' && currentMode === 'library'));
+    setAppsSubPageCanGoBack(isSubPage);
+  }, [desktopViewMode, devMode, mode, selectedTab, setAppsSubPageCanGoBack]);
+
+  useEffect(() => {
+    return () => setAppsSubPageCanGoBack(false);
+  }, [setAppsSubPageCanGoBack]);
+
   const addTabFunc = (e) => {
     const data = e.detail?.data;
     if (data?.internal) {
@@ -788,7 +799,9 @@ export const AppsDesktop = ({
     }
     if (tabs.length >= MAX_OPEN_APP_TABS) {
       setInfoSnack({
-        message: 'Maximum number of tabs reached. Close one to open another.',
+        message: t('core:app_tab.limit_reached', {
+          postProcess: 'capitalizeFirstChar',
+        }),
         type: 'warning',
       });
       setOpenSnack(true);
@@ -873,7 +886,9 @@ export const AppsDesktop = ({
     const data = e.detail?.data;
     if (tabs.length >= MAX_OPEN_APP_TABS) {
       setInfoSnack({
-        message: 'Maximum number of tabs reached. Close one to open another.',
+        message: t('core:app_tab.limit_reached', {
+          postProcess: 'capitalizeFirstChar',
+        }),
         type: 'warning',
       });
       setOpenSnack(true);
@@ -1156,6 +1171,12 @@ export const AppsDesktop = ({
     setIsAddTabFocused(true);
     setSelectedTab(null);
     setDesktopViewMode('apps');
+    // Always the launcher, not the app or category page that was open last.
+    if (isLauncherSubPage(mode)) {
+      setPublishEditTarget(null);
+      setMode('home');
+    }
+    setLauncherRequest({ nonce: Date.now(), query: '' });
   };
 
   useEffect(() => {
@@ -1164,7 +1185,7 @@ export const AppsDesktop = ({
     return () => {
       unsubscribeFromEvent('newTabWindow', setNewTabWindowFunc);
     };
-  }, [tabs]);
+  }, [tabs, mode]);
 
   const devModeNewTabWindowFunc = () => {
     setIsNewTabWindow(true);
@@ -1188,7 +1209,7 @@ export const AppsDesktop = ({
       setIsAddTabFocused(true);
       setSelectedTab(null);
       setIsNewTabWindow(false);
-      setLibrarySearchRequest({
+      setLauncherRequest({
         nonce: Date.now(),
         query,
       });
@@ -1227,6 +1248,20 @@ export const AppsDesktop = ({
 
   const appsContentHeight = `calc(100vh - ${appChromeOffsetPx} - ${APPS_HORIZONTAL_TAB_HEIGHT_PX}px)`;
 
+  // One launcher stands where the dashboard and the library used to be: for a
+  // new tab, for the Apps button, and as the page the library pages return to.
+  const showLauncher = isLauncherShown({
+    desktopViewMode,
+    mode,
+    hasSelectedTab: !!selectedTab,
+    isNewTabWindow,
+  });
+
+  const refreshLibrary = useCallback(async () => {
+    await getQapps();
+    refreshRatings();
+  }, [getQapps, refreshRatings]);
+
   const openDashboardFromTabs = useCallback(() => {
     setIsAddTabFocused(true);
     setIsAddTabWaitingForPointerMove(false);
@@ -1234,7 +1269,7 @@ export const AppsDesktop = ({
     setPendingVisualTabActivationId(null);
     setDelayedVisualActiveTabId(null);
     setSelectedTab(null);
-    setLibrarySearchRequest({
+    setLauncherRequest({
       nonce: Date.now(),
       query: '',
     });
@@ -1276,11 +1311,59 @@ export const AppsDesktop = ({
   );
 
   const closeAllTabs = useCallback(() => {
+    // A locked tab asks before it closes (removeTabFunc), so Close All keeps
+    // it open rather than closing it without asking.
+    const { kept: lockedTabs, nextTab } = tabsLeftByCloseAll(
+      tabs,
+      selectedTab?.tabId,
+      recentTabIdsRef.current
+    );
     tabs.forEach((tab) => {
-      if (tab?.tabId) {
+      if (tab?.tabId && !tab.lock) {
         clearSessionPermissionsByTabId(tab.tabId);
       }
     });
+    if (lockedTabs.length > 0) {
+      const keptIds = new Set(lockedTabs.map((tab) => tab.tabId));
+      recentTabIdsRef.current = recentTabIdsRef.current.filter((id) =>
+        keptIds.has(id)
+      );
+      setEnteringTabIds((prev) => prev.filter((id) => keptIds.has(id)));
+      setPendingVisualTabActivationId((prev) =>
+        keptIds.has(prev) ? prev : null
+      );
+      setDelayedVisualActiveTabId((prev) => (keptIds.has(prev) ? prev : null));
+      setIsAddTabFocused(false);
+      setIsAddTabWaitingForPointerMove(false);
+      addTabPointerOriginRef.current = null;
+      setIsNewTabWindow(false);
+      setTabs(lockedTabs);
+      setSelectedTab(nextTab);
+      if (isLocalDevTab(nextTab)) {
+        setDesktopViewMode('dev');
+        setDevMode('viewer');
+      } else {
+        setDesktopViewMode('apps');
+        setMode('viewer');
+      }
+      tabsTokenRef.current += 1;
+      executeEvent('setTabsToNav', {
+        data: {
+          tabs: lockedTabs,
+          selectedTab: nextTab,
+          isNewTabWindow: false,
+          tabsToken: tabsTokenRef.current,
+        },
+      });
+      setInfoSnack({
+        type: 'info',
+        message: t('core:app_tab.locked_kept_open', {
+          postProcess: 'capitalizeFirstChar',
+        }),
+      });
+      setOpenSnack(true);
+      return;
+    }
     recentTabIdsRef.current = [];
     setTabs([]);
     setSelectedTab(null);
@@ -1308,7 +1391,15 @@ export const AppsDesktop = ({
       setMode('home');
       setDevMode('home');
     }, 0);
-  }, [tabs, returnFromAppsMode, setIsNewTabWindow, setMode, setDevMode]);
+  }, [
+    tabs,
+    selectedTab,
+    t,
+    returnFromAppsMode,
+    setIsNewTabWindow,
+    setMode,
+    setDevMode,
+  ]);
 
   useEffect(() => {
     if (!show) {
@@ -1612,29 +1703,6 @@ export const AppsDesktop = ({
             width: '100%',
           }}
         >
-          {desktopViewMode === 'apps' && mode === 'home' && (
-            <Box
-              sx={{
-                display: 'flex',
-                flexDirection: 'column',
-                height: appsContentHeight,
-                overflow: 'auto',
-                width: '100%',
-              }}
-            >
-              <Spacer height="30px" />
-
-              <AppsHomeDesktop
-                myName={myName}
-                availableQapps={availableQapps}
-                setMode={setMode}
-                myApp={myApp}
-                myWebsite={myWebsite}
-                myAddress={myAddress}
-              />
-            </Box>
-          )}
-
           {desktopViewMode === 'dev' &&
             devMode === 'home' &&
             !isNewTabWindow && (
@@ -1662,21 +1730,17 @@ export const AppsDesktop = ({
               </Box>
             )}
 
-          <AppsLibraryDesktop
+          <AppsLauncher
             availableQapps={availableQapps}
             categories={categories}
             contentHeight={appsContentHeight}
-            externalSearchRequest={librarySearchRequest}
-            getQapps={async () => {
-              await getQapps();
-              refreshRatings();
-            }}
-            hasPublishApp={!!(myApp || myWebsite)}
-            isShow={
-              desktopViewMode === 'apps' && mode === 'library' && !selectedTab
-            }
-            myName={myName}
+            getQapps={refreshLibrary}
+            isShow={showLauncher}
             myAddress={myAddress}
+            myApp={myApp}
+            myName={myName}
+            myWebsite={myWebsite}
+            request={launcherRequest}
             setMode={setMode}
           />
 
@@ -1799,31 +1863,6 @@ export const AppsDesktop = ({
               />
             );
           })}
-
-          {isNewTabWindow &&
-            desktopViewMode === 'apps' &&
-            mode === 'viewer' && (
-              <Box
-                sx={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  height: appsContentHeight,
-                  overflow: 'auto',
-                  width: '100%',
-                }}
-              >
-                <Spacer height="30px" />
-
-                <AppsHomeDesktop
-                  availableQapps={availableQapps}
-                  myApp={myApp}
-                  myName={myName}
-                  myWebsite={myWebsite}
-                  myAddress={myAddress}
-                  setMode={setMode}
-                />
-              </Box>
-            )}
 
           {isNewTabWindow &&
             desktopViewMode === 'dev' &&

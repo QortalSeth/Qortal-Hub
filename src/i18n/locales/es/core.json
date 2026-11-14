@@ -115,7 +115,6 @@
     "resize": "redimensionar",
     "restore": "restaurar",
     "return": "volver",
-    "return_apps_dashboard": "Volver al tablero de aplicaciones",
     "save": "ahorrar",
     "save_disk": "Guardar en el disco",
     "search": "buscar",
@@ -174,6 +173,12 @@
   "app_other": "aplicaciones",
   "app_private": "privado",
   "app_service_type": "Tipo de servicio de aplicaciones",
+  "app_tab": {
+    "close_all": "cerrar todas las pestañas",
+    "duplicate": "duplicar pestaña",
+    "limit_reached": "se alcanzó el número máximo de pestañas. Cierra una para abrir otra.",
+    "locked_kept_open": "las pestañas bloqueadas siguen abiertas. Ciérralas una por una para confirmar."
+  },
   "apps_dashboard": "Panel de aplicaciones",
   "apps_official": "aplicaciones oficiales",
   "aria": {
@@ -436,6 +441,21 @@
   "image_embed": "inserción de la imagen",
   "items_per_page": "Elementos por página:",
   "last_height": "última altura",
+  "launcher": {
+    "bookmark_remove": "quitar marcador",
+    "clear_search": "borrar búsqueda",
+    "enter_opens": "pulsa Enter para abrir {{title}}",
+    "folder_delete": "eliminar carpeta",
+    "folder_move_to": "mover a carpeta",
+    "folder_remove_from": "quitar de la carpeta",
+    "no_matches": "nada coincide con «{{query}}»",
+    "no_matches_hint": "prueba con otro nombre o pega un enlace qortal://.",
+    "pinned_and_bookmarks": "aplicaciones fijadas y marcadores",
+    "pinned_empty": "todavía no hay nada fijado. Fija una aplicación de la biblioteca de abajo para tenerla aquí.",
+    "pinned_hint": "arrastra para reordenar · suelta una aplicación sobre otra para crear una carpeta · clic derecho para más opciones",
+    "results_apps": "aplicaciones y sitios web",
+    "results_saved": "tus aplicaciones fijadas y marcadores"
+  },
   "level": "nivel",
   "library": "biblioteca",
   "list": {
@@ -485,6 +505,7 @@
       "network_generic": "error de red",
       "password_not_matching": "¡Los campos de contraseña no coinciden!",
       "password_wrong": "incapaz de autenticarse. Contraseña incorrecta",
+      "private_app_needs_own_node": "esta aplicación privada solo se abre en tu propio nodo, con su clave API",
       "publish_app": "Incapaz de publicar la aplicación",
       "publish_image": "Incapaz de publicar imagen",
       "rate": "incapaz de calificar",
@@ -502,6 +523,7 @@
       "address_copied": "dirección copiada al portapapeles.",
       "already_voted": "ya has votado.",
       "amount_qort": "cantidad: {{ amount }} QORT",
+      "app_details_unavailable": "no se pudieron cargar el título, la descripción y las etiquetas actuales de esta aplicación. Vuelve a escribirlos antes de publicar o se reemplazarán.",
       "app_notifications_hint": "Las notificaciones de Q-App aparecerán aquí",
       "authenticated_account": "Cuenta autenticada",
       "avatar_publish_fee": "publicar un avatar requiere una tarifa de {{fee}} QORT",
@@ -692,6 +714,7 @@
   "name": "nombre",
   "name_app": "nombre/aplicación",
   "navbar": {
+    "search_library": "Buscar «{{query}}» en Q-Apps",
     "search_placeholder": "Buscar Q-Apps o introducir qortal://",
     "session": {
       "lock_description": "Mantener los chats y las llamadas conectados",
@@ -700,7 +723,12 @@
       "logout_title": "Cerrar sesión",
       "menu_aria": "Opciones de sesión",
       "tooltip": "Bloquear o cerrar sesión"
-    }
+    },
+    "suggestion_type": {
+      "app": "Q-App",
+      "website": "Sitio web"
+    },
+    "suggestions": "Sugerencias"
   },
   "new_post_in": "nueva publicación en {{ title }}",
   "none": "ninguno",
@@ -726,6 +754,7 @@
   "payment": "pago",
   "payment_notification": "notificación de pago",
   "payments_count": "Pagos ({{count}})",
+  "pdf_viewer": "Visor de PDF",
   "poll_embed": "encuesta",
   "port": "puerto",
   "presence": {
@@ -736,6 +765,19 @@
     "peer_online_hint": "En la red — llamada de voz disponible"
   },
   "price": "precio",
+  "private_apps": {
+    "actions_title": "acceder a una aplicación privada o publicarla",
+    "details": "{{name}} · {{group}}",
+    "empty": "aún no has publicado ninguna aplicación privada",
+    "group_id": "grupo {{groupId}}",
+    "listing_hint": "aquí solo se muestran las aplicaciones privadas publicadas a partir de esta versión de Qortal Hub",
+    "load_error": "no se pueden cargar tus aplicaciones privadas",
+    "max_file_size": "tamaño máximo: {{size}} MB",
+    "no_name_selected": "ningún nombre seleccionado",
+    "published_title": "mis aplicaciones privadas publicadas",
+    "select_name": "selecciona un nombre de Qortal",
+    "selected_file": "archivo seleccionado: {{filename}}"
+  },
   "publish": "publicar",
   "q_apps": {
     "about": "Sobre este Q-App",
@@ -875,7 +917,7 @@
   },
   "supply": "suministrar",
   "tabs": {
-    "add_private": "+ app privado",
+    "add_private": "Apps privadas",
     "categories": "categorías",
     "community_apps": "apps de la comunidad",
     "my_apps": "mis apps",

@@ -78,10 +78,16 @@
   },
   "admin_space": {
     "ask_description": "This key encrypts content visible only to admins.",
+    "ask_title": "Chiave segreta degli amministratori (ASK)",
+    "create_ask": "Crea chiave segreta degli amministratori",
+    "create_gsk": "Crea chiave segreta del gruppo",
+    "create_gsk_confirm": "Creare e pubblicare la prima chiave segreta del gruppo? La chiave verrà crittografata per i membri del gruppo. Si applica una commissione di pubblicazione QDN.",
     "gsk_description": "This key encrypts group content visible to all group members. It is currently the only key used for group chat and shared data.",
     "gsk_description_compact": "This key encrypts group content visible to all group members. It is currently the only key used in this UI.",
+    "gsk_title": "Chiave segreta del gruppo (GSK)",
     "publish_ask": "Publish ASK",
-    "publish_gsk": "Publish GSK"
+    "publish_gsk": "Publish GSK",
+    "published": "Chiave segreta pubblicata. Potrebbero volerci alcuni minuti prima che compaia."
   },
   "advanced_options": "opzioni avanzate",
   "announcement_placeholder": "Write an announcement...",
@@ -439,7 +445,9 @@
     "wallet_password": "Password del wallet",
     "wallet_password_placeholder": "Inserisci la password del wallet",
     "wallet_password_required": "Inserisci la password del wallet per decifrare la chiave privata.",
-    "wallet_unavailable_error": "I dati del wallet non sono disponibili al momento."
+    "wallet_unavailable_error": "I dati del wallet non sono disponibili al momento.",
+    "widgets_module": "Widget",
+    "widgets_module_desc": "Mostra i tuoi widget nella Home: piccole Q-App come un orologio o il meteo. Disattivalo per non eseguirli più."
   },
   "dm": {
     "add_friend_before_calling": "Aggiungi questo utente agli amici prima di chiamare",
@@ -680,6 +688,35 @@
     "register_name_pending_hint": "Salvataggio nome on-chain: può richiedere qualche momento.",
     "register_name_workspace_hint": "Un nome registrato rende questo account un’identità riconoscibile."
   },
+  "home_widgets": {
+    "add": "aggiungi",
+    "add_widget": "aggiungi widget",
+    "added": "aggiunto",
+    "arrange": "disponi",
+    "arrange_hint": "Trascina un widget per spostarlo, o il suo angolo per ridimensionarlo.",
+    "arrange_widget": "{{title}}: le frecce lo spostano, Maiusc e le frecce lo ridimensionano, Canc lo rimuove.",
+    "by": "di {{name}}",
+    "done": "fatto",
+    "empty": "Metti piccole Q-App nella Home: un orologio, il meteo, gli ultimi post delle tue app preferite.",
+    "error": {
+      "not_allowed": "I widget non possono farlo. Apri l’app per questo (OPEN_NEW_TAB).",
+      "not_on_screen": "La Home non è visibile, quindi i widget non possono chiederlo."
+    },
+    "limit": "Puoi avere fino a {{max}} widget nella Home.",
+    "load_failed": "{{title}} non si è caricato.",
+    "loading": "Caricamento di {{title}}",
+    "open_app": "apri {{name}}",
+    "picker_developers": "Sviluppatori di Q-App: pubblicate un widget come APP con il tag go-widget, meglio con un identificatore che inizia con go-widget.",
+    "picker_empty": "Nessun widget ancora pubblicato.",
+    "picker_error": "Impossibile caricare i widget. Controlla la connessione al nodo.",
+    "picker_none_found": "Nessun widget corrisponde.",
+    "picker_note": "I widget sono piccole Q-App nella Home. Possono mostrare informazioni e aprire app, ma non possono pagare, pubblicare o firmare nulla.",
+    "picker_search": "Cerca widget",
+    "picker_title": "Aggiungi un widget",
+    "reload": "ricarica widget",
+    "remove": "rimuovi widget",
+    "title": "Widget"
+  },
   "important_info": "informazioni importanti",
   "initial": {
     "see_apps": "vedi le app",
@@ -812,12 +849,15 @@
     }
   },
   "message_item": {
+    "attachment_disk_full": "Spazio su disco insufficiente per salvare questo allegato",
     "delete_shortcut": "Elimina (Maiusc+Canc)",
     "download_failed": "Download non riuscito",
     "file_attachment": "Allegato file",
     "file_transfer": "Trasferimento file",
     "file_unavailable": "File non disponibile",
     "image_attachment": "Immagine allegata",
+    "image_disk_full": "Spazio su disco insufficiente per salvare questa immagine",
+    "image_download_failed": "Impossibile scaricare l'immagine",
     "image_unavailable_no_peers": "Immagine non disponibile al momento (nessun peer)",
     "invalid_attachment": "Allegato di risorsa non valido",
     "new_messages": "Nuovi messaggi",

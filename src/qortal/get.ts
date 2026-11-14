@@ -1,5 +1,16 @@
+import {
+  ForeignFeeSigningError,
+  signValidatedForeignFees,
+} from './foreign-fee-signing';
+import { getSigningContextRevision } from '../utils/chromeStorage';
 import { fundLocalTrades, localTradeCoins } from './local-trade-funding';
 import { sendLocalForeignCoin } from './foreign-coin-send';
+import {
+  foreignCoinPathSegment,
+  foreignFeeType,
+  listNamePathSegment,
+} from './qappNodePaths';
+import { nodePathSegment } from '../utils/nodeEndpointPath';
 import { Sha256 } from 'asmcrypto.js';
 import {
   createEndpoint,
@@ -48,7 +59,11 @@ import {
   getNameInfo,
   uint8ArrayToObject,
 } from '../encryption/encryption.ts';
-import { showSaveFilePicker } from '../hooks/useQortalMessageListener.tsx';
+import { showSaveFilePicker } from './qapp-save-file';
+import {
+  checkPublishStorage,
+  requirePublishFile,
+} from '../qdn/publish/upload-validation';
 import {
   codedQortalRequestError,
   USER_DECLINED_REQUEST_CODE,
@@ -111,6 +126,7 @@ import { createTransaction } from '../transactions/transactions.ts';
 import { executeEvent } from '../utils/events.ts';
 import { getElectronPersistentStorage } from '../utils/electronPersistentStorage';
 import { fileToBase64 } from '../utils/fileReading/index.ts';
+import { isQAppFile } from './qapp-file-reference';
 import { mimeToExtensionMap } from '../utils/memeTypes.ts';
 import { RequestQueueWithPromise } from '../utils/queue/queue.ts';
 import { normalizeQappIdentityContext } from './qapp-identity.ts';
@@ -127,7 +143,7 @@ import {
 import { hasInvisibleCharacters } from '../utils/hasInvisibleCharacters';
 import { validateAddress } from '../utils/validateAddress.ts';
 import i18n from 'i18next';
-import aesjs from 'aes-js';
+import { decryptAesCtrChunk } from '../qdn/encryption/aes-ctr-stream';
 import { roundUpToDecimals } from '../utils/numberFunctions.ts';
 import { normalizeFilename } from '../utils/downloadFromLocation.ts';
 
@@ -1504,6 +1520,7 @@ export const getListItems = async (data, appInfo, isFromExtension) => {
     });
     throw new Error(errorMsg);
   }
+  const listPath = listNamePathSegment(data.list_name);
   const value = (await getPermission('qAPPAutoLists')) || false;
 
   let skip = false;
@@ -1544,7 +1561,7 @@ export const getListItems = async (data, appInfo, isFromExtension) => {
   }
 
   if (acceptedVar || skip) {
-    const url = await createEndpoint(`/lists/${data.list_name}`);
+    const url = await createEndpoint(`/lists/${listPath}`);
     const response = await fetch(url);
     if (!response.ok)
       throw new Error(
@@ -1591,6 +1608,7 @@ export const addListItems = async (data, isFromExtension) => {
 
   const items = data.items;
   const list_name = data.list_name;
+  const listPath = listNamePathSegment(list_name);
 
   const resPermission = await getUserPermission(
     {
@@ -1605,7 +1623,7 @@ export const addListItems = async (data, isFromExtension) => {
   const { accepted } = resPermission;
 
   if (accepted) {
-    const url = await createEndpoint(`/lists/${list_name}`);
+    const url = await createEndpoint(`/lists/${listPath}`);
     const body = {
       items: items,
     };
@@ -1675,6 +1693,7 @@ export const deleteListItems = async (data, isFromExtension) => {
   const item = data?.item;
   const items = data?.items;
   const list_name = data.list_name;
+  const listPath = listNamePathSegment(list_name);
 
   const resPermission = await getUserPermission(
     {
@@ -1689,7 +1708,7 @@ export const deleteListItems = async (data, isFromExtension) => {
   const { accepted } = resPermission;
 
   if (accepted) {
-    const url = await createEndpoint(`/lists/${list_name}`);
+    const url = await createEndpoint(`/lists/${listPath}`);
     const body = {
       items: items || [item],
     };
@@ -2089,7 +2108,7 @@ export const publishMultipleQDNResources = async (
   if (isPublicNode) {
     const hasOversizedFilePublicNode = resources.some((resource) => {
       const file = resource?.file;
-      return file instanceof File && file.size > MAX_SIZE_PUBLIC_NODE;
+      return isQAppFile(file) && file.size > MAX_SIZE_PUBLIC_NODE;
     });
 
     if (hasOversizedFilePublicNode) {
@@ -2104,7 +2123,7 @@ export const publishMultipleQDNResources = async (
 
   const hasOversizedFile = resources.some((resource) => {
     const file = resource?.file;
-    return file instanceof File && file.size > MAX_SIZE_PUBLISH;
+    return isQAppFile(file) && file.size > MAX_SIZE_PUBLISH;
   });
 
   if (hasOversizedFile) {
@@ -2118,19 +2137,14 @@ export const publishMultipleQDNResources = async (
 
   const totalFileSize = resources.reduce((acc, resource) => {
     const file = resource?.file;
-    if (file && file?.size && !isNaN(file?.size)) {
+    if (file != null) {
+      requirePublishFile(file);
       return acc + file.size;
     }
     return acc;
   }, 0);
   if (totalFileSize > 0) {
-    const urlCheck = `/arbitrary/check/tmp?totalSize=${totalFileSize}`;
-
-    const checkEndpoint = await createEndpoint(urlCheck);
-    const checkRes = await fetch(checkEndpoint);
-    if (!checkRes.ok) {
-      throw new Error('Not enough space on your hard drive');
-    }
+    await checkPublishStorage(totalFileSize, createEndpoint);
   }
 
   const encrypt = data?.encrypt;
@@ -3003,7 +3017,10 @@ export const joinGroup = async (data, isFromExtension, appInfo?) => {
 
 export const saveFile = async (data, sender, isFromExtension, snackMethods) => {
   try {
-    if (!data?.filename) throw new Error('Missing filename');
+    if (!data?.filename)
+      throw new Error(i18n.t('question:message.error.missing_fields', {
+        fields: 'filename', postProcess: 'capitalizeFirstChar',
+      }));
 
     // Handle location-based downloads (streaming approach)
     if (data?.location) {
@@ -3026,6 +3043,8 @@ export const saveFile = async (data, sender, isFromExtension, snackMethods) => {
     }
     const filename = data.filename;
     const blob = data.blob;
+    if (!isQAppFile(blob))
+      throw new Error(i18n.t('question:stream_save.failed'));
 
     const resPermission = await getUserPermission(
       {
@@ -3068,10 +3087,9 @@ export const saveFile = async (data, sender, isFromExtension, snackMethods) => {
         };
       }
 
-      showSaveFilePicker(
+      await showSaveFilePicker(
         {
           filename,
-          mimeType,
           blob,
         },
         snackMethods
@@ -3238,11 +3256,10 @@ async function saveFileFromLocation(data, isFromExtension, snackMethods) {
           // Decrypt chunk if encrypted
           if (isEncrypted) {
             try {
-              const blockOffset = BigInt(bytesProcessed >> 4);
               chunkToWrite = await decryptAesCtrChunk(
                 keyBytes,
                 ivBytes,
-                blockOffset,
+                bytesProcessed,
                 value
               );
             } catch (decryptError: any) {
@@ -3368,11 +3385,10 @@ async function saveFileFromLocation(data, isFromExtension, snackMethods) {
               break;
             }
 
-            const blockOffset = BigInt(bytesProcessed >> 4);
             const decryptedChunk = await decryptAesCtrChunk(
               keyBytes,
               ivBytes,
-              blockOffset,
+              bytesProcessed,
               value
             );
 
@@ -3417,11 +3433,10 @@ async function saveFileFromLocation(data, isFromExtension, snackMethods) {
           const { done, value } = await reader.read();
           if (done) break;
 
-          const blockOffset = BigInt(bytesProcessed >> 4);
           const decryptedChunk = await decryptAesCtrChunk(
             keyBytes,
             ivBytes,
-            blockOffset,
+            bytesProcessed,
             value
           );
 
@@ -3520,65 +3535,6 @@ async function saveFileFromLocation(data, isFromExtension, snackMethods) {
 
     return true;
   }
-}
-
-/**
- * Decrypts a single chunk using AES-CTR
- */
-async function decryptAesCtrChunk(keyBytes, ivBytes, blockOffset, ciphertext) {
-  // Try WebCrypto first
-  if (crypto?.subtle) {
-    try {
-      const cryptoKey = await crypto.subtle.importKey(
-        'raw',
-        keyBytes,
-        { name: 'AES-CTR' },
-        false,
-        ['decrypt']
-      );
-
-      const counter = deriveCtrCounter(ivBytes, blockOffset);
-
-      const decrypted = await crypto.subtle.decrypt(
-        {
-          name: 'AES-CTR',
-          counter,
-          length: 128,
-        },
-        cryptoKey,
-        ciphertext
-      );
-
-      return new Uint8Array(decrypted);
-    } catch (e) {
-      console.warn('WebCrypto AES-CTR decrypt failed, falling back:', e);
-    }
-  }
-
-  // Fallback using aes-js
-  return fallbackDecryptCtr(keyBytes, ivBytes, blockOffset, ciphertext);
-}
-
-function deriveCtrCounter(iv, blockOffset) {
-  const counter = new Uint8Array(iv);
-  let carry = blockOffset;
-
-  for (let i = 15; i >= 0 && carry > 0n; i--) {
-    const sum = BigInt(counter[i]) + (carry & 0xffn);
-    counter[i] = Number(sum & 0xffn);
-    carry = (carry >> 8n) + (sum >> 8n);
-  }
-  return counter;
-}
-
-function fallbackDecryptCtr(keyBytes, ivBytes, blockOffset, ciphertext) {
-  const counter = deriveCtrCounter(ivBytes, blockOffset);
-  const aesCtr = new aesjs.ModeOfOperation.ctr(
-    keyBytes,
-    new aesjs.Counter(counter)
-  );
-  const decrypted = aesCtr.decrypt(ciphertext);
-  return new Uint8Array(decrypted);
 }
 
 export const deployAt = async (data, isFromExtension) => {
@@ -4067,6 +4023,7 @@ export const getUserWalletInfo = async (data, isFromExtension, appInfo) => {
       })
     );
   }
+  const coinPath = foreignCoinPathSegment(data.coin);
   const value =
     (await getPermission(`getUserWalletInfo-${appInfo?.name}-${data.coin}`)) ||
     false;
@@ -4114,9 +4071,7 @@ export const getUserWalletInfo = async (data, isFromExtension, appInfo) => {
     let coin = data.coin;
     let walletKeys = await getUserWalletFunc(coin);
 
-    const _url = await createEndpoint(
-      `/crosschain/` + data.coin.toLowerCase() + `/addressinfos`
-    );
+    const _url = await createEndpoint(`/crosschain/${coinPath}/addressinfos`);
     let _body = { xpub58: walletKeys['publickey'] };
     try {
       const response = await fetch(_url, {
@@ -4181,6 +4136,7 @@ export const getUserWalletTransactions = async (
     });
     throw new Error(errorMsg);
   }
+  const coinPath = foreignCoinPathSegment(data.coin);
 
   const value =
     (await getPermission(
@@ -4246,7 +4202,7 @@ export const getUserWalletTransactions = async (
     }
 
     const _url = await createEndpoint(
-      `/crosschain/` + data.coin.toLowerCase() + `/wallettransactions`
+      `/crosschain/${coinPath}/wallettransactions`
     );
     const _body = publicKey;
     try {
@@ -4308,7 +4264,7 @@ export const getCrossChainServerInfo = async (data) => {
     });
     throw new Error(errorMsg);
   }
-  const _url = `/crosschain/` + data.coin.toLowerCase() + `/serverinfos`;
+  const _url = `/crosschain/${foreignCoinPathSegment(data.coin)}/serverinfos`;
   try {
     const url = await createEndpoint(_url);
     const response = await fetch(url);
@@ -4378,7 +4334,7 @@ export const startCrossChainServer = async (
     });
     throw new Error(errorMsg);
   }
-  const coin = data.coin.toLowerCase();
+  const coin = foreignCoinPathSegment(data.coin);
   const url = `/crosschain/${coin}/start`;
   try {
     const endpoint = await createEndpoint(url);
@@ -4491,8 +4447,9 @@ export const getForeignFee = async (data) => {
     throw new Error(errorMsg);
   }
 
-  const { coin, type } = data;
-  const url = `/crosschain/${coin.toLowerCase()}/${type}`;
+  const coin = foreignCoinPathSegment(data.coin);
+  const type = foreignFeeType(data.type);
+  const url = `/crosschain/${coin}/${type}`;
 
   try {
     const endpoint = await createEndpoint(url);
@@ -4563,9 +4520,11 @@ export const updateForeignFee = async (data, isFromExtension, appInfo?) => {
   }
 
   const { coin, type, value } = data;
+  const coinPath = foreignCoinPathSegment(coin);
+  const feeType = foreignFeeType(type);
 
   const text3 =
-    type === 'feerequired'
+    feeType === 'feerequired'
       ? i18n.t('question:sats', {
           amount: value,
           postProcess: 'capitalizeFirstChar',
@@ -4575,7 +4534,7 @@ export const updateForeignFee = async (data, isFromExtension, appInfo?) => {
           postProcess: 'capitalizeFirstChar',
         });
   const text4 =
-    type === 'feerequired'
+    feeType === 'feerequired'
       ? i18n.t('question:message.generic.calculate_fee', {
           amount: value,
           rate: calculateRateFromFee(value, 300),
@@ -4597,7 +4556,7 @@ export const updateForeignFee = async (data, isFromExtension, appInfo?) => {
         text1: i18n.t('question:permission.update_foreign_fee', {
           postProcess: 'capitalizeFirstChar',
         }),
-        text2: `type: ${type === 'feerequired' ? 'unlocking' : 'locking'}`,
+        text2: `type: ${feeType === 'feerequired' ? 'unlocking' : 'locking'}`,
         text3: i18n.t('question:value', {
           value: text3,
           postProcess: 'capitalizeFirstChar',
@@ -4624,7 +4583,7 @@ export const updateForeignFee = async (data, isFromExtension, appInfo?) => {
       })
     );
   }
-  const url = `/crosschain/${coin.toLowerCase()}/update${type}`;
+  const url = `/crosschain/${coinPath}/update${feeType}`;
   const valueStringified = JSON.stringify(+value);
 
   const endpoint = await createEndpoint(url);
@@ -4675,8 +4634,8 @@ export const getServerConnectionHistory = async (data) => {
     throw new Error(errorMsg);
   }
 
-  const coin = data.coin.toLowerCase();
-  const url = `/crosschain/${coin.toLowerCase()}/serverconnectionhistory`;
+  const coin = foreignCoinPathSegment(data.coin);
+  const url = `/crosschain/${coin}/serverconnectionhistory`;
 
   try {
     const endpoint = await createEndpoint(url); // Assuming createEndpoint is available
@@ -4750,6 +4709,7 @@ export const setCurrentForeignServer = async (
   }
 
   const { coin, host, port, type } = data;
+  const coinPath = foreignCoinPathSegment(coin);
 
   // Check for session permission
   const hasPermission =
@@ -4805,7 +4765,7 @@ export const setCurrentForeignServer = async (
     connectionType: type,
   };
 
-  const url = `/crosschain/${coin.toLowerCase()}/setcurrentserver`;
+  const url = `/crosschain/${coinPath}/setcurrentserver`;
 
   const endpoint = await createEndpoint(url); // Assuming createEndpoint is available
   const response = await fetch(endpoint, {
@@ -4867,6 +4827,7 @@ export const addForeignServer = async (data, isFromExtension, appInfo?) => {
   }
 
   const { coin, host, port, type } = data;
+  const coinPath = foreignCoinPathSegment(coin);
 
   // Check for session permission
   const hasPermission =
@@ -4918,7 +4879,7 @@ export const addForeignServer = async (data, isFromExtension, appInfo?) => {
     connectionType: type,
   };
 
-  const url = `/crosschain/${coin.toLowerCase()}/addserver`;
+  const url = `/crosschain/${coinPath}/addserver`;
 
   const endpoint = await createEndpoint(url); // Assuming createEndpoint is available
   const response = await fetch(endpoint, {
@@ -4980,6 +4941,7 @@ export const removeForeignServer = async (data, isFromExtension, appInfo?) => {
   }
 
   const { coin, host, port, type } = data;
+  const coinPath = foreignCoinPathSegment(coin);
 
   // Check for session permission
   const hasPermission =
@@ -5031,7 +4993,7 @@ export const removeForeignServer = async (data, isFromExtension, appInfo?) => {
     connectionType: type,
   };
 
-  const url = `/crosschain/${coin.toLowerCase()}/removeserver`;
+  const url = `/crosschain/${coinPath}/removeserver`;
 
   const endpoint = await createEndpoint(url); // Assuming createEndpoint is available
   const response = await fetch(endpoint, {
@@ -5901,7 +5863,9 @@ export const createBuyOrder = async (data, isFromExtension) => {
 
   const atPromises = atAddresses.map((atAddress) =>
     requestQueueGetAtAddresses.enqueue(async () => {
-      const url = await createEndpoint(`/crosschain/trade/${atAddress}`);
+      const url = await createEndpoint(
+        `/crosschain/trade/${nodePathSegment(atAddress)}`
+      );
       const resAddress = await fetch(url);
       const resData = await resAddress.json();
       if (foreignBlockchain !== resData?.foreignBlockchain) {
@@ -6262,7 +6226,9 @@ export const cancelSellOrder = async (data, isFromExtension) => {
     throw new Error(errorMsg);
   }
 
-  const url = await createEndpoint(`/crosschain/trade/${data.atAddress}`);
+  const url = await createEndpoint(
+    `/crosschain/trade/${nodePathSegment(data.atAddress)}`
+  );
   const resAddress = await fetch(url);
   const resData = await resAddress.json();
 
@@ -7965,89 +7931,60 @@ export const buyNameRequest = async (data, isFromExtension) => {
   }
 };
 
-export const signForeignFees = async (data, appInfo, isFromExtension) => {
-  let skip = false;
-  let acceptedVar = false;
-  if (
-    !skip &&
-    appInfo?.tabId &&
-    appInfo?.name &&
-    hasSessionPermission(appInfo.tabId, appInfo.name, 'SIGN_FOREIGN_FEES')
-  ) {
-    skip = true;
+let foreignFeeSigningInProgress = false;
+export const signForeignFees = async (_data, _appInfo, isFromExtension) => {
+  if (foreignFeeSigningInProgress) {
+    throw new Error(i18n.t('question:foreign_fees.busy'));
   }
-  let resPermission;
-  if (!skip) {
-    resPermission = await getUserPermission(
-      {
-        text1: i18n.t('question:permission.sign_fee', {
-          postProcess: 'capitalizeFirstChar',
-        }),
+  foreignFeeSigningInProgress = true;
+  const assertRevision = (expected: number) => {
+    if (getSigningContextRevision() !== expected) {
+      throw new ForeignFeeSigningError('changed');
+    }
+  };
+  try {
+    return await signValidatedForeignFees({
+      getContext: async () => {
+        const revision = getSigningContextRevision();
+        if (revision === null) throw new ForeignFeeSigningError('changed');
+        const wallet = await getSaveWallet();
+        if (!wallet?.address0 || !wallet?.publicKey) {
+          throw new ForeignFeeSigningError('changed');
+        }
+        const [unsignedUrl, signedUrl] = await Promise.all([
+          createEndpoint(`/crosschain/unsignedfees/${wallet.address0}`),
+          createEndpoint('/crosschain/signedfees'),
+        ]);
+        assertRevision(revision);
+        return {
+          address: wallet.address0,
+          publicKey: wallet.publicKey,
+          unsignedUrl,
+          signedUrl,
+          revision,
+        };
       },
-      isFromExtension
-    );
-    const { accepted } = resPermission;
-
-    acceptedVar = accepted;
-  }
-  if (acceptedVar || skip) {
-    const wallet = await getSaveWallet();
-    const address = wallet.address0;
-    const resKeyPair = await getKeyPair();
-    const parsedData = resKeyPair;
-    const uint8PrivateKey = Base58.decode(parsedData.privateKey);
-    const uint8PublicKey = Base58.decode(parsedData.publicKey);
-    const keyPair = {
-      privateKey: uint8PrivateKey,
-      publicKey: uint8PublicKey,
-    };
-
-    const unsignedFeesUrl = await createEndpoint(
-      `/crosschain/unsignedfees/${address}`
-    );
-
-    const unsignedFeesResponse = await fetch(unsignedFeesUrl);
-
-    const unsignedFees = await unsignedFeesResponse.json();
-
-    const signedFees = [];
-
-    unsignedFees.forEach((unsignedFee) => {
-      const unsignedDataDecoded = Base58.decode(unsignedFee.data);
-
-      const signature = nacl.sign.detached(
-        unsignedDataDecoded,
-        keyPair.privateKey
-      );
-
-      const signedFee = {
-        timestamp: unsignedFee.timestamp,
-        data: `${Base58.encode(signature)}`,
-        atAddress: unsignedFee.atAddress,
-        fee: unsignedFee.fee,
-      };
-
-      signedFees.push(signedFee);
-    });
-
-    const signedFeesUrl = await createEndpoint(`/crosschain/signedfees`);
-
-    await fetch(signedFeesUrl, {
-      method: 'POST',
-      headers: {
-        Accept: '*/*',
-        'Content-Type': 'application/json',
+      assertRevision,
+      getPrivateKey: async () => Base58.decode((await getKeyPair()).privateKey),
+      approve: async (fees) => {
+        const { accepted } = await getUserPermission(
+          {
+            text1: i18n.t('question:foreign_fees.approve'),
+            highlightedText: i18n.t('question:foreign_fees.review'),
+            json: fees,
+          },
+          isFromExtension
+        );
+        return accepted === true;
       },
-      body: `${JSON.stringify(signedFees)}`,
+      fetch: (url, options) => fetch(url, options),
     });
-
-    return true;
-  } else {
-    throw new Error(
-      i18n.t('question:message.generic.user_declined_request', {
-        postProcess: 'capitalizeFirstChar',
-      })
-    );
+  } catch (error) {
+    const code =
+      error instanceof ForeignFeeSigningError ? error.code : 'failed';
+    throw new Error(i18n.t(`question:foreign_fees.${code}`));
+  } finally {
+    foreignFeeSigningInProgress = false;
   }
 };
 export const multiPaymentWithPrivateData = async (data, isFromExtension) => {

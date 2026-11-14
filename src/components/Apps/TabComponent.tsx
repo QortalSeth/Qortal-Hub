@@ -19,6 +19,7 @@ import { useSortable } from '@dnd-kit/sortable';
 import { AppsHorizontalTabButton, AppsHorizontalTabLabel } from './Apps-styles';
 import { getBaseApiReact } from '../../App';
 import LogoSelected from '../../assets/svgs/LogoSelected.svg';
+import { useTranslation } from 'react-i18next';
 
 function devTabLabel(app: any): string {
   const base =
@@ -66,6 +67,7 @@ const TabComponent = ({
   tabInteractionLockedRef,
 }: TabComponentProps) => {
   const theme = useTheme();
+  const { t } = useTranslation(['core']);
   const {
     attributes,
     listeners,
@@ -405,7 +407,9 @@ const TabComponent = ({
                   color: theme.palette.text.primary,
                 },
               }}
-              primary="Duplicate Tab"
+              primary={t('core:app_tab.duplicate', {
+                postProcess: 'capitalizeFirstChar',
+              })}
             />
           </MenuItem>
         )}
@@ -437,7 +441,9 @@ const TabComponent = ({
                 color: theme.palette.text.primary,
               },
             }}
-            primary="Close All Tabs"
+            primary={t('core:app_tab.close_all', {
+              postProcess: 'capitalizeFirstChar',
+            })}
           />
         </MenuItem>
       </Menu>

@@ -78,10 +78,16 @@
   },
   "admin_space": {
     "ask_description": "This key encrypts content visible only to admins.",
+    "ask_title": "管理员密钥 (ASK)",
+    "create_ask": "创建管理员密钥",
+    "create_gsk": "创建群组密钥",
+    "create_gsk_confirm": "创建并发布群组的第一个密钥？密钥将为群组成员加密。需要支付 QDN 发布费用。",
     "gsk_description": "This key encrypts group content visible to all group members. It is currently the only key used for group chat and shared data.",
     "gsk_description_compact": "This key encrypts group content visible to all group members. It is currently the only key used in this UI.",
+    "gsk_title": "群组密钥 (GSK)",
     "publish_ask": "Publish ASK",
-    "publish_gsk": "Publish GSK"
+    "publish_gsk": "Publish GSK",
+    "published": "密钥已发布，可能需要几分钟才能显示。"
   },
   "advanced_options": "高级选项",
   "announcement_placeholder": "Write an announcement...",
@@ -439,7 +445,9 @@
     "wallet_password": "钱包密码",
     "wallet_password_placeholder": "输入钱包密码",
     "wallet_password_required": "输入钱包密码以解密私钥。",
-    "wallet_unavailable_error": "钱包数据暂时不可用。"
+    "wallet_unavailable_error": "钱包数据暂时不可用。",
+    "widgets_module": "小组件",
+    "widgets_module_desc": "在首页显示你的小组件：时钟、天气等小型 Q-App。关闭后它们将停止运行。"
   },
   "dm": {
     "add_friend_before_calling": "通话前请先将此用户加为好友",
@@ -680,6 +688,35 @@
     "register_name_pending_hint": "正在链上保存姓名，这可能需要一点时间。",
     "register_name_workspace_hint": "注册姓名后，此账户会变成可识别的身份。"
   },
+  "home_widgets": {
+    "add": "添加",
+    "add_widget": "添加小组件",
+    "added": "已添加",
+    "arrange": "排列",
+    "arrange_hint": "拖动小组件可移动它，拖动它的角可调整大小。",
+    "arrange_widget": "{{title}}：方向键移动，Shift 加方向键调整大小，Delete 键移除。",
+    "by": "来自 {{name}}",
+    "done": "完成",
+    "empty": "把小型 Q-App 放到首页：时钟、天气、你喜爱的应用的最新动态。",
+    "error": {
+      "not_allowed": "小组件无法执行此操作。请打开应用来完成 (OPEN_NEW_TAB)。",
+      "not_on_screen": "首页未显示，因此小组件无法请求此操作。"
+    },
+    "limit": "首页最多可放置 {{max}} 个小组件。",
+    "load_failed": "{{title}} 未能加载。",
+    "loading": "正在加载 {{title}}",
+    "open_app": "打开 {{name}}",
+    "picker_developers": "Q-App 开发者：将小组件以 APP 形式发布并添加标签 go-widget，最好使用以 go-widget 开头的标识符。",
+    "picker_empty": "尚未发布任何小组件。",
+    "picker_error": "无法加载小组件。请检查节点连接。",
+    "picker_none_found": "没有匹配的小组件。",
+    "picker_note": "小组件是首页上的小型 Q-App。它们可以显示内容和打开应用，但不能付款、发布或签名任何内容。",
+    "picker_search": "搜索小组件",
+    "picker_title": "添加小组件",
+    "reload": "重新加载小组件",
+    "remove": "移除小组件",
+    "title": "小组件"
+  },
   "important_info": "重要信息",
   "initial": {
     "see_apps": "查看应用",
@@ -812,12 +849,15 @@
     }
   },
   "message_item": {
+    "attachment_disk_full": "磁盘空间不足，无法保存此附件",
     "delete_shortcut": "删除 (Shift+Del)",
     "download_failed": "下载失败",
     "file_attachment": "文件附件",
     "file_transfer": "文件传输",
     "file_unavailable": "文件不可用",
     "image_attachment": "图片附件",
+    "image_disk_full": "磁盘空间不足，无法保存此图片",
+    "image_download_failed": "无法下载图片",
     "image_unavailable_no_peers": "图片当前不可用（无节点）",
     "invalid_attachment": "无效的资源附件",
     "new_messages": "新消息",

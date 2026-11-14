@@ -13,6 +13,18 @@
   "deploy_at": "haluatko ottaa tämän AT:n käyttöön?",
   "description": "kuvaus: {{ description }}",
   "download_file": "haluatko ladata:",
+  "foreign_fees": {
+    "approve": "Allekirjoitetaanko lueteltujen kauppatarjousten maksut?",
+    "busy": "Maksujen allekirjoituspyyntö on jo odottamassa.",
+    "changed": "Lompakko tai Core vaihtui. Tarkista maksut uudelleen.",
+    "declined": "Maksujen allekirjoittaminen hylättiin.",
+    "failed": "Maksujen allekirjoittamista Coren kanssa ei voitu suorittaa loppuun. Yritä uudelleen.",
+    "invalid": "Core palautti virheelliset ulkovaluuttamaksujen tiedot. Mitään ei allekirjoitettu.",
+    "review": "Tarkista alla olevat AT-osoitteet ja maksujen arvot. Tämä hyväksyntä koskee vain tätä erää."
+  },
+  "legacy_save": {
+    "started": "Tiedoston lataus alkoi."
+  },
   "local_send": {
     "changed": "Lompakko, solmu tai käytettävissä olevat varat ovat muuttuneet. Tarkista maksu uudelleen.",
     "confirming": "Edellinen maksusi odottaa vielä verkon vahvistusta. Tapahtuma: {{txId}}. Uutta maksua ei lähetetty.",
@@ -67,6 +79,7 @@
       "invalid_encryption_iv": "virheellinen IV: AES-GCM vaatii 12-tavun IV:n",
       "invalid_encryption_key": "virheellinen avain: AES-GCM vaatii 256-bittisen avaimen.",
       "invalid_fullcontent": "kenttä fullContent on virheellisessä muodossa. Käytä joko merkkijonoa, base64-koodausta tai oliota",
+      "invalid_list_name": "virheellinen listan nimi",
       "invalid_receiver": "virheellinen vastaanottajan osoite tai nimi",
       "invalid_type": "virheellinen tyyppi",
       "max_size_publish": "suurin sallittu tiedostokoko on {{size}} Gt tiedostoa kohden.",
@@ -109,6 +122,7 @@
       "transaction_activity_summary": "virhe tapahtuman toimintayhteenvedossa",
       "unknown_admin_action_type": "tuntematon järjestelmänvalvojan toimintatyyppi: {{ type }}",
       "unknown_error": "tuntematon virhe",
+      "unsafe_node_path": "virheellinen solmupyynnön polku",
       "update_foreign_fee": "ulkomaan maksun päivittäminen epäonnistui",
       "update_tradebot": "kauppabotin päivittäminen ei onnistu",
       "upload": "lähetys epäonnistui",
@@ -214,6 +228,10 @@
   },
   "poll": "kysely: {{ name }}",
   "provide_recipient_group_id": "anna vastaanottaja tai groupId",
+  "publish_validation": {
+    "invalid_file": "Julkaisupyyntö ei sisältänyt kelvollista tiedostoa.",
+    "storage_check_failed": "Julkaisun tallennustilan tarkistus epäonnistui (HTTP {{status}})."
+  },
   "request_create_poll": "pyydät luomaan alla olevan kyselyn:",
   "request_vote_poll": "sinua pyydetään äänestämään alla olevassa kyselyssä:",
   "sats": "{{ amount }} satsia",

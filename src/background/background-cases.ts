@@ -73,6 +73,7 @@ import { PUBLIC_NOTIFICATION_CODE_FIRST_SECRET_KEY } from '../constants/constant
 import Base58 from '../encryption/Base58.ts';
 import { encryptSingle } from '../qdn/encryption/group-encryption';
 import { _createPoll, _voteOnPoll } from '../qortal/get.ts';
+import { listNamePathSegment } from '../qortal/qappNodePaths';
 import { createTransaction } from '../transactions/transactions';
 import { getData, storeData } from '../utils/chromeStorage';
 import publicKeyToAddress from '../utils/generateWallet/publicKeyToAddress';
@@ -1547,13 +1548,17 @@ export async function listActionsCase(request, event) {
     let responseData;
 
     if (type === 'get') {
-      const url = await createEndpoint(`/lists/${listName}`);
+      const url = await createEndpoint(
+        `/lists/${listNamePathSegment(listName)}`
+      );
       const response = await fetch(url);
       if (!response.ok) throw new Error('Failed to fetch');
 
       responseData = await response.json();
     } else if (type === 'remove') {
-      const url = await createEndpoint(`/lists/${listName}`);
+      const url = await createEndpoint(
+        `/lists/${listNamePathSegment(listName)}`
+      );
       const body = {
         items: items,
       };
@@ -1575,7 +1580,9 @@ export async function listActionsCase(request, event) {
       }
       responseData = res;
     } else if (type === 'add') {
-      const url = await createEndpoint(`/lists/${listName}`);
+      const url = await createEndpoint(
+        `/lists/${listNamePathSegment(listName)}`
+      );
       const body = {
         items: items,
       };

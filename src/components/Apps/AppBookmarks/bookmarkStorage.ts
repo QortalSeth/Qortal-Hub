@@ -1,4 +1,5 @@
 import { QORTAL_PROTOCOL } from '../../../constants/constants';
+import { executeEvent } from '../../../utils/events';
 import { extractComponents } from '../../Chat/MessageDisplay';
 import type {
   AppBookmark,
@@ -9,6 +10,8 @@ import type {
 } from './bookmarkTypes';
 
 export const APP_BOOKMARKS_STORAGE_KEY = 'qortal_app_bookmarks_by_address';
+/** Fired after an account's bookmarks were saved, with `{ address }`. */
+export const APP_BOOKMARKS_CHANGED_EVENT = 'appBookmarksChanged';
 
 const INTERNAL_TAB_SERVICE = 'INTERNAL';
 
@@ -43,7 +46,7 @@ export function normalizeBookmarkPath(path?: string): string {
 }
 
 function encodeAppName(name: string): string {
-  return name.trim().replace(/ /g, '%20');
+  return encodeURIComponent(name.trim());
 }
 
 export function buildBookmarkLink(bookmark: {
@@ -156,6 +159,8 @@ export async function saveBookmarksForAddress(
     ...byAddress,
     [address]: nextData,
   });
+  // The bookmarks menu and the launcher show the same list.
+  executeEvent(APP_BOOKMARKS_CHANGED_EVENT, { address });
 
   return nextData;
 }

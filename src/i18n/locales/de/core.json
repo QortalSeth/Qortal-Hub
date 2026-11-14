@@ -115,7 +115,6 @@
     "resize": "Größe ändern",
     "restore": "wiederherstellen",
     "return": "zurück",
-    "return_apps_dashboard": "Kehren Sie zu Apps Dashboard zurück",
     "save": "speichern",
     "save_disk": "Speichern auf der Festplatte",
     "search": "suchen",
@@ -174,6 +173,12 @@
   "app_other": "Apps",
   "app_private": "Privat",
   "app_service_type": "App -Service -Typ",
+  "app_tab": {
+    "close_all": "alle Tabs schließen",
+    "duplicate": "Tab duplizieren",
+    "limit_reached": "maximale Anzahl an Tabs erreicht. Schließe einen, um einen weiteren zu öffnen.",
+    "locked_kept_open": "gesperrte Tabs bleiben offen. Schließe jeden einzeln, um es zu bestätigen."
+  },
   "apps_dashboard": "Apps Dashboard",
   "apps_official": "offizielle Apps",
   "aria": {
@@ -436,6 +441,21 @@
   "image_embed": "Bildbett",
   "items_per_page": "Einträge pro Seite:",
   "last_height": "letzte Höhe",
+  "launcher": {
+    "bookmark_remove": "Lesezeichen entfernen",
+    "clear_search": "Suche leeren",
+    "enter_opens": "Enter drücken, um {{title}} zu öffnen",
+    "folder_delete": "Ordner löschen",
+    "folder_move_to": "in Ordner verschieben",
+    "folder_remove_from": "aus dem Ordner entfernen",
+    "no_matches": "nichts passt zu „{{query}}“",
+    "no_matches_hint": "versuche einen anderen Namen oder füge einen qortal://-Link ein.",
+    "pinned_and_bookmarks": "angeheftete Apps und Lesezeichen",
+    "pinned_empty": "noch nichts angeheftet. Hefte eine App aus der Bibliothek unten an, damit sie hier bleibt.",
+    "pinned_hint": "ziehen zum Umsortieren · eine App auf eine andere ziehen, um einen Ordner zu erstellen · Rechtsklick für mehr",
+    "results_apps": "Apps und Webseiten",
+    "results_saved": "deine angehefteten Apps und Lesezeichen"
+  },
   "level": "Ebene",
   "library": "Bibliothek",
   "list": {
@@ -485,6 +505,7 @@
       "network_generic": "Netzwerkfehler",
       "password_not_matching": "Passwortfelder stimmen nicht überein!",
       "password_wrong": "authentifizieren nicht. Falsches Passwort",
+      "private_app_needs_own_node": "Diese private App lässt sich nur über deinen eigenen Knoten mit seinem API-Schlüssel öffnen",
       "publish_app": "App kann nicht veröffentlichen",
       "publish_image": "Image kann nicht veröffentlichen",
       "rate": "bewerten nicht",
@@ -502,6 +523,7 @@
       "address_copied": "adresse in die zwischenablage kopiert.",
       "already_voted": "Sie haben bereits gestimmt.",
       "amount_qort": "betrag: {{ amount }} QORT",
+      "app_details_unavailable": "Titel, Beschreibung und Tags dieser App konnten nicht geladen werden. Gib sie vor dem Veröffentlichen erneut ein, sonst werden sie ersetzt.",
       "app_notifications_hint": "Q-App-Benachrichtigungen werden hier angezeigt",
       "authenticated_account": "Authentifiziertes Konto",
       "avatar_publish_fee": "das veröffentlichen eines avatars kostet eine gebühr von {{fee}} QORT",
@@ -692,6 +714,7 @@
   "name": "Name",
   "name_app": "Name/App",
   "navbar": {
+    "search_library": "Q-Apps nach „{{query}}“ durchsuchen",
     "search_placeholder": "Q-Apps durchsuchen oder qortal:// eingeben",
     "session": {
       "lock_description": "Chats und Anrufe bleiben verbunden",
@@ -700,7 +723,12 @@
       "logout_title": "Abmelden",
       "menu_aria": "Sitzungsoptionen",
       "tooltip": "Sperren oder abmelden"
-    }
+    },
+    "suggestion_type": {
+      "app": "Q-App",
+      "website": "Website"
+    },
+    "suggestions": "Vorschläge"
   },
   "new_post_in": "neuer Beitrag in {{ title }}",
   "none": "keiner",
@@ -726,6 +754,7 @@
   "payment": "Zahlung",
   "payment_notification": "Zahlungsbenachrichtigung",
   "payments_count": "Zahlungen ({{count}})",
+  "pdf_viewer": "PDF-Anzeige",
   "poll_embed": "Umfrage Einbettung",
   "port": "Hafen",
   "presence": {
@@ -736,6 +765,19 @@
     "peer_online_hint": "Im Netzwerk — Sprachanruf verfügbar"
   },
   "price": "Preis",
+  "private_apps": {
+    "actions_title": "Auf eine private App zugreifen oder sie veröffentlichen",
+    "details": "{{name}} · {{group}}",
+    "empty": "Du hast noch keine privaten Apps veröffentlicht",
+    "group_id": "Gruppe {{groupId}}",
+    "listing_hint": "Hier werden nur private Apps aufgeführt, die ab dieser Version von Qortal Hub veröffentlicht wurden",
+    "load_error": "Deine privaten Apps können nicht geladen werden",
+    "max_file_size": "Maximale Größe: {{size}} MB",
+    "no_name_selected": "Kein Name ausgewählt",
+    "published_title": "Meine veröffentlichten privaten Apps",
+    "select_name": "Wähle einen Qortal-Namen",
+    "selected_file": "Ausgewählte Datei: {{filename}}"
+  },
   "publish": "veröffentlichen",
   "q_apps": {
     "about": "über diese Q-App",
@@ -875,7 +917,7 @@
   },
   "supply": "liefern",
   "tabs": {
-    "add_private": "+ Private App",
+    "add_private": "Private Apps",
     "categories": "Kategorien",
     "community_apps": "Community-Apps",
     "my_apps": "meine Apps",

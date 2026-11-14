@@ -115,7 +115,6 @@
     "resize": "muuta kokoa",
     "restore": "palauta",
     "return": "palaa",
-    "return_apps_dashboard": "palaa sovellusten hallintaan",
     "save": "tallenna",
     "save_disk": "tallenna levylle",
     "search": "etsi",
@@ -174,6 +173,12 @@
   "app_other": "sovellukset",
   "app_private": "yksityinen",
   "app_service_type": "sovelluksen palvelutyyppi",
+  "app_tab": {
+    "close_all": "sulje kaikki välilehdet",
+    "duplicate": "monista välilehti",
+    "limit_reached": "välilehtien enimmäismäärä saavutettu. Sulje yksi avataksesi uuden.",
+    "locked_kept_open": "lukitut välilehdet jäävät auki. Sulje ne yksitellen vahvistaaksesi."
+  },
   "apps_dashboard": "sovellusten hallintapaneeli",
   "apps_official": "viralliset sovellukset",
   "aria": {
@@ -436,6 +441,21 @@
   "image_embed": "kuvan upotus",
   "items_per_page": "Kohteita per sivu:",
   "last_height": "viimeisin korkeus",
+  "launcher": {
+    "bookmark_remove": "poista kirjanmerkki",
+    "clear_search": "tyhjennä haku",
+    "enter_opens": "avaa {{title}} painamalla Enter",
+    "folder_delete": "poista kansio",
+    "folder_move_to": "siirrä kansioon",
+    "folder_remove_from": "poista kansiosta",
+    "no_matches": "mikään ei vastaa hakua ”{{query}}”",
+    "no_matches_hint": "kokeile toista nimeä tai liitä qortal://-linkki.",
+    "pinned_and_bookmarks": "kiinnitetyt sovellukset ja kirjanmerkit",
+    "pinned_empty": "mitään ei ole vielä kiinnitetty. Kiinnitä sovellus alla olevasta kirjastosta, niin se pysyy tässä.",
+    "pinned_hint": "järjestä vetämällä · luo kansio pudottamalla sovellus toisen päälle · lisää toimintoja hiiren oikealla painikkeella",
+    "results_apps": "sovellukset ja verkkosivustot",
+    "results_saved": "kiinnitetyt sovelluksesi ja kirjanmerkkisi"
+  },
   "level": "taso",
   "library": "kirjasto",
   "list": {
@@ -485,6 +505,7 @@
       "network_generic": "verkkovirhe",
       "password_not_matching": "salasanat eivät täsmää",
       "password_wrong": "todennus epäonnistui, väärä salasana",
+      "private_app_needs_own_node": "tämä yksityinen sovellus avautuu vain omassa solmussasi sen API-avaimella",
       "publish_app": "sovelluksen julkaisu epäonnistui",
       "publish_image": "kuvan julkaisu epäonnistui",
       "rate": "arviointi epäonnistui",
@@ -502,6 +523,7 @@
       "address_copied": "osoite kopioitu leikepöydälle.",
       "already_voted": "olet jo äänestänyt.",
       "amount_qort": "määrä: {{ amount }} QORT",
+      "app_details_unavailable": "tämän sovelluksen nykyistä otsikkoa, kuvausta ja tunnisteita ei voitu ladata. Täytä ne uudelleen ennen julkaisua, muuten ne korvataan.",
       "app_notifications_hint": "Q-sovellusilmoitukset näkyvät täällä",
       "authenticated_account": "Todennettu tili",
       "avatar_publish_fee": "avatarin julkaiseminen vaatii {{fee}} QORT maksun",
@@ -692,6 +714,7 @@
   "name": "nimi",
   "name_app": "nimi/sovellus",
   "navbar": {
+    "search_library": "Hae Q-Appeista ”{{query}}”",
     "search_placeholder": "Hae Q-Appeja tai kirjoita qortal://",
     "session": {
       "lock_description": "Pidä keskustelut ja puhelut yhdistettyinä",
@@ -700,7 +723,12 @@
       "logout_title": "Kirjaudu ulos",
       "menu_aria": "Istunnon asetukset",
       "tooltip": "Lukitse tai kirjaudu ulos"
-    }
+    },
+    "suggestion_type": {
+      "app": "Q-App",
+      "website": "Verkkosivusto"
+    },
+    "suggestions": "Ehdotukset"
   },
   "new_post_in": "uusi julkaisu kohteessa {{ title }}",
   "none": "ei mitään",
@@ -726,6 +754,7 @@
   "payment": "maksu",
   "payment_notification": "maksuilmoitus",
   "payments_count": "Maksut ({{count}})",
+  "pdf_viewer": "PDF-katseluohjelma",
   "poll_embed": "kyselyn upotus",
   "port": "portti",
   "presence": {
@@ -736,6 +765,19 @@
     "peer_online_hint": "Tavoitettavissa verkossa — äänipuhelu käytettävissä"
   },
   "price": "hinta",
+  "private_apps": {
+    "actions_title": "avaa tai julkaise yksityinen sovellus",
+    "details": "{{name}} · {{group}}",
+    "empty": "et ole vielä julkaissut yksityisiä sovelluksia",
+    "group_id": "ryhmä {{groupId}}",
+    "listing_hint": "tässä näytetään vain yksityiset sovellukset, jotka on julkaistu tästä Qortal Hubin versiosta alkaen",
+    "load_error": "yksityisiä sovelluksiasi ei voitu ladata",
+    "max_file_size": "enimmäiskoko: {{size}} Mt",
+    "no_name_selected": "nimeä ei ole valittu",
+    "published_title": "julkaisemani yksityiset sovellukset",
+    "select_name": "valitse Qortal-nimi",
+    "selected_file": "valittu tiedosto: {{filename}}"
+  },
   "publish": "julkaise",
   "q_apps": {
     "about": "tietoa tästä Q-sovelluksesta",
@@ -875,7 +917,7 @@
   },
   "supply": "tarjonta",
   "tabs": {
-    "add_private": "+ yksityinen sovellus",
+    "add_private": "Yksityiset sovellukset",
     "categories": "kategoriat",
     "community_apps": "yhteisösovellukset",
     "my_apps": "omat sovellukset",

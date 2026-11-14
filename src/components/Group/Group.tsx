@@ -21,7 +21,6 @@ import {
   type ReactNode,
 } from 'react';
 import { ChatGroup } from '../Chat/ChatGroup';
-import { CreateCommonSecret } from '../Chat/CreateCommonSecret';
 import { base64ToUint8Array } from '../../qdn/encryption/group-encryption';
 import { uint8ArrayToObject } from '../../encryption/encryption';
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
@@ -174,7 +173,6 @@ import {
   CenterBox,
   ChatContentBox,
   EncryptionKeyMessageDiv,
-  FloatingButtonContainerBox,
   InnerChatBox,
   MainContentBox,
   NewChatOverlay,
@@ -606,6 +604,7 @@ function ReticulumGroupSectionHeader({
   sectionLabel: string;
 }) {
   const theme = useTheme();
+  const { t } = useTranslation(['reticulum', 'group']);
   const legacyThreadsEnabled = useAtomValue(reticulumLegacyThreadsEnabledAtom);
   const [isAdminMenuOpen, setIsAdminMenuOpen] = useState(false);
   const [isQManagerOpen, setIsQManagerOpen] = useState(false);
@@ -781,15 +780,16 @@ function ReticulumGroupSectionHeader({
         {legacyThreadsEnabled &&
           renderAction({
             active: activeSection === 'forum',
-            label: 'Threads',
+            label: t('reticulum:settings.nav.threads'),
             icon: <ForumRoundedIcon sx={{ fontSize: 19 }} />,
             onClick: onThreadsClick,
           })}
-        {legacyThreadsEnabled &&
-          canManageReticulumGroup &&
+        {canManageReticulumGroup &&
           renderAction({
             active: isAdminMenuOpen,
-            label: 'Admins',
+            label: t('group:member_category.admins', {
+              postProcess: 'capitalizeFirstChar',
+            }),
             icon: <SecurityRoundedIcon sx={{ fontSize: 19 }} />,
             onClick: (event) => {
               const rect = event.currentTarget.getBoundingClientRect();
@@ -909,11 +909,6 @@ export const Group = ({
   const [secretKey, setSecretKey] = useState(null);
   const [secretKeyPublishDate, setSecretKeyPublishDate] = useState(null);
   const lastFetchedSecretKey = useRef(null);
-  const [secretKeyDetails, setSecretKeyDetails] = useState(null);
-  const [newEncryptionNotification, setNewEncryptionNotification] =
-    useState(null);
-  const [memberCountFromSecretKeyData, setMemberCountFromSecretKeyData] =
-    useState(null);
   const [selectedGroup, setSelectedGroup] = useState(null);
   const [onboardingQChatPreviewOpen, setOnboardingQChatPreviewOpen] =
     useState(false);
@@ -927,7 +922,6 @@ export const Group = ({
   const [directs, setDirects] = useState([]);
   const [admins, setAdmins] = useState([]);
   const [adminsWithNames, setAdminsWithNames] = useState([]);
-  const [members, setMembers] = useState([]);
   const [groupOwner, setGroupOwner] = useState(null);
   const [triedToFetchSecretKey, setTriedToFetchSecretKey] = useState(false);
   const [openAddGroup, setOpenAddGroup] = useState(false);
@@ -960,7 +954,6 @@ export const Group = ({
   const [isOpenBlockedModal, setIsOpenBlockedUserModal] = useAtom(
     isOpenBlockedModalAtom
   );
-  const [hideCommonKeyPopup, setHideCommonKeyPopup] = useState(false);
   const [isLoadingGroupMessage, setIsLoadingGroupMessage] = useState('');
   const showActionDrawer = useAtomValue(showActionDrawerAtom);
   const memberGroupsForReticulum = useAtomValue(memberGroupsAtom);
@@ -1013,7 +1006,6 @@ export const Group = ({
   const threadKeyLoadRef = useRef<{ groupId: string } | null>(null);
   const secretKeyRef = useRef(null);
   const { clearStatesMessageQueueProvider } = useMessageQueue();
-  const initiatedGetMembers = useRef(false);
   const [groupChatTimestamps, setGroupChatTimestamps] = useAtom(
     groupChatTimestampsAtom
   );
@@ -1182,8 +1174,6 @@ export const Group = ({
   const [appsModeDev, setAppsModeDev] = useState('home');
   const [isOpenSideViewDirects, setIsOpenSideViewDirects] = useState(false);
   const [isOpenSideViewGroups, setIsOpenSideViewGroups] = useState(false);
-  const [isForceShowCreationKeyPopup, setIsForceShowCreationKeyPopup] =
-    useState(false);
   const groupsOwnerNamesRef = useRef({});
   const { t } = useTranslation(['auth', 'core', 'group', 'question']);
   useWebsocketStatus();
@@ -2610,10 +2600,8 @@ export const Group = ({
         }
         if (!selectedGroupIsCurrent()) return;
 
-        setSecretKeyDetails(publish);
         setSecretKey(decryptedKeyToObject);
         lastFetchedSecretKey.current = Date.now();
-        setMemberCountFromSecretKeyData(decryptedKey.count);
 
         window
           .sendMessage('setGroupData', {
@@ -2666,10 +2654,8 @@ export const Group = ({
       setIsLoadingGroup,
       setIsLoadingGroupMessage,
       setSecretKey,
-      setSecretKeyDetails,
       setTriedToFetchSecretKey,
       setFirstSecretKeyInCreation,
-      setMemberCountFromSecretKeyData,
       setAdmins,
       setAdminsWithNames,
       setSecretKeyPublishDate,
@@ -3657,64 +3643,6 @@ export const Group = ({
     };
   }, []);
 
-  const getMembers = useCallback(async (groupId) => {
-    try {
-      const res = await getGroupMembers(groupId);
-      if (groupId !== selectedGroupRef.current?.groupId) return;
-      setMembers(res);
-    } catch (error) {
-      console.log(error);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (
-      !initiatedGetMembers.current &&
-      selectedGroup?.groupId &&
-      secretKey &&
-      admins.includes(myAddress) &&
-      selectedGroup?.groupId !== '0'
-    ) {
-      // getAdmins(selectedGroup?.groupId);
-      getMembers(selectedGroup?.groupId);
-      initiatedGetMembers.current = true;
-    }
-  }, [selectedGroup?.groupId, secretKey, myAddress, admins]);
-
-  const shouldReEncrypt = useMemo(() => {
-    if (triedToFetchSecretKey && !secretKeyPublishDate) return true;
-    if (
-      !secretKeyPublishDate ||
-      !memberCountFromSecretKeyData ||
-      members?.length === 0
-    )
-      return false;
-    const isDiffMemberNumber =
-      memberCountFromSecretKeyData !== members?.memberCount &&
-      newEncryptionNotification?.decryptedData?.data?.numberOfMembers !==
-        members?.memberCount;
-
-    if (isDiffMemberNumber) return true;
-
-    const latestJoined = members?.members.reduce((maxJoined, current) => {
-      return current.joined > maxJoined ? current.joined : maxJoined;
-    }, members?.members[0].joined);
-
-    if (
-      secretKeyPublishDate < latestJoined &&
-      newEncryptionNotification?.data?.timestamp < latestJoined
-    ) {
-      return true;
-    }
-    return false;
-  }, [
-    memberCountFromSecretKeyData,
-    members,
-    secretKeyPublishDate,
-    newEncryptionNotification,
-    triedToFetchSecretKey,
-  ]);
-
   const notifyAdmin = useCallback(
     async (admin) => {
       try {
@@ -4142,10 +4070,6 @@ export const Group = ({
     lastFetchedSecretKey.current = null;
     reticulumBackgroundProcessedEventIdsRef.current.clear();
     setSecretKeyPublishDate(null);
-    setSecretKeyDetails(null);
-    setNewEncryptionNotification(null);
-    setMemberCountFromSecretKeyData(null);
-    setIsForceShowCreationKeyPopup(false);
     setSelectedGroup(null);
     setSelectedDirect(null);
     setMemberGroups([]);
@@ -4154,10 +4078,8 @@ export const Group = ({
     setDirects([]);
     setAdmins([]);
     setAdminsWithNames([]);
-    setMembers([]);
     setGroupOwner(null);
     setTriedToFetchSecretKey(false);
-    setHideCommonKeyPopup(false);
     setOpenAddGroup(false);
     setOpenManageMembers(false);
     setTimestampEnterData({});
@@ -4188,7 +4110,6 @@ export const Group = ({
     isLoadingOpenSectionFromNotification.current = false;
     settimeoutForRefetchSecretKey.current = null;
     threadKeyLoadRef.current = null;
-    initiatedGetMembers.current = false;
     setDesktopViewMode('home');
   }, []);
 
@@ -4417,14 +4338,9 @@ export const Group = ({
         secretKeyRef.current = null;
         setGroupOwner(null);
         lastFetchedSecretKey.current = null;
-        initiatedGetMembers.current = false;
         setSecretKeyPublishDate(null);
         setAdmins([]);
-        setSecretKeyDetails(null);
         setAdminsWithNames([]);
-        setMembers([]);
-        setMemberCountFromSecretKeyData(null);
-        setIsForceShowCreationKeyPopup(false);
         setTriedToFetchSecretKey(false);
         setFirstSecretKeyInCreation(false);
         setGroupSection('chat');
@@ -4494,14 +4410,9 @@ export const Group = ({
         secretKeyRef.current = null;
         setGroupOwner(null);
         lastFetchedSecretKey.current = null;
-        initiatedGetMembers.current = false;
         setSecretKeyPublishDate(null);
         setAdmins([]);
-        setSecretKeyDetails(null);
         setAdminsWithNames([]);
-        setMembers([]);
-        setMemberCountFromSecretKeyData(null);
-        setIsForceShowCreationKeyPopup(false);
         setTriedToFetchSecretKey(false);
         setFirstSecretKeyInCreation(false);
         setGroupSection('announcement');
@@ -4564,14 +4475,9 @@ export const Group = ({
         secretKeyRef.current = null;
         setGroupOwner(null);
         lastFetchedSecretKey.current = null;
-        initiatedGetMembers.current = false;
         setSecretKeyPublishDate(null);
         setAdmins([]);
-        setSecretKeyDetails(null);
         setAdminsWithNames([]);
-        setMembers([]);
-        setMemberCountFromSecretKeyData(null);
-        setIsForceShowCreationKeyPopup(false);
         setTriedToFetchSecretKey(false);
         setFirstSecretKeyInCreation(false);
         setGroupSection('forum');
@@ -4900,7 +4806,6 @@ export const Group = ({
     (group) => {
       setMobileViewMode('group');
       setDesktopSideView('groups');
-      initiatedGetMembers.current = false;
       clearAllQueues();
       setSelectedDirect(null);
       setTriedToFetchSecretKey(false);
@@ -4914,17 +4819,12 @@ export const Group = ({
       lastFetchedSecretKey.current = null;
       setSecretKeyPublishDate(null);
       setAdmins([]);
-      setSecretKeyDetails(null);
       setAdminsWithNames([]);
       setGroupOwner(null);
-      setMembers([]);
-      setMemberCountFromSecretKeyData(null);
-      setHideCommonKeyPopup(false);
       setFirstSecretKeyInCreation(false);
       setGroupSection('chat');
       bumpReticulumReadEntryToken();
       setIsOpenDrawer(false);
-      setIsForceShowCreationKeyPopup(false);
     },
     [bumpReticulumReadEntryToken]
   );
@@ -5361,9 +5261,6 @@ export const Group = ({
                       groupSection === 'chat' &&
                       !isReticulumDirectOverlayOpen
                     }
-                    handleNewEncryptionNotification={
-                      setNewEncryptionNotification
-                    }
                     hide={false}
                     hideView={
                       !(isVisible && selectedGroup) ||
@@ -5436,9 +5333,6 @@ export const Group = ({
                       !newChat
                     }
                     setSecretKey={setSecretKey}
-                    handleNewEncryptionNotification={
-                      setNewEncryptionNotification
-                    }
                     hide={false}
                     hideView={
                       !(isVisible && selectedGroup) ||
@@ -5659,9 +5553,6 @@ export const Group = ({
                     secretKey={secretKey}
                     setSecretKey={setSecretKey}
                     isAdmin={admins.includes(myAddress)}
-                    handleNewEncryptionNotification={
-                      setNewEncryptionNotification
-                    }
                     hide={groupSection !== 'announcement'}
                     isPrivate={isPrivate}
                   />
@@ -5759,35 +5650,6 @@ export const Group = ({
                     </CenterBox>
                   </PersistentSectionLayer>
                 )}
-
-              <FloatingButtonContainerBox>
-                {activeSectionUsesSecretKey &&
-                  ((isPrivate &&
-                    admins.includes(myAddress) &&
-                    shouldReEncrypt &&
-                    triedToFetchSecretKey &&
-                    !firstSecretKeyInCreation &&
-                    !hideCommonKeyPopup) ||
-                    isForceShowCreationKeyPopup) && (
-                    <CreateCommonSecret
-                      isForceShowCreationKeyPopup={isForceShowCreationKeyPopup}
-                      setHideCommonKeyPopup={setHideCommonKeyPopup}
-                      groupId={selectedGroup?.groupId}
-                      secretKey={secretKey}
-                      secretKeyDetails={secretKeyDetails}
-                      myAddress={myAddress}
-                      isOwner={groupOwner?.owner === myAddress}
-                      setIsForceShowCreationKeyPopup={
-                        setIsForceShowCreationKeyPopup
-                      }
-                      noSecretKey={
-                        admins.includes(myAddress) &&
-                        !secretKey &&
-                        triedToFetchSecretKey
-                      }
-                    />
-                  )}
-              </FloatingButtonContainerBox>
             </ChatContentBox>
 
             {reticulumChatEnabled &&

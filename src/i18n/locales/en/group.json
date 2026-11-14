@@ -78,10 +78,16 @@
   },
   "admin_space": {
     "ask_description": "This key encrypts content visible only to admins.",
+    "ask_title": "Admin Secret Key (ASK)",
+    "create_ask": "Create admin secret key",
+    "create_gsk": "Create group secret key",
+    "create_gsk_confirm": "Create and publish the first group secret key? The key will be encrypted for the group members. A QDN publishing fee applies.",
     "gsk_description": "This key encrypts group content visible to all group members. It is currently the only key used for group chat and shared data.",
     "gsk_description_compact": "This key encrypts group content visible to all group members. It is currently the only key used in this UI.",
+    "gsk_title": "Group Secret Key (GSK)",
     "publish_ask": "Publish ASK",
-    "publish_gsk": "Publish GSK"
+    "publish_gsk": "Publish GSK",
+    "published": "Secret key published. It may take a few minutes to appear."
   },
   "advanced_options": "advanced options",
   "announcement_placeholder": "Write an announcement...",
@@ -448,7 +454,9 @@
     "wallet_password": "Wallet password",
     "wallet_password_placeholder": "Enter your wallet password",
     "wallet_password_required": "Enter your wallet password to decrypt the private key.",
-    "wallet_unavailable_error": "Wallet data is unavailable right now."
+    "wallet_unavailable_error": "Wallet data is unavailable right now.",
+    "widgets_module": "Widgets",
+    "widgets_module_desc": "Show your widgets on Home: small Q-Apps such as a clock or the weather. Turn off to stop running them."
   },
   "dm": {
     "add_friend_before_calling": "Add this user as a friend before calling",
@@ -690,6 +698,35 @@
     "register_name_pending_hint": "Saving name on-chain. This can take a moment.",
     "register_name_workspace_hint": "A registered name turns this account into a recognizable identity."
   },
+  "home_widgets": {
+    "add": "add",
+    "add_widget": "add widget",
+    "added": "added",
+    "arrange": "arrange",
+    "arrange_hint": "Drag a widget to move it, its corner to resize it.",
+    "arrange_widget": "{{title}}: arrow keys move it, Shift and arrow keys resize it, Delete removes it.",
+    "by": "by {{name}}",
+    "done": "done",
+    "empty": "Put small Q-Apps on Home: a clock, the weather, the latest posts of your favourite apps.",
+    "error": {
+      "not_allowed": "Widgets cannot do this. Open the app for it (OPEN_NEW_TAB).",
+      "not_on_screen": "Home is not showing, so widgets cannot ask for this."
+    },
+    "limit": "You can have up to {{max}} widgets on Home.",
+    "load_failed": "{{title}} didn't load.",
+    "loading": "Loading {{title}}",
+    "open_app": "open {{name}}",
+    "picker_developers": "Q-App developers: publish a widget as an APP with the tag go-widget, ideally with an identifier starting with go-widget.",
+    "picker_empty": "No widgets published yet.",
+    "picker_error": "Couldn't load the widgets. Check the node connection.",
+    "picker_none_found": "No widgets match.",
+    "picker_note": "Widgets are small Q-Apps on Home. They can show things and open apps, but they can't pay, publish or sign anything.",
+    "picker_search": "Search widgets",
+    "picker_title": "Add a widget",
+    "reload": "reload widget",
+    "remove": "remove widget",
+    "title": "Widgets"
+  },
   "important_info": "important information",
   "initial": {
     "see_apps": "see apps",
@@ -822,12 +859,15 @@
     }
   },
   "message_item": {
+    "attachment_disk_full": "Not enough disk space to save this attachment",
     "delete_shortcut": "Delete (shift+del)",
     "download_failed": "Download failed",
     "file_attachment": "File attachment",
     "file_transfer": "File transfer",
     "file_unavailable": "File unavailable",
     "image_attachment": "Image attachment",
+    "image_disk_full": "Not enough disk space to save this image",
+    "image_download_failed": "Couldn't download image",
     "image_unavailable_no_peers": "Image unavailable right now (no peers)",
     "invalid_attachment": "Invalid resource attachment",
     "new_messages": "New messages",

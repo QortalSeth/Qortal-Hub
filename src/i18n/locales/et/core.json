@@ -115,7 +115,6 @@
     "resize": "muuda suurust",
     "restore": "taasta",
     "return": "tagasi",
-    "return_apps_dashboard": "tagasi rakenduste juhtpaneelile",
     "save": "salvesta",
     "save_disk": "salvesta kettale",
     "search": "otsi",
@@ -174,6 +173,12 @@
   "app_other": "rakendused",
   "app_private": "privaatne",
   "app_service_type": "rakenduse teenuse tüüp",
+  "app_tab": {
+    "close_all": "sulge kõik vahelehed",
+    "duplicate": "dubleeri vaheleht",
+    "limit_reached": "vahelehtede maksimaalne arv on täis. Sulge üks, et avada uus.",
+    "locked_kept_open": "lukustatud vahelehed jäävad avatuks. Sulge need ükshaaval, et kinnitada."
+  },
   "apps_dashboard": "rakenduste juhtpaneel",
   "apps_official": "ametlikud rakendused",
   "aria": {
@@ -436,6 +441,21 @@
   "image_embed": "pildi manustamine",
   "items_per_page": "Üksusi lehel:",
   "last_height": "viimane kõrgus",
+  "launcher": {
+    "bookmark_remove": "eemalda järjehoidja",
+    "clear_search": "tühjenda otsing",
+    "enter_opens": "vajuta Enter, et avada {{title}}",
+    "folder_delete": "kustuta kaust",
+    "folder_move_to": "teisalda kausta",
+    "folder_remove_from": "eemalda kaustast",
+    "no_matches": "miski ei vasta otsingule „{{query}}“",
+    "no_matches_hint": "proovi teist nime või kleebi qortal:// link.",
+    "pinned_and_bookmarks": "kinnitatud rakendused ja järjehoidjad",
+    "pinned_empty": "midagi pole veel kinnitatud. Kinnita rakendus allolevast teegist, et see siia jääks.",
+    "pinned_hint": "lohista järjestuse muutmiseks · kausta loomiseks lohista rakendus teise peale · paremklõps avab lisavalikud",
+    "results_apps": "rakendused ja veebilehed",
+    "results_saved": "sinu kinnitatud rakendused ja järjehoidjad"
+  },
   "level": "tase",
   "library": "teek",
   "list": {
@@ -485,6 +505,7 @@
       "network_generic": "võrguviga",
       "password_not_matching": "paroolid ei kattu!",
       "password_wrong": "autentimine ebaõnnestus. Vale parool",
+      "private_app_needs_own_node": "see privaatne rakendus avaneb ainult sinu enda haardes, selle API võtmega",
       "publish_app": "rakendust ei saa avaldada",
       "publish_image": "pilti ei saa avaldada",
       "rate": "hinnangut ei saa lisada",
@@ -502,6 +523,7 @@
       "address_copied": "aadress kopeeriti lõikelauale.",
       "already_voted": "oled juba hääletanud.",
       "amount_qort": "summa: {{ amount }} QORT",
+      "app_details_unavailable": "selle rakenduse praegust pealkirja, kirjeldust ja silte ei õnnestunud laadida. Sisesta need enne avaldamist uuesti, muidu need asendatakse.",
       "app_notifications_hint": "Q-rakenduse teavitused kuvatakse siin",
       "authenticated_account": "Autenditud konto",
       "avatar_publish_fee": "avatari avaldamine nõuab tasu {{fee}} QORT",
@@ -692,6 +714,7 @@
   "name": "nimi",
   "name_app": "nimi/rakendus",
   "navbar": {
+    "search_library": "Otsi Q-Appidest „{{query}}“",
     "search_placeholder": "Otsi Q-Appe või sisesta qortal://",
     "session": {
       "lock_description": "Hoia vestlused ja kõned ühendatuna",
@@ -700,7 +723,12 @@
       "logout_title": "Logi välja",
       "menu_aria": "Sessiooni valikud",
       "tooltip": "Lukusta või logi välja"
-    }
+    },
+    "suggestion_type": {
+      "app": "Q-App",
+      "website": "Veebileht"
+    },
+    "suggestions": "Soovitused"
   },
   "new_post_in": "uus postitus kohas {{ title }}",
   "none": "puudub",
@@ -726,6 +754,7 @@
   "payment": "makse",
   "payment_notification": "Saabunud maksed",
   "payments_count": "Maksed ({{count}})",
+  "pdf_viewer": "PDF-vaatur",
   "poll_embed": "küsitluse manustamine",
   "port": "port",
   "presence": {
@@ -736,6 +765,19 @@
     "peer_online_hint": "On võrgus — häälkõne on saadaval"
   },
   "price": "hind",
+  "private_apps": {
+    "actions_title": "ava või avalda privaatrakendus",
+    "details": "{{name}} · {{group}}",
+    "empty": "sa pole veel ühtegi privaatrakendust avaldanud",
+    "group_id": "grupp {{groupId}}",
+    "listing_hint": "siin kuvatakse ainult privaatrakendusi, mis on avaldatud alates sellest Qortal Hubi versioonist",
+    "load_error": "sinu privaatrakendusi ei saa laadida",
+    "max_file_size": "maksimaalne suurus: {{size}} MB",
+    "no_name_selected": "nime pole valitud",
+    "published_title": "minu avaldatud privaatrakendused",
+    "select_name": "vali Qortali nimi",
+    "selected_file": "valitud fail: {{filename}}"
+  },
   "publish": "avalda",
   "q_apps": {
     "about": "rakenduse kohta",
@@ -875,7 +917,7 @@
   },
   "supply": "Üldine QORT varu",
   "tabs": {
-    "add_private": "+ privaatne rakendus",
+    "add_private": "Privaatsed rakendused",
     "categories": "kategooriad",
     "community_apps": "kogukonna rakendused",
     "my_apps": "minu rakendused",

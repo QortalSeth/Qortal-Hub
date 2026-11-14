@@ -115,7 +115,6 @@
     "resize": "resize",
     "restore": "restore",
     "return": "return",
-    "return_apps_dashboard": "return to Apps Dashboard",
     "save": "save",
     "save_disk": "save to disk",
     "search": "search",
@@ -174,6 +173,12 @@
   "app_other": "apps",
   "app_private": "private",
   "app_service_type": "app service type",
+  "app_tab": {
+    "close_all": "close all tabs",
+    "duplicate": "duplicate tab",
+    "limit_reached": "maximum number of tabs reached. Close one to open another.",
+    "locked_kept_open": "locked tabs stay open. Close each one on its own to confirm."
+  },
   "apps_dashboard": "apps Dashboard",
   "apps_official": "official Apps",
   "aria": {
@@ -436,6 +441,21 @@
   "image_embed": "image embed",
   "items_per_page": "Items per page:",
   "last_height": "last height",
+  "launcher": {
+    "bookmark_remove": "remove bookmark",
+    "clear_search": "clear search",
+    "enter_opens": "press Enter to open {{title}}",
+    "folder_delete": "delete folder",
+    "folder_move_to": "move to folder",
+    "folder_remove_from": "remove from folder",
+    "no_matches": "nothing matches “{{query}}”",
+    "no_matches_hint": "try another name, or paste a qortal:// link.",
+    "pinned_and_bookmarks": "pinned apps and bookmarks",
+    "pinned_empty": "nothing is pinned yet. Pin an app from the library below to keep it here.",
+    "pinned_hint": "drag to reorder · drop one app on another to make a folder · right-click for more",
+    "results_apps": "apps and websites",
+    "results_saved": "your pins and bookmarks"
+  },
   "level": "level",
   "library": "library",
   "list": {
@@ -485,6 +505,7 @@
       "network_generic": "network error",
       "password_not_matching": "password fields do not match!",
       "password_wrong": "unable to authenticate. Wrong password",
+      "private_app_needs_own_node": "this private app opens only on your own node, with its API key",
       "publish_app": "unable to publish app",
       "publish_image": "unable to publish image",
       "rate": "unable to rate",
@@ -502,6 +523,7 @@
       "address_copied": "address copied to clipboard.",
       "already_voted": "you've already voted.",
       "amount_qort": "amount: {{ amount }} QORT",
+      "app_details_unavailable": "this app's current title, description and tags couldn't be loaded. Fill them in again before publishing, or they will be replaced.",
       "app_notifications_hint": "Q-App notifications will appear here",
       "authenticated_account": "Authenticated account",
       "avatar_publish_fee": "publishing an avatar requires a fee of {{fee}} QORT",
@@ -692,6 +714,7 @@
   "name": "name",
   "name_app": "name/App",
   "navbar": {
+    "search_library": "Search Q-Apps for “{{query}}”",
     "search_placeholder": "Search Q-Apps or enter qortal://",
     "session": {
       "lock_description": "Keep chats and calls connected",
@@ -700,7 +723,12 @@
       "logout_title": "Log out",
       "menu_aria": "Session options",
       "tooltip": "Lock or log out"
-    }
+    },
+    "suggestion_type": {
+      "app": "Q-App",
+      "website": "Website"
+    },
+    "suggestions": "Suggestions"
   },
   "new_post_in": "new post in {{ title }}",
   "none": "none",
@@ -726,6 +754,7 @@
   "payment": "payment",
   "payment_notification": "payment notification",
   "payments_count": "Payments ({{count}})",
+  "pdf_viewer": "PDF viewer",
   "poll_embed": "poll embed",
   "port": "port",
   "presence": {
@@ -736,6 +765,19 @@
     "peer_online_hint": "On the network — voice call available"
   },
   "price": "price",
+  "private_apps": {
+    "actions_title": "access or publish a private app",
+    "details": "{{name}} · {{group}}",
+    "empty": "you have not published any private apps yet",
+    "group_id": "group {{groupId}}",
+    "listing_hint": "only private apps published from this version of Qortal Hub onward are listed here",
+    "load_error": "unable to load your private apps",
+    "max_file_size": "maximum size: {{size}} MB",
+    "no_name_selected": "no name selected",
+    "published_title": "my published private apps",
+    "select_name": "select a Qortal name",
+    "selected_file": "selected file: {{filename}}"
+  },
   "publish": "publish",
   "q_apps": {
     "about": "about this Q-App",
@@ -875,7 +917,7 @@
   },
   "supply": "supply",
   "tabs": {
-    "add_private": "+ private app",
+    "add_private": "Private apps",
     "categories": "categories",
     "community_apps": "community apps",
     "my_apps": "my apps",

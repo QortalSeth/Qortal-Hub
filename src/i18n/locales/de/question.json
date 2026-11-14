@@ -13,6 +13,18 @@
   "deploy_at": "Möchten Sie dieses AT bereitstellen?",
   "description": "Beschreibung: {{ description }}",
   "download_file": "Möchten Sie herunterladen:",
+  "foreign_fees": {
+    "approve": "Die aufgeführten Gebühren der Handelsangebote signieren?",
+    "busy": "Eine Anfrage zum Signieren von Gebühren ist bereits offen.",
+    "changed": "Die Wallet oder Core hat sich geändert. Bitte prüfen Sie die Gebühren erneut.",
+    "declined": "Das Signieren der Gebühren wurde abgelehnt.",
+    "failed": "Das Signieren der Gebühren mit Core konnte nicht abgeschlossen werden. Bitte versuchen Sie es erneut.",
+    "invalid": "Core hat ungültige Daten zu Fremdwährungsgebühren zurückgegeben. Es wurde nichts signiert.",
+    "review": "Prüfen Sie die AT-Adressen und Gebührenwerte unten. Diese Zustimmung gilt nur für diesen Stapel."
+  },
+  "legacy_save": {
+    "started": "Der Dateidownload wurde gestartet."
+  },
   "local_send": {
     "changed": "Wallet, Node oder verfügbare Mittel haben sich geändert. Prüfe die Zahlung erneut.",
     "confirming": "Ihre vorherige Zahlung wartet noch auf die Netzwerkbestätigung. Transaktion: {{txId}}. Es wurde keine neue Zahlung gesendet.",
@@ -67,6 +79,7 @@
       "invalid_encryption_iv": "Ungültiger IV: AES-GCM erfordert einen 12-Byte-IV",
       "invalid_encryption_key": "Ungültiger Schlüssel: AES-GCM erfordert einen 256-Bit-Schlüssel.",
       "invalid_fullcontent": "Feld 'fullContent' hat ein ungültiges Format. Verwenden Sie String, base64 oder ein Objekt",
+      "invalid_list_name": "Ungültiger Listenname",
       "invalid_receiver": "Ungültige Empfängeradresse oder Name",
       "invalid_type": "Ungültiger Typ",
       "max_size_publish": "Maximale Dateigröße pro Datei beträgt {{size}} GB.",
@@ -109,6 +122,7 @@
       "transaction_activity_summary": "Fehler in der Zusammenfassung der Transaktionsaktivität",
       "unknown_admin_action_type": "Unbekannter Admin-Aktionstyp: {{ type }}",
       "unknown_error": "Unbekannter Fehler",
+      "unsafe_node_path": "Ungültiger Anfragepfad für den Knoten",
       "update_foreign_fee": "Externe Gebühr konnte nicht aktualisiert werden",
       "update_tradebot": "Tradebot konnte nicht aktualisiert werden",
       "upload": "Upload fehlgeschlagen",
@@ -214,6 +228,10 @@
   },
   "poll": "Abstimmung: {{ name }}",
   "provide_recipient_group_id": "Bitte geben Sie einen Empfänger oder groupId an",
+  "publish_validation": {
+    "invalid_file": "Die Veröffentlichungsanfrage enthielt keine gültige Datei.",
+    "storage_check_failed": "Die Speicherprüfung für die Veröffentlichung ist fehlgeschlagen (HTTP {{status}})."
+  },
   "request_create_poll": "Sie beantragen, die folgende Abstimmung zu erstellen:",
   "request_vote_poll": "Sie werden gebeten, über die folgende Abstimmung abzustimmen:",
   "sats": "{{ amount }} Sats",
